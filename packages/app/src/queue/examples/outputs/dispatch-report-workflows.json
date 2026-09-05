@@ -1,0 +1,14 @@
+{
+	"pipeline": {
+		"initiallyQueued": 1,
+		"completedJobs": 2
+	},
+	"batch": {
+		"jobIds": [
+			3,
+			4
+		],
+		"queuedJobs": 2,
+		"queue": "reports"
+	}
+}

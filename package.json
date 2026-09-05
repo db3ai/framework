@@ -1,0 +1,33 @@
+{
+	"name": "db3-framework",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Public source workspace for the db3.ai TypeScript application framework.",
+	"license": "MIT",
+	"homepage": "https://db3.ai/",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/db3ai/framework.git"
+	},
+	"bugs": {
+		"url": "https://github.com/db3ai/framework/issues"
+	},
+	"engines": {
+		"node": ">=24"
+	},
+	"workspaces": [
+		"packages/*"
+	],
+	"scripts": {
+		"build": "npm run build --workspaces --if-present",
+		"check": "npm run check --workspaces --if-present",
+		"test": "npm test --workspaces --if-present",
+		"test:release": "npm test --workspace @db3.ai/pure && npm test --workspace @db3.ai/create && npm run test:release --workspace @db3.ai/app && npm run framework:package:test && npm run framework:release:test",
+		"framework:package": "node scripts/stage-framework-packages.mjs",
+		"framework:package:test": "node --test scripts/tests/framework-package-consumer.test.mjs",
+		"framework:release:context": "node scripts/check-framework-release-context.mjs",
+		"framework:release:test": "node --test scripts/tests/framework-release-policy.test.mjs",
+		"framework:release:prepare": "node scripts/prepare-framework-release.mjs"
+	}
+}

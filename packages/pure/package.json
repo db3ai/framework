@@ -1,0 +1,48 @@
+{
+	"name": "@db3.ai/pure",
+	"version": "0.1.0",
+	"description": "Environment-independent TypeScript utilities shared by DB3 framework packages and applications.",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"homepage": "https://db3.ai/",
+	"keywords": [
+		"db3",
+		"typescript",
+		"utilities"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/db3ai/framework.git",
+		"directory": "packages/pure"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"exports": {
+		".": "./src/index.ts",
+		"./ai": "./src/ai.ts",
+		"./auth": "./src/auth.ts",
+		"./collections": "./src/collections.ts",
+		"./dates": "./src/dates.ts",
+		"./errors": "./src/errors.ts",
+		"./http": "./src/http.ts",
+		"./records": "./src/records.ts",
+		"./strings": "./src/strings.ts",
+		"./ulid": "./src/ulid.ts",
+		"./urls": "./src/urls.ts"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"package:stage": "node ../../scripts/stage-framework-packages.mjs --package pure",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.8"
+	},
+	"bugs": {
+		"url": "https://github.com/db3ai/framework/issues"
+	}
+}

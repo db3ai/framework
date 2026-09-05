@@ -1,0 +1,13 @@
+@import "@getdom/studio/style.css";
+@source "./**/*.{vue,ts}";
+
+body {
+	margin: 0;
+	font-family: ui-sans-serif, system-ui, sans-serif;
+	background: var(--canvas);
+	color: var(--canvas-fg);
+}
+
+@layer components {
+	.form-input { @apply w-full rounded-xl border border-input bg-canvas px-4 py-3 text-canvas-fg outline-none focus:ring-2 focus:ring-ring; }
+}

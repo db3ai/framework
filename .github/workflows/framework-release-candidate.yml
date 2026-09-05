@@ -1,0 +1,104 @@
+name: Framework release candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Lockstep Pure and App SemVer version
+        required: true
+        type: string
+      confirmation:
+        description: Type "prepare framework-vX.Y.Z" exactly
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: framework-release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    name: Verify non-publishing candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      DB_CONNECTION: mariadb
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: root
+      QUEUE_REDIS_URL: redis://127.0.0.1:6379
+      QUEUE_REDIS_PREFIX: db3:release-candidate
+      FRAMEWORK_RELEASE_VERSION: ${{ inputs.version }}
+      FRAMEWORK_RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+      GITHUB_REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
+      GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    services:
+      mariadb:
+        image: mariadb:11.8.3@sha256:1cc14cc479613f2925315a5da7aa0eb5288f938565d94b56cd137b724d2ea12b
+        env:
+          MARIADB_ROOT_PASSWORD: root
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      redis:
+        image: redis:8.2.1-alpine@sha256:f887e6dacdcfa8e14af2f625fdf4474ff8c37dc36ce13b9e89e6e9a901f155ad
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - name: Check out the tagged source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Reject unsafe release context
+        run: node scripts/check-framework-release-context.mjs
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install only framework workspaces
+        run: npm ci --ignore-scripts --workspace packages/pure --workspace packages/app
+
+      - name: Reject high-severity production dependency advisories
+        run: npm audit --omit=dev --audit-level=high --workspace packages/pure --workspace packages/app
+
+      - name: Verify Pure
+        run: npm run check --workspace packages/pure && npm test --workspace packages/pure
+
+      - name: Verify App with required MariaDB and Redis
+        run: npm run test:release --workspace packages/app
+
+      - name: Verify release policy
+        run: npm run framework:release:test
+
+      - name: Verify packed packages in a clean consumer
+        run: npm run framework:package:test
+
+      - name: Inspect and pack the candidate without publishing
+        run: npm run framework:release:prepare -- --version "$FRAMEWORK_RELEASE_VERSION" --repository "$GITHUB_REPOSITORY"
+
+      - name: Upload inspected candidate evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: framework-release-candidate
+          path: dist/framework-release
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

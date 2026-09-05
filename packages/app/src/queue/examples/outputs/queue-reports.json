@@ -1,0 +1,11 @@
+{
+	"wrongQueueIdle": true,
+	"firstAttempt": "released",
+	"finalAttempt": "failed",
+	"replayLinked": true,
+	"repeated": "succeeded",
+	"text": "Report: Three notes ready\n",
+	"reportFiles": 1,
+	"remainingJobs": 0,
+	"retainedFailures": 1
+}

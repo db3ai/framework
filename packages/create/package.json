@@ -1,0 +1,35 @@
+{
+	"name": "@db3.ai/create",
+	"version": "0.1.0",
+	"description": "Create a DB3 app with authentication, private notes and optional AI.",
+	"type": "module",
+	"license": "MIT",
+	"engines": {
+		"node": ">=24"
+	},
+	"bin": {
+		"create-db3": "bin/create.mjs"
+	},
+	"files": [
+		"bin",
+		"src",
+		"template",
+		"README.md"
+	],
+	"scripts": {
+		"test": "node --test tests/*.test.mjs"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/db3ai/framework.git",
+		"directory": "packages/create"
+	},
+	"publishConfig": {
+		"access": "public"
+	},
+	"private": true,
+	"homepage": "https://db3.ai/",
+	"bugs": {
+		"url": "https://github.com/db3ai/framework/issues"
+	}
+}

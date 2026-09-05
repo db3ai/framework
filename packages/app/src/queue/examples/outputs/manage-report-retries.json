@@ -1,0 +1,24 @@
+{
+	"policy": {
+		"queue": "reports",
+		"maxTries": 8,
+		"backoff": {
+			"strategy": "exponential",
+			"initialSeconds": 15,
+			"maxSeconds": 900,
+			"jitter": true
+		}
+	},
+	"backpressure": {
+		"error": "QueueRetryLaterError",
+		"delaySeconds": 45
+	},
+	"replay": {
+		"replacementId": 2,
+		"failedAuditRecords": 1,
+		"retryOf": {
+			"failedJobId": "failed_report_01",
+			"jobUuid": "failed-report-uuid"
+		}
+	}
+}

@@ -1,0 +1,134 @@
+{
+	"name": "@db3.ai/app",
+	"version": "0.1.0",
+	"description": "A typed backend application framework with service-owned runtime modules and behavioural contracts.",
+	"private": true,
+	"license": "MIT",
+	"type": "module",
+	"homepage": "https://db3.ai/",
+	"keywords": [
+		"db3",
+		"typescript",
+		"backend",
+		"framework",
+		"active-record",
+		"queue",
+		"ssr"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/db3ai/framework.git",
+		"directory": "packages/app"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"bin": {
+		"db3-agents": "bin/db3-agents.mjs"
+	},
+	"exports": {
+		"./ai": "./src/ai/index.ts",
+		".": "./src/index.ts",
+		"./agent-instructions": "./agent-instructions.md",
+		"./auth": "./src/auth/index.ts",
+		"./auth/password-hash": "./src/auth/passwordHash.ts",
+		"./cache": "./src/cache/index.ts",
+		"./db": "./src/db/index.ts",
+		"./db/ActiveProjection": "./src/db/ActiveProjection.ts",
+		"./db/ActiveRecord": "./src/db/ActiveRecord.ts",
+		"./db/ActiveQueryBuilder": "./src/db/ActiveQueryBuilder.ts",
+		"./db/Database": "./src/db/Database.ts",
+		"./db/FieldType": "./src/db/FieldType.ts",
+		"./db/connection": "./src/db/connection.ts",
+		"./db/dialects": "./src/db/dialects/index.ts",
+		"./db/fields": "./src/db/fields/index.ts",
+		"./db/fields/*": "./src/db/fields/*.ts",
+		"./db/migrations": "./src/db/migrations/index.ts",
+		"./db/queryMonitor": "./src/db/queryMonitor.ts",
+		"./db/test/db": "./src/db/test/db.ts",
+		"./config": "./src/config/index.ts",
+		"./events": "./src/events/index.ts",
+		"./flows": "./src/flows/index.ts",
+		"./flows/blocks": "./src/flows/blocks/index.ts",
+		"./url": "./src/url/index.ts",
+		"./mail": "./src/mail/index.ts",
+		"./logging": "./src/logging/index.ts",
+		"./media": "./src/media/index.ts",
+		"./media/image": "./src/media/image/index.ts",
+		"./queue": "./src/queue/index.ts",
+		"./scheduler": "./src/scheduler/index.ts",
+		"./security": "./src/security/index.ts",
+		"./serialization": "./src/serialization/index.ts",
+		"./server": "./src/server/index.ts",
+		"./ssr": "./src/ssr/index.ts",
+		"./ssr/fastify": "./src/ssr/fastify/index.ts",
+		"./ssr/vite": "./src/ssr/vite/index.ts",
+		"./storage": "./src/storage/index.ts",
+		"./validation": "./src/validation/index.ts"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"package:stage": "node ../../scripts/stage-framework-packages.mjs --package app",
+		"check": "npm run check:source && npm run check:examples",
+		"check:source": "tsc -p tsconfig.json --noEmit",
+		"check:examples": "tsc -p tsconfig.examples.json --noEmit",
+		"agents:scaffold": "node ./bin/db3-agents.mjs",
+		"test": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run",
+		"test:service": "node --import ./scripts/test-environment.mjs ./scripts/test-service.mjs",
+		"test:coverage": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run --coverage",
+		"test:db": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run src/db/tests",
+		"test:release": "npm run check && node --import ./scripts/test-release-environment.mjs ../../node_modules/vitest/vitest.mjs run --coverage"
+	},
+	"dependencies": {
+		"openai": "^6.44.0",
+		"@aws-sdk/client-s3": "^3.1077.0",
+		"@flystorage/aws-s3": "^1.2.0",
+		"@flystorage/file-storage": "^1.2.2",
+		"@flystorage/local-fs": "^1.2.0",
+		"@keyv/redis": "^5.1.6",
+		"@db3.ai/pure": "0.1.0",
+		"@redis/client": "^6.1.0",
+		"cache-manager": "^7.2.9",
+		"cacheable": "^2.5.0",
+		"dotenv": "^17.4.2",
+		"knex": "^3.2.10",
+		"mysql2": "^3.22.5",
+		"pino": "^10.3.1",
+		"pino-abstract-transport": "^3.0.0",
+		"sharp": "^0.35.3",
+		"thread-stream": "^4.0.0"
+	},
+	"peerDependencies": {
+		"@fastify/middie": "^9.3.3",
+		"@fastify/static": "^10.1.3",
+		"fastify": "^5.11.3",
+		"vite": "^8.2.1"
+	},
+	"peerDependenciesMeta": {
+		"@fastify/middie": {
+			"optional": true
+		},
+		"@fastify/static": {
+			"optional": true
+		},
+		"fastify": {
+			"optional": true
+		},
+		"vite": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@fastify/middie": "^9.3.3",
+		"@fastify/static": "^10.1.3",
+		"@types/node": "^25.9.3",
+		"@vitest/coverage-v8": "^4.1.8",
+		"fastify": "^5.11.3",
+		"typescript": "^6.0.3",
+		"vite": "^8.2.1",
+		"vitest": "^4.1.8"
+	},
+	"bugs": {
+		"url": "https://github.com/db3ai/framework/issues"
+	}
+}
