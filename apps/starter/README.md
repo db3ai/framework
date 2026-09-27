@@ -389,6 +389,8 @@ GRANT ALL PRIVILEGES ON `db3\_app\_test\_%`.* TO 'db3_test'@'127.0.0.1';
 The Docker app account has privileges only on its app database, deliberately.
 Create a separate test account using an admin session, or use a separate local
 test server. Missing test infrastructure fails; tests do not silently skip.
+Tests and setup/cleanup hooks have a 30-second limit because integration cases
+create and migrate real databases, including the packed generated-app checks.
 All AI tests use a dummy key and a simulated HTTP response. They do not use your
 real API key or incur AI charges. The summary shown in tests is a fixture, not
 evidence that a live provider was called.
