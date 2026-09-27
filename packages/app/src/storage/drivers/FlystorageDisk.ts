@@ -1,8 +1,8 @@
 import type { FileStorage } from '@flystorage/file-storage';
 import type { Readable } from 'node:stream';
 
-import { storageContentsToBuffer } from '../contents';
-import { mimeTypeFromPath } from '../mime';
+import { storageContentsToBuffer } from '../storageContentsToBuffer';
+import { mimeTypeFromPath } from '../mimeTypeFromPath';
 import { normalizeStorageDirectoryPath, normalizeStoragePath } from '../path';
 import type { StorageListing, StorageListOptions } from '../contracts';
 import type { StorageContents, StorageDisk, StoragePutOptions } from '../types';

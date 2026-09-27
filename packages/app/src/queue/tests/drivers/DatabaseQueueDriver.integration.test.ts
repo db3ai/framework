@@ -34,6 +34,31 @@ describe('DatabaseQueueDriver attempt fencing', () => {
 		await generatedDatabase?.destroy();
 	});
 
+	it('finds delayed, reserved and nested chained work without treating application data as job identities', async () => {
+		const payload = testPayload();
+		payload.job = 'host.prepare'; payload.data = { job: 'crm.private-data' };
+		payload.chained = [{ job: 'host.step', data: {}, chained: [{ job: 'social.review', data: {} }] }];
+		expect(await driver.hasPendingJobs('social.')).toBe(false);
+		await driver.push({ queue: 'default', payload, delaySeconds: 60, createdAt: unixTimestamp() - 61 });
+		expect(await driver.hasPendingJobs('social.')).toBe(true);
+		expect(await driver.hasPendingJobs('crm.')).toBe(false);
+		const job = await driver.pop('default', { retryAfterSeconds: 90 });
+		expect(await driver.hasPendingJobs('social.')).toBe(true);
+		await driver.delete(job!);
+		expect(await driver.hasPendingJobs('social.')).toBe(false);
+	});
+
+	it('participates in a scoped transaction so rolled-back work is never visible to workers', async () => {
+		await expect(database.transaction(async () => {
+			await driver.push({ queue: 'default', payload: testPayload(), delaySeconds: 0, createdAt: unixTimestamp() });
+			expect(await QueuedJob.query().count()).toBe(1);
+			throw new Error('Rollback dispatch');
+		})).rejects.toThrow('Rollback dispatch');
+		await ActiveRecord.withDb(generatedDatabase.db, async () => {
+			expect(await QueuedJob.query().count()).toBe(0);
+		});
+	});
+
 	it('allows only the current attempt to change durable queue state', async () => {
 		await driver.push({
 			queue: 'default',

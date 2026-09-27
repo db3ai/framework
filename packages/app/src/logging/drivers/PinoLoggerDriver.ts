@@ -1,15 +1,12 @@
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { hostname } from 'node:os';
-import pino, {
-	type DestinationStream,
-	type Logger as PinoLogger,
-	type TransportTargetOptions,
-} from 'pino';
+import pino, { type DestinationStream, type Logger as PinoLogger, type TransportTargetOptions } from 'pino';
 import type ThreadStream from 'thread-stream';
 
 import { isInteractiveDevelopmentEnvironment } from '../../devtools';
 import type * as logging from '../contracts';
+import { acquireDevelopmentConsole } from '../acquireDevelopmentConsole';
 
 /**
  * Pino worker transport lifecycle members present at runtime but omitted from
@@ -32,6 +29,8 @@ interface LoggingEnvironment {
 	PLATFORM_LOG_DEVTOOLS?: string;
 	PLATFORM_LOG_LEVEL?: string;
 	PLATFORM_LOG_SOURCE?: string;
+	PLATFORM_LOG_FILE?: string;
+	PLATFORM_LOG_FORMAT?: string;
 	npm_package_name?: string;
 }
 
@@ -57,6 +56,7 @@ const defaultRedactions = [
 export class PinoLoggerDriver implements logging.LoggerDriver {
 	readonly logger: PinoLogger;
 	readonly #transport: ManagedPinoTransport | null;
+	readonly #console?: ReturnType<typeof acquireDevelopmentConsole>;
 	#closed = false;
 	#closing = false;
 	#closePromise: Promise<void> | null = null;
@@ -100,7 +100,19 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			return;
 		}
 
-		const targets = transportTargets(options, level, environment, process.env);
+		const format = options.consoleFormat ?? process.env.PLATFORM_LOG_FORMAT ?? 'auto';
+		if (!['auto', 'pretty', 'json'].includes(format)) throw new Error(`Invalid PLATFORM_LOG_FORMAT value "${format}". Use auto, pretty, or json.`);
+		const pretty = options.console !== false && level !== 'silent' && (format === 'pretty' || (format === 'auto' && isInteractiveDevelopmentEnvironment(environment) && Boolean(process.stdout.isTTY)));
+		const targets = transportTargets(pretty ? { ...options, console: false } : options, level, environment, process.env);
+		if (pretty) {
+			this.#transport = targets.length ? pino.transport({ targets }) as ManagedPinoTransport : null;
+			this.#transport?.on('error', reportTransportError);
+			this.#console = acquireDevelopmentConsole();
+			const streams: pino.StreamEntry[] = [{ level: 'trace', stream: this.#console.console }];
+			if (this.#transport) streams.push({ level: 'trace', stream: this.#transport });
+			this.logger = pino(pinoOptions, pino.multistream(streams));
+			return;
+		}
 
 		if (targets.length === 0) {
 			this.#transport = null;
@@ -111,7 +123,7 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			return;
 		}
 
-		if (targets.length === 1 && targets[0]?.target === 'pino/file') {
+		if (targets.length === 1 && targets[0]?.target === 'pino/file' && targets[0]?.options?.destination === 1) {
 			this.#transport = null;
 			this.logger = pino(pinoOptions);
 			return;
@@ -139,7 +151,8 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			}
 
 			await new Promise<void>((resolve, reject) => {
-				this.logger.flush((error?: Error) => {
+				const destination = this.#transport ?? this.logger;
+				destination.flush((error?: Error) => {
 					if (error) {
 						reject(error);
 						return;
@@ -148,6 +161,7 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 					resolve();
 				});
 			});
+			await this.#console?.console.flush();
 		} finally {
 			if (!this.#closing) {
 				this.#transport?.unref();
@@ -170,6 +184,7 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 		if (this.#closed) return;
 
 		this.#closing = true;
+		this.#console?.release();
 		await this.flush();
 		this.#closed = true;
 
@@ -226,14 +241,11 @@ function transportTargets(
 	const targets: TransportTargetOptions[] = [];
 
 	if (options.console !== false) {
-		targets.push({
-			target: 'pino/file',
-			level,
-			options: {
-				destination: 1,
-			},
-		});
+		targets.push({ target: 'pino/file', level, options: { destination: 1 } });
 	}
+
+	const file = options.file ?? env.PLATFORM_LOG_FILE;
+	if (file) targets.push({ target: 'pino/file', level, options: { destination: file, mkdir: true } });
 
 	if (devtoolsEnabled(options.devtools, environment, env)) {
 		targets.push({

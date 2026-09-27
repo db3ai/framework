@@ -81,6 +81,7 @@ function resolveAuthProvider<TIdentity extends UserIdentity>(
 				identityModel: factoryOptions.identityModel,
 				providerModel: factoryOptions.providerModel,
 				passwordHash: factoryOptions.passwordHash,
+				suspension: options.suspension as auth.PasswordSuspensionOptions | false | undefined,
 			}) as auth.AuthProviderDriver<unknown, TIdentity>;
 
 		case GOOGLE_AUTH_PROVIDER:

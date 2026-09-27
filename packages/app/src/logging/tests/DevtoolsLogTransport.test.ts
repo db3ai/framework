@@ -12,14 +12,14 @@ describe('DevtoolsLogTransport', () => {
 			level: 50,
 			time: Date.parse('2026-07-24T10:30:00.000Z'),
 			msg: 'Job failed',
-			source: 'scout-worker',
+			source: 'app-worker',
 			component: 'queue-worker',
 			jobId: 'job-1',
 		});
 
 		expect(event).toMatchObject({
 			type: 'log',
-			source: 'scout-worker',
+			source: 'app-worker',
 			timestamp: '2026-07-24T10:30:00.000Z',
 			level: 'error',
 			numericLevel: 50,

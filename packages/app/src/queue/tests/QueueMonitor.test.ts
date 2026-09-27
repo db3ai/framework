@@ -50,9 +50,9 @@ describe('QueueMonitor', () => {
 
 		expect(defaultQueueMonitorOptions({
 			NODE_ENV: 'development',
-			npm_package_name: 'scout',
+			npm_package_name: 'example-app',
 		})).toMatchObject({
-			source: 'scout',
+			source: 'example-app',
 			includePayload: true,
 		});
 	});

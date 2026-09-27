@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { resolve } from 'node:path';
 import { normalizeDatabaseComment } from '@db3.ai/pure';
 
 import type {
@@ -7,6 +8,7 @@ import type {
 } from './ActiveRecord';
 import { ActiveRecord as ActiveRecordBase } from './ActiveRecord';
 import type * as database from './contracts';
+import { DatabaseMigrationManager } from './migrations/DatabaseMigrationManager';
 import {
 	databaseDialectForConnection,
 	type DatabaseDialect,
@@ -26,7 +28,10 @@ import {
 	type QueryMonitorOptions,
 } from './queryMonitor';
 
+/** App-owned model registry and policies for migrations, query monitoring and schema synchronization. */
 export interface DatabaseOptions {
+	/** Model registry and policy for migrations under the app's server/database directory. */
+	migrations?: database.DatabaseMigrationsConfig;
 	/**
 	 * Configures query telemetry for this database connection.
 	 */
@@ -138,11 +143,37 @@ interface InstalledTableSchema {
 export class Database {
 	private readonly monitor: QueryMonitor | null;
 	#backupHandler?: database.DatabaseBackupHandler;
+	#migrations?: DatabaseMigrationManager;
+	readonly #directory: string;
 
+	/**
+	 * Returns migrations from the application's conventional server/database paths.
+	 * @returns Lazy migration manager shared by commands, tests and application operations.
+	 * @throws When the app has not supplied dbOptions.migrations.
+	 */
+	get migrations(): DatabaseMigrationManager {
+		if (!this.options.migrations) throw new Error('Configure dbOptions.migrations with { models } for the app model registry.');
+		return this.#migrations ??= new DatabaseMigrationManager({
+			...this.options.migrations,
+			db: this.connection,
+			dialect: this.dialect(),
+			migrationsDirectory: resolve(this.#directory, 'server/database/migrations'),
+			snapshotFile: resolve(this.#directory, 'server/database/schema.snapshot.json'),
+		});
+	}
+
+	/**
+	 * Creates a database service and captures its application directory once.
+	 * @param connection - Connection owned by the application or its caller.
+	 * @param options - Model registry, migration policy and schema/query settings.
+	 * @param directory - App root supplied by App; standalone services default to the current directory.
+	 */
 	constructor(
 		private readonly connection: Knex,
 		private readonly options: DatabaseOptions = {},
+		directory: string = process.cwd(),
 	) {
+		this.#directory = resolve(directory);
 		this.monitor = enableDefaultQueryMonitor(
 			this.connection,
 			this.options.queryMonitor,
@@ -434,7 +465,7 @@ export class Database {
 			const transactionConnection = transaction as unknown as Knex;
 
 			return ActiveRecordBase.withDb(transactionConnection, () => {
-				return callback(new Database(transactionConnection, this.options));
+				return callback(new Database(transactionConnection, this.options, this.#directory));
 			});
 		});
 	}

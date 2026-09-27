@@ -8,6 +8,7 @@ import type { QueueDriver, QueueFailedJob } from './QueueDriver';
 import type { QueueableJobClass } from './QueueableJob';
 import type { QueueWorkerLifecycle, QueueWorkerOptions } from './QueueWorkerLifecycle';
 import type { RedisQueueDriverOptions } from './RedisQueueDriver';
+import type { QueueJobRunner } from './QueueJobRunner';
 
 /**
  * Function-style handler registered for a durable queued job name.
@@ -109,6 +110,10 @@ export interface QueueWorkOptions {
  * Public queue service API used by application code and queueable jobs.
  */
 export interface QueueService {
+	/** Registers an owned set of stable names and returns idempotent runtime cleanup. */
+	registerJobs(owner: string, jobs: readonly QueueableJobClass[], run?: QueueJobRunner): () => void;
+	/** Checks all active storage, including chained work; unsupported drivers reject rather than assume empty. */
+	hasPendingJobs(jobPrefix: string): Promise<boolean>;
 	/**
 	 * Always-on asynchronous queue lifecycle event dispatcher.
 	 */

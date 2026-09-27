@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { AuthProvider, AuthToken, PasswordResetToken, UserIdentity, PASSWORD_AUTH_PROVIDER } from '@db3.ai/app/auth';
+import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, UserIdentity, PASSWORD_AUTH_PROVIDER } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { App } from '@db3.ai/app/server';
 
@@ -17,7 +17,7 @@ export async function runPasswordAuth() {
 	const application = new App({ db: database.db, config: { auth: { providers: { password: true } } } });
 	try {
 		// Lab-only schema setup. Use committed migrations in an application.
-		await application.db.install(UserIdentity, AuthProvider, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
 		const credentials = { name: 'Ada', email: 'ada@example.test', password: 'example-only-password-123' };
 		const issued = await application.auth.registerWithPassword(credentials, { expiresInMs: 60 * 60 * 1000 });
 		const wrongPasswordRejected = await application.auth.issueTokenForProvider(PASSWORD_AUTH_PROVIDER, { ...credentials, password: 'wrong-password' }) === null;
@@ -27,14 +27,14 @@ export async function runPasswordAuth() {
 			return user?.id === issued.user.id;
 		});
 		const reset = await application.auth.createPasswordResetToken(issued.user);
+		const allDevicesRevoked = await application.auth.revokeAllTokens(issued.user) === 2;
+		const freshSession = await application.auth.createToken(issued.user);
 		const replacement = { token: reset.token, password: 'replacement-example-password-456' };
 		const passwordChanged = Boolean(await application.auth.resetPassword(replacement));
 		const usedResetRejected = await application.auth.resetPassword(replacement) === null;
 		const oldPasswordRejected = await application.auth.issueTokenForProvider(PASSWORD_AUTH_PROVIDER, credentials) === null;
-		const sessions = await application.auth.tokensFor(issued.user);
-		for (const session of sessions) await application.auth.revokeToken(issued.user, session.id!);
-		const revokedTokenRejected = await application.requestContext.run(async () => await application.auth.authenticateToken(issued.token) === null);
-		return { authenticated, signedIn: Boolean(signedIn), wrongPasswordRejected, passwordChanged, usedResetRejected, oldPasswordRejected, revokedTokenRejected };
+		const revokedTokenRejected = await application.requestContext.run(async () => await application.auth.authenticateToken(freshSession.token) === null);
+		return { authenticated, signedIn: Boolean(signedIn), wrongPasswordRejected, allDevicesRevoked, passwordChanged, usedResetRejected, oldPasswordRejected, revokedTokenRejected };
 	} finally {
 		try { await application.close(); } finally { await database.destroy(); }
 	}

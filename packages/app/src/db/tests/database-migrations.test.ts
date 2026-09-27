@@ -903,7 +903,7 @@ function makeClient(): Knex {
 
 /**
  * Applies generated TypeScript migrations through Knex under the same tsx
- * loader used by Scout's database command.
+ * loader used by the application database command.
  *
  * @param databaseName - Disposable MariaDB database name.
  * @param migrationsDirectory - Absolute generated migration directory.

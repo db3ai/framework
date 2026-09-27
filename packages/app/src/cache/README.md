@@ -109,7 +109,7 @@ const config = {
 			redis: {
 				driver: 'redis',
 				url: 'redis://127.0.0.1:6379',
-				namespace: 'scout:cache',
+				namespace: 'my-app:cache',
 				ttl: 300_000,
 				connectionTimeoutMs: 5000,
 				clearBatchSize: 1000,
@@ -123,10 +123,6 @@ const config = {
 
 Redis namespaces are mandatory. `clear()` scans and unlinks only keys inside
 that namespace; the framework never enables a broad Redis database flush.
-
-Scout currently selects the bounded memory store. Its
-`server/config/cache.ts` file includes a commented Redis store that can be
-enabled by uncommenting it and setting `CACHE_STORE=redis`.
 
 One configured store is selected; named stores do not mean tiering or automatic failover. The local walkthrough tests memory only. Redis delivery and failure handling need real infrastructure tests before release; a Redis configuration example is not proof of a successful connection.
 

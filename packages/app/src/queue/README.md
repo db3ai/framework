@@ -1,5 +1,10 @@
 # Queue
 
+The framework's `db3 queue:make-job NameJob` command is registered in
+`queue/commands/index.ts`; its `makeJob.ts` action calls `createJob()`.
+Command parsing, help and process
+lifecycle are shared by the [framework CLI](../cli/README.md).
+
 The installed-package chain/batch lab is
 [runQueueWorkflows.ts](./examples/runQueueWorkflows.ts). Copy the shipped Queue
 examples and run `npx tsx examples/runQueueWorkflows.ts` with dedicated SQL test
@@ -348,3 +353,25 @@ provider-backed AI budgets, idempotent email, and failure-retention operations.
 
 Queue owns its contracts, drivers, examples and tests. It depends on Database,
 Logging and App composition; Scheduler and Flows consume its lifecycle.
+
+
+## Create a job in your app
+
+Run `npx db3 queue:make-job GenerateReportJob` from the app root. It creates
+`server/jobs/GenerateReportJob.ts` and refuses to overwrite an existing file.
+Replace the template payload and implement `handle()`, then register the job in
+the shared application bootstrap before dispatching it. The unimplemented
+handler throws so a generated skeleton cannot silently consume real work.
+
+Editor or Studio integrations can use `jobTemplate(name)` to preview the same
+source and `createJob({ appDirectory, name })` to create the file. These are
+shared framework operations; a Studio screen is not included in this package.
+
+## Atomic application dispatch
+
+The database driver's `push` participates in an explicit `ActiveRecord.withDb`
+scope, including one established by `app().db.transaction`. Application records
+and queued jobs can therefore commit or roll back together. Outside a scope it
+uses its configured database. Redis dispatch is not transactional with SQL.
+Dispatch lifecycle events may run before the surrounding transaction commits;
+observers must not perform irreversible external work on those events.

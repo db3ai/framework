@@ -2,7 +2,7 @@ Licence scope
 
 The MIT licence below applies to the DB3 framework packages (@db3.ai/app,
 @db3.ai/pure and @db3.ai/create), their framework documentation, the starter
-template, and the framework release tooling. Third-party dependencies retain
+application in apps/starter, and the framework release tooling. Third-party dependencies retain
 their own licences.
 Applications and other packages in this development repository are excluded
 unless they carry their own licence granting rights. In particular, this file

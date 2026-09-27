@@ -26,6 +26,7 @@ import type {
 	MakeMigrationResult,
 	MigrateOptions,
 	MigrateResult,
+	RollbackResult,
 	SchemaMigrationPlan,
 	SchemaSnapshot,
 } from './contracts';
@@ -35,7 +36,7 @@ import {
 	DatabaseMigrationLockError,
 	DatabaseMigrationSourceGenerationError,
 } from './errors';
-import { renderKnexMigration } from './KnexMigrationRenderer';
+import { renderKnexMigration } from './renderKnexMigration';
 import { collectModelSchema } from './ModelSchemaCollector';
 import { diffSchemaSnapshots } from './SchemaDiffer';
 import { promoteDestructiveSchemaChanges } from './promoteDestructiveSchemaChanges';
@@ -57,7 +58,7 @@ const DEFAULT_LOAD_EXTENSIONS = ['.ts', '.js', '.mjs', '.cjs'] as const;
 export class DatabaseMigrationManager {
 	readonly #options: Required<Pick<
 		DatabaseMigrationManagerOptions,
-		'migrationTableName' | 'loadExtensions' | 'environment' | 'generationLockFile' | 'now'
+		'migrationTableName' | 'loadExtensions' | 'migrationExtension' | 'environment' | 'generationLockFile' | 'now'
 	>> & DatabaseMigrationManagerOptions;
 
 	/**
@@ -82,6 +83,7 @@ export class DatabaseMigrationManager {
 			...options,
 			models: [...options.models],
 			migrationTableName: options.migrationTableName ?? DEFAULT_MIGRATION_TABLE,
+			migrationExtension: options.migrationExtension ?? '.ts',
 			loadExtensions: options.loadExtensions ?? DEFAULT_LOAD_EXTENSIONS,
 			environment: options.environment ?? process.env.NODE_ENV ?? 'development',
 			generationLockFile,
@@ -200,6 +202,12 @@ export class DatabaseMigrationManager {
 		};
 	}
 
+	/** Runs the latest committed migration's own down function. The caller must quiesce consumers first. */
+	async rollback(): Promise<RollbackResult> {
+		const [batch, names] = await this.#options.db.migrate.down(this.#knexConfig());
+		return { reverted: names.map(String), batch: typeof batch === 'number' ? batch : null };
+	}
+
 	/**
 	 * Runs the development convenience flow under one generation lock.
 	 *
@@ -272,9 +280,9 @@ export class DatabaseMigrationManager {
 		const name = migrationName(options.name, plan);
 		const file = join(
 			this.#options.migrationsDirectory,
-			`${formatMigrationTimestamp(this.#options.now())}_${name}.ts`,
+			`${formatMigrationTimestamp(this.#options.now())}_${name}${this.#options.migrationExtension}`,
 		);
-		const source = renderKnexMigration(plan);
+		const source = renderKnexMigration(plan, this.#options.migrationExtension === '.mjs' ? 'javascript' : 'typescript');
 
 		await writeMigrationAndSnapshotAtomically(
 			file,

@@ -1,10 +1,99 @@
 # Framework Conventions
 
-This document defines repeatable conventions for framework code in `packages/*`. The goal is to make framework APIs easy to find, easy to import, and easy to document without turning simple implementation details into architecture.
+This document defines repeatable conventions for framework code in `packages/*` and the applications that use it. The goal is to make framework APIs easy to find, easy to import, and easy to document without turning simple implementation details into architecture.
+
+## Application Layout
+
+New DB3 applications use sibling `client/` and `server/` directories:
+
+```text
+my-app/
+	client/       Browser entry point, Vue components, styles and API calls
+	server/       Backend configuration, routes, models, jobs and services
+		cli.config.ts   App factory and framework service command registration
+		database/   Model registry, migrations and schema snapshot
+	tests/        Application behaviour tests
+	index.html    Vite entry document loading /client/main.ts
+```
+
+`apps/starter` is the runnable reference for this layout and the source copied
+by Create. Keep browser code under `client/` and backend code and configuration
+under `server/`. Framework packages retain their own `src/`
+directories; those contain library implementation rather than an application's
+browser code. Existing apps can adopt this layout through focused migrations.
+
+Database ownership stays with the server in both local development and
+production. Browser code accesses it through the server API. Keep committed
+migrations in `server/database/migrations/` and the schema snapshot beside them
+at `server/database/schema.snapshot.json`; include both in server deployments.
+These paths are fixed conventions for `app().db.migrations`. Register models
+with `dbOptions: { migrations: { models } }`; do not create a separate
+`migrations.ts` configuration file. `App.directory` defaults to the working
+directory at construction. The starter sets `directory: new URL('../', import.meta.url)`
+in `server/app.ts` so HTTP, commands and tests share the same app root regardless
+of where they are launched.
+
+The framework owns the `db3` executable and shared CLI runner. Services expose
+commands through their public barrels and keep command adapters in their owning
+modules. Apps register configured commands in `server/cli.config.ts`; keep help,
+argument parsing, exit statuses and app lifecycle out of app-owned scripts.
+Commands call the service's existing programmatic operations.
+
+`npx db3 repl` opens a terminal REPL inside the same app lifecycle. It exposes
+`app()` and named models from the `models` array in `server/database/models.ts`.
+The starter includes `npm run repl` and `npm run db3 -- <command>` shortcuts.
+The CLI closes the app when the REPL exits; no HTTP listener is started.
+
+Use `service:action` names and one action function per file under the service's
+`commands/` directory. A small `commands/index.ts` imports and registers public
+actions with `defineCommand()`, mapping named parameters and terminal results.
+Actions execute in the active app context, use `app()` and return normal values
+so application and UI server handlers can call them directly.
+
+## File Naming
+
+Platform enforces the mechanically checkable naming rules with
+`npm run conventions:check`, also included in its root check and application CI.
+See `../tools/code-quality/NAMING.md` for exact coverage, exclusions and debt
+handling. This repository gate is not yet shipped to generated applications.
+
+Name each file for the main concept it owns. These conventions apply to
+framework source, starter code, generated applications, and examples:
+
+- Files whose primary export is a class use PascalCase and match the class name exactly, for example `QueueWorker.ts`, `SendInvoiceJob.ts`, or `User.ts`.
+- Vue component files use PascalCase, for example `AccountSettings.vue`.
+- Files whose primary purpose is one exported public contract, interface, or type use PascalCase and match that concept, for example `QueuePayload.ts` or `PaymentResult.ts`.
+- Function modules use camelCase on both server and client. When a file owns one exported function, match its name exactly: `invoiceDeliver.ts` exports `invoiceDeliver`, and `useInvoice.ts` exports `useInvoice`.
+- Cohesive helper/utility modules and stores use camelCase names describing their purpose. Composables start with `use`.
+- Feature directories use kebab-case. Framework-owned route parameters, route method suffixes, migrations, generated files, and required `index.ts` entry points keep the naming required by their owning system.
+- Test filenames mirror the source concept or route they verify and end in `.test.ts`.
+
+Keep one main concept per file. Existing inconsistent names are migration debt,
+not precedent. Rename one when its owning module is already being changed or
+moved, and update imports, tests, documentation, package exports, dynamic
+registries, and generated sources. Do not widen an otherwise focused change
+into an unrelated repository-wide rename.
+
+Generated applications include a root `AGENTS.md` with the concise naming rules
+and a pointer to the installed `@db3.ai/app/agent-instructions` export. Existing
+applications can add or refresh that marked framework block with `db3-agents`.
 
 ## Service-Owned Modules
 
 Each reusable framework service should be a self-contained, package-shaped module inside its current package. Source, public contracts, drivers, documentation, examples, tests, fixtures, and test support belong to the service that owns the behaviour.
+
+Prefer behaviour on the service, model, or other domain object that owns it,
+especially when it uses state, dependencies, or side effects. For example,
+invoice delivery can belong to `InvoiceService.deliver()` in `InvoiceService.ts`.
+Pure functions may be grouped into cohesive, purpose-named helper modules within
+the owning service, such as `invoiceTotals.ts`. Keep helpers local when only one
+implementation needs them. Avoid unrelated utility buckets and one-off service
+classes created only to wrap a function. Required route and command adapters
+delegate to the owning behaviour.
+
+When migrating flat server/service files, establish ownership first, then choose
+the matching filename. A kebab-case filename alone does not prove that its code
+needs a new class or should be merged with another service.
 
 Queue is the reference layout:
 
@@ -68,6 +157,15 @@ Name contracts by purpose, not by implementation syntax. Use `QueueService`, `Qu
 Keep one main concept per file. Related payload fields can live together when splitting them would make the API harder to understand, for example `QueuePayload.ts` can own `JobEnvelope`, `QueueJob`, `DispatchOptions`, and `QueueProcessResult`.
 
 ## Imports
+
+Use the public `@db3.ai/*` package names in workspace dependencies, application
+imports, examples, tests, and documentation. `packages/app` is `@db3.ai/app`,
+`packages/pure` is `@db3.ai/pure`, and `packages/create` is `@db3.ai/create`.
+
+Local workspaces resolve these names to TypeScript source. Staged packages
+resolve the same names to compiled JavaScript and declarations. Packaging and
+documentation generation must preserve package names instead of translating
+between private and public scopes.
 
 Implementation files should usually import contracts as a namespace:
 
@@ -170,3 +268,26 @@ Before finishing a framework contract change:
 7. Update README or architecture docs when the public API, convention, or usage changed.
 8. Add or update a service-owned example when a common application workflow changed.
 9. Keep service tests, fixtures, and example verification inside the owning service directory.
+
+## Feature apps within a host
+
+Prefer `apps/{id}/` with root `manifest.json` and `App.ts`. The class default
+extends `AppService`; server/, client/, database/ and optional shared/ belong
+inside that folder. Discovery replaces per-app host registration. Marked direct
+npm dependencies use the same structure, with compiled entry paths in package
+metadata. Keep general libraries in packages/ and framework implementation in
+packages/app/src.
+
+The root manifest is browser-safe metadata for visual exploration and default navigation.
+An app's `navigation(context)` can return current links, plain-text information and
+badges for a host-verified viewer. `apps.navigation(context)` collects enabled-app
+contributions; keep viewer state off shared service instances and out of `describe()`.
+`app().social` resolves an optional service; generated declarations supply its
+type. Framework service and registry names are reserved. Apps own prefixed models,
+snapshots, immutable migrations and their down functions; host models stay separate.
+Uninstall retains data; rollback is explicit. Npm lifecycle hooks never migrate SQL.
+
+Starter ships discovery, generated browser loaders and an administrator Apps UI.
+Online lifecycle management requires a single-process host; stop all consumers
+for multi-process CLI maintenance. See [Apps](../packages/app/src/apps/README.md)
+for both local and npm workflows and the one-time custom-host integration.

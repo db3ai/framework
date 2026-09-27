@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from 'fastify';
-import { App } from '@db3.ai/app/server';
+import { App, registerHttpErrorHandler } from '@db3.ai/app/server';
+import { registerHealthRoute } from '@db3.ai/app/health/fastify';
 
 /**
  * Creates a small HTTP application without opening a port or database.
@@ -11,10 +12,11 @@ import { App } from '@db3.ai/app/server';
  * @returns HTTP server with framework cleanup attached to its close lifecycle.
  */
 export function createFirstServer(greeting = 'Hello'): FastifyInstance {
-	const application = new App({ config: { greeting } });
+	const application = new App({ config: { greeting }, health: { service: 'first-application' } });
 	const server = Fastify();
+	registerHttpErrorHandler(server);
 	server.addHook('onClose', async () => { await application.close(); });
-	server.get('/health', async () => ({ status: 'ready' }));
+	registerHealthRoute(server, { app: application });
 	server.get<{ Params: { name: string } }>('/hello/:name', {
 		schema: { params: { type: 'object', required: ['name'], properties: { name: { type: 'string', minLength: 1, maxLength: 80 } } } },
 	}, async request => application.requestContext.run(async () => {

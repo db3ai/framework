@@ -6,21 +6,18 @@ import { spawnSync } from 'node:child_process';
 import { dirname, extname, isAbsolute, join, parse, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { listStarterFiles } from '../packages/create/src/starterFiles.mjs';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const DEFAULT_OUTPUT_ROOT = join(REPOSITORY_ROOT, 'dist', 'framework-packages');
 const TYPESCRIPT_CLI = join(REPOSITORY_ROOT, 'node_modules', 'typescript', 'bin', 'tsc');
-const PACKAGE_ORDER = ['pure', 'app'];
+const PACKAGE_ORDER = ['pure', 'app', 'create'];
 const SUPPORTED_PACKAGES = new Set(PACKAGE_ORDER);
 const PUBLIC_PACKAGE_NAMES = {
 	pure: '@db3.ai/pure',
 	app: '@db3.ai/app',
+	create: '@db3.ai/create',
 };
-const PUBLIC_PACKAGE_REFERENCE_REWRITES = [
-	['@db3.ai/pure', PUBLIC_PACKAGE_NAMES.pure],
-	['@db3.ai/app', PUBLIC_PACKAGE_NAMES.app],
-];
-const PUBLIC_TEXT_EXTENSIONS = new Set(['.d.ts', '.js', '.json', '.md', '.mjs', '.ts']);
 const options = parseArguments(process.argv.slice(2));
 
 assertSafeOutputRoot(options.outputRoot);
@@ -48,7 +45,7 @@ function parseArguments(args) {
 			const packageName = args[index + 1];
 
 			if (!packageName || !SUPPORTED_PACKAGES.has(packageName)) {
-				throw new Error('--package must be followed by "app" or "pure".');
+				throw new Error('--package must be followed by "pure", "app" or "create".');
 			}
 
 			packageNames.push(packageName);
@@ -156,12 +153,17 @@ function isWithin(candidate, parent) {
 /**
  * Compiles and assembles one framework package without changing its workspace manifest.
  *
- * @param {'app' | 'pure'} packageName - Framework workspace package to stage.
+ * @param {'app' | 'pure' | 'create'} packageName - Framework workspace package to stage.
  * @param {string} outputRoot - Parent directory for generated packages.
  * @param {string | null} repositoryUrl - Exact public GitHub source URL, when established.
  * @returns {Promise<void>}
  */
 async function stagePackage(packageName, outputRoot, repositoryUrl) {
+	if (packageName === 'create') {
+		await stageCreatePackage(outputRoot, repositoryUrl);
+		return;
+	}
+
 	const packageRoot = join(REPOSITORY_ROOT, 'packages', packageName);
 	const sourceRoot = join(packageRoot, 'src');
 	const stageRoot = join(outputRoot, packageName);
@@ -188,13 +190,66 @@ async function stagePackage(packageName, outputRoot, repositoryUrl) {
 	], REPOSITORY_ROOT);
 
 	await cp(buildRoot, join(stageRoot, 'dist'), { recursive: true });
+	if (packageName === 'app') {
+		// TypeScript references declaration inputs but does not copy them into outDir.
+		await cp(join(sourceRoot, 'ai', 'sdkNodeCompatibility.d.ts'), join(stageRoot, 'dist', 'ai', 'sdkNodeCompatibility.d.ts'));
+		const declarationPath = join(stageRoot, 'dist', 'ai', 'Ai.d.ts');
+		const declaration = await readFile(declarationPath, 'utf8');
+		const reference = /(<reference path=")[^"]*\/sdkNodeCompatibility\.d\.ts(")/;
+		if (!reference.test(declaration)) throw new Error('The AI declaration must reference the SDK compatibility input.');
+		await writeFile(declarationPath, declaration.replace(reference, '$1./sdkNodeCompatibility.d.ts$2'));
+	}
 	await rewriteCompiledSpecifiers(join(stageRoot, 'dist'));
 	await copyPackageAssets(packageName, packageRoot, stageRoot);
 	await writePublishManifest(packageName, packageRoot, stageRoot, repositoryUrl);
-	await rewritePublicPackageReferences(stageRoot);
 	await rm(buildRoot, { recursive: true, force: true });
 
 	console.log(`Staged ${PUBLIC_PACKAGE_NAMES[packageName]} at ${stageRoot}.`);
+}
+
+/**
+ * Stages the application creator with its reviewed template and matching App version.
+ *
+ * The creator is native ESM and needs no TypeScript compilation. Its template
+ * retains application test/build scripts while the package itself has none.
+ *
+ * @param {string} outputRoot - Parent directory for generated packages.
+ * @param {string | null} repositoryUrl - Public source URL used for provenance.
+ * @returns {Promise<void>}
+ */
+async function stageCreatePackage(outputRoot, repositoryUrl) {
+	const packageRoot = join(REPOSITORY_ROOT, 'packages', 'create');
+	const stageRoot = join(outputRoot, 'create');
+	const manifest = JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8'));
+	const starterRoot = join(REPOSITORY_ROOT, 'apps', 'starter');
+	const template = JSON.parse(await readFile(join(starterRoot, 'package.json'), 'utf8'));
+	const appManifest = JSON.parse(await readFile(join(REPOSITORY_ROOT, 'packages', 'app', 'package.json'), 'utf8'));
+	if (manifest.version !== appManifest.version || template.dependencies?.['@db3.ai/app'] !== appManifest.version) {
+		throw new Error('Create and its template must use the exact App release version before staging.');
+	}
+
+	await rm(stageRoot, { recursive: true, force: true });
+	await mkdir(stageRoot, { recursive: true });
+	for (const entry of ['bin', 'src', 'README.md', 'LICENSE']) {
+		await cp(join(packageRoot, entry), join(stageRoot, entry), { recursive: true });
+	}
+	for (const file of await listStarterFiles(starterRoot)) {
+		const target = join(stageRoot, 'template', file);
+		await mkdir(dirname(target), { recursive: true });
+		await cp(join(starterRoot, file), target);
+	}
+	delete manifest.private;
+	delete manifest.scripts;
+	delete manifest.devDependencies;
+	delete manifest.repository;
+	manifest.files = ['bin', 'src', 'template', 'README.md', 'LICENSE'];
+	manifest.publishConfig = { access: 'public', registry: 'https://registry.npmjs.org/' };
+	if (repositoryUrl) {
+		manifest.repository = { type: 'git', url: repositoryUrl, directory: 'packages/create' };
+		manifest.publishConfig.provenance = true;
+	}
+	await writeFile(join(stageRoot, 'package.json'), `${JSON.stringify(manifest, null, '\t')}\n`, 'utf8');
+	console.log(`Staged ${PUBLIC_PACKAGE_NAMES.create} at ${stageRoot}.`);
 }
 
 /**
@@ -298,45 +353,6 @@ async function listFiles(directory) {
 }
 
 /**
- * Rewrites private workspace package aliases to the public npm package scope.
- *
- * The monorepo currently uses `@platform/*` internally. Publication artifacts
- * must be self-consistent under the user-owned `@db3.ai` npm organization,
- * including emitted JavaScript, declarations, examples, documentation, agent
- * scaffolds, executable messages, and dependency metadata.
- *
- * @param {string} directory - Staged package tree to make consumer-facing.
- * @returns {Promise<void>}
- */
-async function rewritePublicPackageReferences(directory) {
-	for (const filePath of await listFiles(directory)) {
-		if (!isPublicTextAsset(filePath)) continue;
-
-		const original = await readFile(filePath, 'utf8');
-		const rewritten = PUBLIC_PACKAGE_REFERENCE_REWRITES.reduce(
-			(content, [workspaceName, publicName]) => content.replaceAll(workspaceName, publicName),
-			original,
-		);
-
-		if (rewritten !== original) {
-			await writeFile(filePath, rewritten, 'utf8');
-		}
-	}
-}
-
-/**
- * Reports whether a staged file can safely receive textual package rewrites.
- *
- * @param {string} filePath - Absolute staged file path.
- * @returns {boolean} True for known text assets shipped by the package.
- */
-function isPublicTextAsset(filePath) {
-	if (filePath.endsWith('.d.ts')) return true;
-
-	return PUBLIC_TEXT_EXTENSIONS.has(extname(filePath));
-}
-
-/**
  * Copies consumer documentation, examples, and agent-scaffold assets into a package.
  *
  * @param {'app' | 'pure'} packageName - Package being staged.
@@ -363,7 +379,7 @@ async function copyPackageAssets(packageName, packageRoot, stageRoot) {
 	await cp(join(packageRoot, 'templates'), join(stageRoot, 'templates'), { recursive: true });
 	await copyProductionSource(join(packageRoot, 'src'), join(stageRoot, 'src'));
 
-	for (const service of ['auth', 'cache', 'config', 'db', 'events', 'flows', 'logging', 'mail', 'media', 'queue', 'scheduler', 'security', 'serialization', 'server', 'ssr', 'storage', 'url', 'validation']) {
+	for (const service of ['ai', 'auth', 'cache', 'config', 'db', 'events', 'flows', 'logging', 'mail', 'in-app', 'media', 'network', 'notifications', 'queue', 'scheduler', 'security', 'serialization', 'server', 'ssr', 'storage', 'url', 'validation', 'websocket']) {
 		await cp(
 			join(packageRoot, 'src', service, 'examples'),
 			join(stageRoot, 'src', service, 'examples'),

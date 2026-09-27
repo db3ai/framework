@@ -1209,14 +1209,16 @@ export abstract class FieldType<
 	}
 
 	/**
-	 * Resolves the configured default value.
+	 * Resolves a per-record default, copying cloneable literal values.
+	 *
+	 * Use a default factory for custom objects that cannot be copied safely.
 	 */
 	private getDefaultValue(): TValue {
 		if (typeof this.config.default === 'function') {
 			return (this.config.default as () => unknown)() as TValue;
 		}
 
-		return (this.config.default ?? null) as TValue;
+		return snapshotFieldValue((this.config.default ?? null) as TValue);
 	}
 }
 

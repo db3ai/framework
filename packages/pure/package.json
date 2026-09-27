@@ -1,6 +1,6 @@
 {
 	"name": "@db3.ai/pure",
-	"version": "0.1.0",
+	"version": "0.1.0-beta.2",
 	"description": "Environment-independent TypeScript utilities shared by DB3 framework packages and applications.",
 	"private": true,
 	"license": "MIT",
@@ -36,7 +36,10 @@
 		"build": "tsc -p tsconfig.json",
 		"package:stage": "node ../../scripts/stage-framework-packages.mjs --package pure",
 		"check": "tsc -p tsconfig.json --noEmit",
-		"test": "vitest run"
+		"test": "node ../../scripts/verify.mjs test",
+		"test:raw": "vitest run",
+		"quality": "node ../../scripts/verify.mjs quality",
+		"quality:types": "tsc -p tsconfig.json --noEmit"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",

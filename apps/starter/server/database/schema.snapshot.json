@@ -1,0 +1,2295 @@
+{
+	"formatVersion": 1,
+	"dialect": "mariadb",
+	"tables": [
+		{
+			"name": "ai_conversations",
+			"comment": "Groups AI messages and provider requests into one app-level conversation or generated workflow run.",
+			"columns": [
+				{
+					"name": "agent",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Local agent or feature name that created this conversation."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable id for this AI conversation."
+				},
+				{
+					"name": "metadata",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Structured application metadata for this AI conversation."
+				},
+				{
+					"name": "scope_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Application-owned scope identifier, such as a team or project."
+				},
+				{
+					"name": "title",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Short human-readable title for debugging or future UI display."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Application user identifier, when available."
+				}
+			],
+			"indexes": [
+				{
+					"name": "ai_conversations_agent_index",
+					"columns": [
+						{
+							"name": "agent"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_conversations_scope_id_index",
+					"columns": [
+						{
+							"name": "scope_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_conversations_user_id_index",
+					"columns": [
+						{
+							"name": "user_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "ai_messages",
+			"comment": "Normalized AI conversation messages for prompts, assistant output, and tool messages.",
+			"columns": [
+				{
+					"name": "ai_request_id",
+					"type": "char(26)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider request that produced or used this message, when available."
+				},
+				{
+					"name": "content",
+					"type": "longtext",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Text content for this AI message."
+				},
+				{
+					"name": "content_json",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Structured content for this AI message, when the response is not plain text."
+				},
+				{
+					"name": "conversation_id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Conversation this message belongs to."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable id for this AI message."
+				},
+				{
+					"name": "metadata",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Structured application metadata for this message."
+				},
+				{
+					"name": "model",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "AI model associated with this message."
+				},
+				{
+					"name": "provider",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "AI provider associated with this message."
+				},
+				{
+					"name": "role",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Message role in the AI conversation."
+				},
+				{
+					"name": "scope_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Application-owned scope identifier, such as a team or project."
+				},
+				{
+					"name": "sequence",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Monotonic message order within the conversation."
+				},
+				{
+					"name": "tool_call_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider or SDK call id for a tool invocation represented by this message."
+				},
+				{
+					"name": "tool_name",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Tool name for tool-call messages."
+				},
+				{
+					"name": "tool_state",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Execution state for a tool-call message."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Application user identifier, when available."
+				}
+			],
+			"indexes": [
+				{
+					"name": "ai_messages_ai_request_id_index",
+					"columns": [
+						{
+							"name": "ai_request_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_conversation_id_index",
+					"columns": [
+						{
+							"name": "conversation_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_model_index",
+					"columns": [
+						{
+							"name": "model"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_provider_index",
+					"columns": [
+						{
+							"name": "provider"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_scope_id_index",
+					"columns": [
+						{
+							"name": "scope_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_tool_call_id_index",
+					"columns": [
+						{
+							"name": "tool_call_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_tool_name_index",
+					"columns": [
+						{
+							"name": "tool_name"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_tool_state_index",
+					"columns": [
+						{
+							"name": "tool_state"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_messages_user_id_index",
+					"columns": [
+						{
+							"name": "user_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": [
+				{
+					"name": "ai_messages_ai_request_id_foreign",
+					"column": "ai_request_id",
+					"referencesTable": "ai_requests",
+					"referencesColumn": "id",
+					"onDelete": "SET NULL"
+				},
+				{
+					"name": "ai_messages_conversation_id_foreign",
+					"column": "conversation_id",
+					"referencesTable": "ai_conversations",
+					"referencesColumn": "id",
+					"onDelete": "CASCADE"
+				}
+			]
+		},
+		{
+			"name": "ai_rate_limit_buckets",
+			"comment": "Current AI provider rate-limit state by provider endpoint and model/shared limit key; not a historical usage table.",
+			"columns": [
+				{
+					"name": "bucket_key",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": "Stable provider:endpoint:limit-key identifier, for example openai:responses:gpt-5.4-nano."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "endpoint",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider endpoint family this bucket tracks; responses and embeddings are separate limit pools."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable id for this rate-limit bucket."
+				},
+				{
+					"name": "last_observed_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time this bucket was last updated from provider headers."
+				},
+				{
+					"name": "last_provider_request_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Most recent provider request id observed for this bucket."
+				},
+				{
+					"name": "limit_key",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Model or shared provider limit key used for throttling, not the app operation name."
+				},
+				{
+					"name": "limit_project_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Maximum project-scoped tokens allowed for the current provider window."
+				},
+				{
+					"name": "limit_requests",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Maximum requests allowed for the current provider window."
+				},
+				{
+					"name": "limit_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Maximum tokens allowed for the current provider window."
+				},
+				{
+					"name": "metadata",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Structured provider metadata for this bucket."
+				},
+				{
+					"name": "project_tokens_reset_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time when the project token limit window should reset."
+				},
+				{
+					"name": "provider",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "AI provider this bucket belongs to.",
+					"default": "openai"
+				},
+				{
+					"name": "remaining_project_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Remaining project-scoped tokens from the latest provider headers before subtracting active reservations."
+				},
+				{
+					"name": "remaining_requests",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Remaining requests from the latest provider headers before subtracting active reservations."
+				},
+				{
+					"name": "remaining_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Remaining tokens from the latest provider headers before subtracting active reservations."
+				},
+				{
+					"name": "requests_reset_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time when the request limit window should reset."
+				},
+				{
+					"name": "tokens_reset_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time when the token limit window should reset."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "ai_rate_limit_buckets_bucket_key_index",
+					"columns": [
+						{
+							"name": "bucket_key"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_endpoint_index",
+					"columns": [
+						{
+							"name": "endpoint"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_last_observed_at_index",
+					"columns": [
+						{
+							"name": "last_observed_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_last_provider_request_id_index",
+					"columns": [
+						{
+							"name": "last_provider_request_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_limit_key_index",
+					"columns": [
+						{
+							"name": "limit_key"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_project_tokens_reset_at_index",
+					"columns": [
+						{
+							"name": "project_tokens_reset_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_provider_index",
+					"columns": [
+						{
+							"name": "provider"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_requests_reset_at_index",
+					"columns": [
+						{
+							"name": "requests_reset_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_buckets_tokens_reset_at_index",
+					"columns": [
+						{
+							"name": "tokens_reset_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "ai_rate_limit_reservations",
+			"comment": "Short-lived in-flight reservations subtracted from current AI rate-limit buckets.",
+			"columns": [
+				{
+					"name": "ai_request_id",
+					"type": "char(26)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Tracked AI request associated with this reservation, when available."
+				},
+				{
+					"name": "bucket_id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Rate-limit bucket this reservation consumes capacity from."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "expires_at",
+					"type": "timestamp",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Time this reservation stops counting if it is not explicitly released."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable id for this rate-limit reservation."
+				},
+				{
+					"name": "operation",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Application operation this reservation protects; bucket identity still comes from provider endpoint and limit key."
+				},
+				{
+					"name": "released_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time this reservation was released after provider completion or failure."
+				},
+				{
+					"name": "reserved_requests",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Number of requests reserved against the bucket.",
+					"default": 1
+				},
+				{
+					"name": "reserved_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Estimated tokens reserved against the bucket."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "ai_rate_limit_reservations_ai_request_id_index",
+					"columns": [
+						{
+							"name": "ai_request_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_reservations_bucket_id_index",
+					"columns": [
+						{
+							"name": "bucket_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_reservations_expires_at_index",
+					"columns": [
+						{
+							"name": "expires_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_reservations_operation_index",
+					"columns": [
+						{
+							"name": "operation"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_rate_limit_reservations_released_at_index",
+					"columns": [
+						{
+							"name": "released_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": [
+				{
+					"name": "ai_rate_limit_reservations_ai_request_id_foreign",
+					"column": "ai_request_id",
+					"referencesTable": "ai_requests",
+					"referencesColumn": "id",
+					"onDelete": "SET NULL"
+				},
+				{
+					"name": "ai_rate_limit_reservations_bucket_id_foreign",
+					"column": "bucket_id",
+					"referencesTable": "ai_rate_limit_buckets",
+					"referencesColumn": "id",
+					"onDelete": "CASCADE"
+				}
+			]
+		},
+		{
+			"name": "ai_requests",
+			"comment": "Audit log of AI provider requests and responses, used for debugging generated analysis and content features.",
+			"columns": [
+				{
+					"name": "cache_write_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Input tokens written into a billable provider prompt cache, when reported."
+				},
+				{
+					"name": "cached_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Cached input tokens reported by the provider, when available."
+				},
+				{
+					"name": "completed_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time this request was completed."
+				},
+				{
+					"name": "conversation_id",
+					"type": "char(26)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "AI conversation that groups this provider request with normalized messages."
+				},
+				{
+					"name": "cost_usd",
+					"type": "decimal(14,8)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Complete computed cost of this request in USD; null when any chargeable dimension is unpriced."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "duration_ms",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Duration of this request in milliseconds."
+				},
+				{
+					"name": "error_code",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Error code for this request."
+				},
+				{
+					"name": "error_message",
+					"type": "longtext",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Error message for this request."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable id for this AI request/response log entry."
+				},
+				{
+					"name": "input_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Number of input tokens used for this request."
+				},
+				{
+					"name": "known_cost_usd",
+					"type": "decimal(14,8)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Known provider-cost subtotal in USD, including priced portions of an incompletely priced request."
+				},
+				{
+					"name": "metadata",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Structured application metadata for this request."
+				},
+				{
+					"name": "model",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "AI model used for this request."
+				},
+				{
+					"name": "operation",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider operation used for this request.",
+					"default": "responses.create"
+				},
+				{
+					"name": "output_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Number of output tokens used for this request."
+				},
+				{
+					"name": "parent_ai_request_id",
+					"type": "char(26)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Immediate parent AI request that caused this request, used to total nested run costs without double counting."
+				},
+				{
+					"name": "provider",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "AI provider used for this request.",
+					"default": "openai"
+				},
+				{
+					"name": "provider_processing_ms",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider-reported processing duration in milliseconds."
+				},
+				{
+					"name": "provider_request_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Provider request id used for API troubleshooting."
+				},
+				{
+					"name": "rate_limit_bucket_id",
+					"type": "char(26)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Current-state rate-limit bucket used for this provider request; per-request headers live in rate_limit_snapshot."
+				},
+				{
+					"name": "rate_limit_snapshot",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Parsed provider rate-limit headers captured for this request as an audit snapshot."
+				},
+				{
+					"name": "reasoning_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Reasoning output tokens reported by the provider, when available."
+				},
+				{
+					"name": "request",
+					"type": "json",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Serialized request payload sent to the AI provider."
+				},
+				{
+					"name": "response",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Serialized response payload returned by the AI provider."
+				},
+				{
+					"name": "scope_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "started_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time this request was started."
+				},
+				{
+					"name": "status",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Status of this request.",
+					"default": "pending"
+				},
+				{
+					"name": "total_tokens",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Total tokens used for this request, when reported by the provider."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "ai_requests_conversation_id_index",
+					"columns": [
+						{
+							"name": "conversation_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_model_index",
+					"columns": [
+						{
+							"name": "model"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_operation_index",
+					"columns": [
+						{
+							"name": "operation"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_parent_ai_request_id_index",
+					"columns": [
+						{
+							"name": "parent_ai_request_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_provider_index",
+					"columns": [
+						{
+							"name": "provider"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_provider_request_id_index",
+					"columns": [
+						{
+							"name": "provider_request_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_rate_limit_bucket_id_index",
+					"columns": [
+						{
+							"name": "rate_limit_bucket_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_scope_id_index",
+					"columns": [
+						{
+							"name": "scope_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "ai_requests_user_id_index",
+					"columns": [
+						{
+							"name": "user_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": [
+				{
+					"name": "ai_requests_conversation_id_foreign",
+					"column": "conversation_id",
+					"referencesTable": "ai_conversations",
+					"referencesColumn": "id",
+					"onDelete": "SET NULL"
+				},
+				{
+					"name": "ai_requests_parent_ai_request_id_foreign",
+					"column": "parent_ai_request_id",
+					"referencesTable": "ai_requests",
+					"referencesColumn": "id",
+					"onDelete": "SET NULL"
+				},
+				{
+					"name": "ai_requests_rate_limit_bucket_id_foreign",
+					"column": "rate_limit_bucket_id",
+					"referencesTable": "ai_rate_limit_buckets",
+					"referencesColumn": "id",
+					"onDelete": "SET NULL"
+				}
+			]
+		},
+		{
+			"name": "auth_password_login_attempts",
+			"comment": null,
+			"columns": [
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "failed_attempts",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Consecutive wrong passwords for this identity.",
+					"default": 0
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "identity",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Normalized submitted email or configured identity; null for legacy digest-only rows until their next attempt."
+				},
+				{
+					"name": "identity_hash",
+					"type": "varchar(64)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": "SHA-256 of the normalized submitted identity; not tied to account existence."
+				},
+				{
+					"name": "suspended_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "When password recovery became required; no automatic expiry."
+				},
+				{
+					"name": "suspension_id",
+					"type": "varchar(36)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Unique suspension occurrence; prevents delayed recovery notices from referring to a later suspension."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Latest password sign-in or recovery activity, including refused suspended attempts."
+				}
+			],
+			"indexes": [
+				{
+					"name": "auth_password_login_attempts_updated_at_index",
+					"columns": [
+						{
+							"name": "updated_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "auth_providers",
+			"comment": "Authentication provider linked to a user account. Password credentials and external login identities share this table.",
+			"columns": [
+				{
+					"name": "avatar_url",
+					"type": "varchar(2048)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Avatar URL reported by the provider."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "email",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Email address reported or proven by this provider."
+				},
+				{
+					"name": "email_verified_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "When this provider proved the linked email address."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "label",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Human-friendly label for settings screens."
+				},
+				{
+					"name": "last_login_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Last time this provider was used to authenticate."
+				},
+				{
+					"name": "name",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Display name reported by the provider."
+				},
+				{
+					"name": "password",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Password hash for the built-in password provider. Null for external providers."
+				},
+				{
+					"name": "profile_json",
+					"type": "text",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Safe provider metadata captured during verification."
+				},
+				{
+					"name": "provider",
+					"type": "varchar(64)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Stable provider name such as password, google, or magic_link."
+				},
+				{
+					"name": "provider_user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Stable provider-owned user id. For password this is the normalized email address."
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "User account this authentication provider belongs to."
+				}
+			],
+			"indexes": [
+				{
+					"name": "auth_providers_provider_user_id_unique",
+					"columns": [
+						{
+							"name": "provider"
+						},
+						{
+							"name": "provider_user_id"
+						}
+					],
+					"unique": true,
+					"type": "normal"
+				},
+				{
+					"name": "auth_providers_user_id_index",
+					"columns": [
+						{
+							"name": "user_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "auth_providers_user_provider_unique",
+					"columns": [
+						{
+							"name": "user_id"
+						},
+						{
+							"name": "provider"
+						}
+					],
+					"unique": true,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "auth_tokens",
+			"comment": null,
+			"columns": [
+				{
+					"name": "browser",
+					"type": "varchar(64)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Parsed browser name used for account session displays."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "device",
+					"type": "varchar(120)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Parsed device model or category used for account session displays."
+				},
+				{
+					"name": "expires_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "ip_address",
+					"type": "varchar(45)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Latest client IP address observed while this session was active."
+				},
+				{
+					"name": "last_used_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "name",
+					"type": "varchar(120)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "operating_system",
+					"type": "varchar(64)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Parsed operating-system name used for account session displays."
+				},
+				{
+					"name": "revoked_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "When this bearer session was explicitly revoked."
+				},
+				{
+					"name": "token_hash",
+					"type": "varchar(64)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				},
+				{
+					"name": "user_agent",
+					"type": "longtext",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Raw client user-agent captured when this session was created."
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "auth_tokens_user_id_index",
+					"columns": [
+						{
+							"name": "user_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "collaboration_access",
+			"comment": null,
+			"columns": [
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "key",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		},
+		{
+			"name": "collaboration_rooms",
+			"comment": null,
+			"columns": [
+				{
+					"name": "contents",
+					"type": "json",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "name",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		},
+		{
+			"name": "in_app_messages",
+			"comment": null,
+			"columns": [
+				{
+					"name": "archived_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "content_hash",
+					"type": "varchar(64)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "deduplication_hash",
+					"type": "varchar(64)",
+					"nullable": true,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				},
+				{
+					"name": "dismissed_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "message",
+					"type": "json",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "presentation",
+					"type": "varchar(16)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "read_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "scope_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "scope_type",
+					"type": "varchar(80)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "type",
+					"type": "varchar(120)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "in_app_recipient_scope",
+					"columns": [
+						{
+							"name": "user_id"
+						},
+						{
+							"name": "scope_type"
+						},
+						{
+							"name": "scope_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "jobs",
+			"comment": null,
+			"columns": [
+				{
+					"name": "attempts",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null,
+					"default": 0
+				},
+				{
+					"name": "available_at",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "created_at",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "bigint unsigned auto_increment",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "payload",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "queue",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "reserved_at",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "jobs_available_at_index",
+					"columns": [
+						{
+							"name": "available_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "jobs_queue_index",
+					"columns": [
+						{
+							"name": "queue"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "jobs_reserved_at_index",
+					"columns": [
+						{
+							"name": "reserved_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "jobs_failed",
+			"comment": null,
+			"columns": [
+				{
+					"name": "connection",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "exception",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "failed_at",
+					"type": "timestamp",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "bigint unsigned auto_increment",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "payload",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "queue",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "uuid",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		},
+		{
+			"name": "notes",
+			"comment": null,
+			"columns": [
+				{
+					"name": "body",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "owner_id",
+					"type": "varchar(26)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "title",
+					"type": "varchar(120)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "notes_owner_id_index",
+					"columns": [
+						{
+							"name": "owner_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "password_reset_tokens",
+			"comment": null,
+			"columns": [
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "email",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "expires_at",
+					"type": "timestamp",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "token_hash",
+					"type": "varchar(64)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				},
+				{
+					"name": "used_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		},
+		{
+			"name": "scheduled_occurrences",
+			"comment": "Durable scheduler claims and lifecycle state for registered task occurrences.",
+			"columns": [
+				{
+					"name": "attempts",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Number of queue processing attempts observed.",
+					"default": 0
+				},
+				{
+					"name": "claimed_at",
+					"type": "timestamp(3)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Time at which a scheduler process won this occurrence claim."
+				},
+				{
+					"name": "dispatched_at",
+					"type": "timestamp(3)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Time at which the queue accepted the scheduled job."
+				},
+				{
+					"name": "finished_at",
+					"type": "timestamp(3)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Terminal scheduler or queue completion time."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Stable scheduled occurrence ULID."
+				},
+				{
+					"name": "job_name",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Durable queue job name for job occurrences."
+				},
+				{
+					"name": "kind",
+					"type": "varchar(20)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Whether this occurrence dispatches a job or runs an inline call."
+				},
+				{
+					"name": "last_error",
+					"type": "longtext",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Most recent dispatch, callback, retry, or terminal failure."
+				},
+				{
+					"name": "max_tries",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Maximum queue attempts configured for this job."
+				},
+				{
+					"name": "name",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Stable registered schedule name used for deduplication."
+				},
+				{
+					"name": "next_attempt_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Expected availability time after a retry or deferral."
+				},
+				{
+					"name": "queue_job_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Driver-owned queue job id after dispatch."
+				},
+				{
+					"name": "queue_job_uuid",
+					"type": "char(36)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Stable queue UUID retained across job attempts."
+				},
+				{
+					"name": "scheduled_for",
+					"type": "timestamp",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Canonical UTC minute represented by this occurrence."
+				},
+				{
+					"name": "started_at",
+					"type": "timestamp(3)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "First worker claim or inline callback start time."
+				},
+				{
+					"name": "status",
+					"type": "varchar(20)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Current scheduler or queue lifecycle state.",
+					"default": "claimed"
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp(3)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Most recent lifecycle state change."
+				}
+			],
+			"indexes": [
+				{
+					"name": "scheduled_occurrences_job_name_index",
+					"columns": [
+						{
+							"name": "job_name"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "scheduled_occurrences_name_scheduled_for_unique",
+					"columns": [
+						{
+							"name": "name"
+						},
+						{
+							"name": "scheduled_for"
+						}
+					],
+					"unique": true,
+					"type": "normal"
+				},
+				{
+					"name": "scheduled_occurrences_queue_job_id_index",
+					"columns": [
+						{
+							"name": "queue_job_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "scheduled_occurrences_queue_job_uuid_index",
+					"columns": [
+						{
+							"name": "queue_job_uuid"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "scheduled_occurrences_scheduled_for_index",
+					"columns": [
+						{
+							"name": "scheduled_for"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "scheduled_occurrences_status_scheduled_for_index",
+					"columns": [
+						{
+							"name": "status"
+						},
+						{
+							"name": "scheduled_for"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
+			"name": "users",
+			"comment": null,
+			"columns": [
+				{
+					"name": "avatar_url",
+					"type": "varchar(2048)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Account avatar URL. External providers may supply the initial value, while the account owns later changes."
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "email",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				},
+				{
+					"name": "email_verified_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "last_login_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "name",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "remember_token",
+					"type": "varchar(100)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "two_factor_confirmed_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "two_factor_recovery_codes",
+					"type": "text",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "two_factor_secret",
+					"type": "longtext",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "updated_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		}
+	]
+}

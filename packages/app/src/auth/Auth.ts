@@ -1,4 +1,5 @@
 import { ActiveRecord, type Database } from '../db';
+import type { Knex } from 'knex';
 import { isPromiseLike } from '@db3.ai/pure';
 import type { Config } from '../config';
 import { AuthProvider, PASSWORD_AUTH_PROVIDER } from './AuthProvider';
@@ -649,6 +650,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 
 	/**
 	 * Changes a user's password provider after verifying the current password.
+	 * Password replacement, recovery-link invalidation and revocation of every
+	 * bearer session (including the current session) commit together.
 	 *
 	 * @param user - User whose password should change.
 	 * @param currentPassword - Current plaintext password for verification.
@@ -660,13 +663,19 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		currentPassword: string,
 		nextPassword: string,
 	): Promise<boolean> {
-		return ActiveRecord.withDb(this.db.knex, () => {
-			return this.passwordProvider().changePassword(
-				user,
-				currentPassword,
-				nextPassword,
-			);
-		});
+		const userId = this.userPrimaryKey(user);
+		if (!userId) return false;
+
+		const changed = await this.db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+			const lockedUser = await this.#lockIdentity(userId, transaction);
+			if (!lockedUser) return false;
+			if (!await this.passwordProvider().changePassword(lockedUser, currentPassword, nextPassword)) return false;
+			await this.#invalidatePasswordRecovery(userId, transaction);
+			return true;
+		}));
+
+		if (changed) this.#forgetRevokedUser(userId);
+		return changed;
 	}
 
 	/**
@@ -762,6 +771,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 
 	/**
 	 * Resets the password provider using a valid password reset token.
+	 * Serializes recovery for an account and atomically invalidates every existing
+	 * session and recovery link. Failed validation leaves credentials unchanged.
 	 *
 	 * @param input - Reset token, new password, and optional identity value.
 	 * @returns Identity whose password changed, or null when redemption fails.
@@ -782,25 +793,57 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return null;
 		}
 
-		const user = await this.IdentityModel.findByPk(
-			tokenRecord.userId,
-			this.db.knex,
-		);
+		if (!tokenRecord.userId) return null;
+		const user = await this.db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+			const lockedUser = await this.#lockIdentity(tokenRecord.userId!, transaction);
+			if (!lockedUser) return null;
 
-		if (!user) {
-			return null;
+			// A locking read sees a competing redemption's committed state after
+			// waiting for the account lock, including under repeatable-read SQL.
+			const row = await this.PasswordResetTokenModel.query(transaction)
+				.where('id', tokenRecord.id).toKnex().forUpdate().first();
+			const current = row ? this.PasswordResetTokenModel.fromDb(row, transaction) : null;
+			if (!current?.isUsable() || !await this.passwordResetIdentityMatches(input, lockedUser)) return null;
+
+			await this.passwordProvider().recoverPassword(lockedUser, input.password);
+			await this.#invalidatePasswordRecovery(tokenRecord.userId!, transaction);
+			return lockedUser;
+		}));
+
+		if (user) {
+			user.setDb(this.db.knex);
+			this.#forgetRevokedUser(this.userPrimaryKey(user)!);
 		}
-
-		if (!await this.passwordResetIdentityMatches(input, user)) {
-			return null;
-		}
-
-		await this.setPasswordProvider(user, input.password);
-
-		tokenRecord.markUsed();
-		await tokenRecord.save();
-
 		return user;
+	}
+
+	/** Locks the account row to serialize concurrent password replacements. */
+	async #lockIdentity(userId: string, transaction: Knex.Transaction): Promise<TIdentity | null> {
+		const row = await this.IdentityModel.query(transaction)
+			.where(this.IdentityModel.primaryKey, userId).toKnex().forUpdate().first();
+		return row ? this.IdentityModel.fromDb(row, transaction) as TIdentity : null;
+	}
+
+	/** Invalidates recovery links and sessions within the password transaction. */
+	async #invalidatePasswordRecovery(userId: string, transaction: Knex.Transaction): Promise<void> {
+		await this.PasswordResetTokenModel.query(transaction)
+			.where('userId', userId).whereNull('usedAt').patch({ usedAt: new Date() });
+		await this.#revokeTokens(userId, transaction);
+	}
+
+	/** Applies session revocation on the owning connection or password transaction. */
+	async #revokeTokens(userId: string, connection: Knex): Promise<number> {
+		return this.TokenModel.query(connection)
+			.where('userId', userId).whereNull('revokedAt').patch({ revokedAt: new Date() });
+	}
+
+	/** Discards cached bearer authentication after committed account revocation. */
+	#forgetRevokedUser(userId: string): void {
+		if (this.requestContext?.active) {
+			const key = `${AUTH_TOKEN_CONTEXT_KEY_PREFIX}.${this.TokenModel.table}.revision`;
+			this.requestContext.set(key, (this.requestContext.get<number>(key) ?? 0) + 1);
+		}
+		if (this.user && this.userPrimaryKey(this.user) === userId) this.logout();
 	}
 
 	/**
@@ -898,6 +941,26 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 	}
 
 	/**
+	 * Revokes all bearer sessions for an account, including the current device.
+	 *
+	 * Apps must authorize the supplied account before calling this method. Tokens
+	 * are rejected on subsequent requests; already-running requests can finish.
+	 * Revoked rows are retained for audit. New sign-ins remain possible.
+	 *
+	 * @param user - Authorized account whose sessions should end.
+	 * @returns Number of previously unrevoked token rows changed, including expired rows.
+	 * @example
+	 * await app.auth.revokeAllTokens(authenticatedUser);
+	 */
+	async revokeAllTokens(user: TIdentity): Promise<number> {
+		const userId = this.userPrimaryKey(user);
+		if (!userId) return 0;
+		const count = await this.#revokeTokens(userId, this.db.knex);
+		this.#forgetRevokedUser(userId);
+		return count;
+	}
+
+	/**
 	 * Revokes one bearer session owned by a user.
 	 *
 	 * @param user - Account that owns the session.
@@ -947,7 +1010,9 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 	 * @returns Request-context cache key.
 	 */
 	private tokenContextKey(tokenHash: string): string {
-		return `${AUTH_TOKEN_CONTEXT_KEY_PREFIX}.${this.TokenModel.table}.${tokenHash}`;
+		const prefix = `${AUTH_TOKEN_CONTEXT_KEY_PREFIX}.${this.TokenModel.table}`;
+		const revision = this.requestContext?.get<number>(`${prefix}.revision`) ?? 0;
+		return `${prefix}.${revision}.${tokenHash}`;
 	}
 
 	/**
@@ -1299,7 +1364,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return true;
 		}
 
-		const inputUser = await this.findIdentity(input);
+		const inputUser = await this.IdentityModel.query()
+			.where(identityField, inputIdentity).first();
 
 		return inputUser?.get(this.IdentityModel.primaryKey) === user.get(this.IdentityModel.primaryKey);
 	}

@@ -6,12 +6,13 @@ const NPM_REGISTRY = 'https://registry.npmjs.org/';
 /**
  * Framework packages in their mandatory verification and publication order.
  *
- * App consumes the matching Pure version, so callers must never reverse this
+ * App consumes Pure and Create generates apps pinned to App. Preserve this
  * order when packing, staging, approving, or publishing a release.
  */
 export const FRAMEWORK_RELEASE_PACKAGES = Object.freeze([
 	Object.freeze({ directory: 'pure', name: '@db3.ai/pure' }),
 	Object.freeze({ directory: 'app', name: '@db3.ai/app' }),
+	Object.freeze({ directory: 'create', name: '@db3.ai/create' }),
 ]);
 
 /**
@@ -158,6 +159,9 @@ export function collectReleaseArtifactIssues(candidate) {
 	if (appManifest?.dependencies?.['@db3.ai/pure'] !== candidate.version) {
 		issues.push(`@db3.ai/app must depend on @db3.ai/pure at exact version ${candidate.version}.`);
 	}
+	if (candidate.packages.create?.templateManifest?.dependencies?.['@db3.ai/app'] !== candidate.version) {
+		issues.push(`Create's template must depend on @db3.ai/app at exact version ${candidate.version}.`);
+	}
 
 	return issues;
 }
@@ -186,7 +190,7 @@ export function collectSourceReleaseIssues(source) {
 			continue;
 		}
 
-		if (!isSourceFrameworkPackageName(manifest.name, packageDefinition.directory)) {
+		if (manifest.name !== packageDefinition.name) {
 			issues.push(`Checked-in ${packageDefinition.name} source has unexpected name "${String(manifest.name)}".`);
 		}
 
@@ -204,20 +208,20 @@ export function collectSourceReleaseIssues(source) {
 	}
 
 	const appDependencies = source.packages.app?.dependencies ?? {};
-	const pureSourceName = source.packages.pure?.name;
-	const pureDependency = typeof pureSourceName === 'string'
-		? appDependencies[pureSourceName]
-		: undefined;
+	const pureDependency = appDependencies['@db3.ai/pure'];
 
 	if (pureDependency !== source.version) {
 		issues.push(`Checked-in App must depend on Pure at exact version ${source.version}.`);
 	}
 
 	const alternatePureDependencies = Object.keys(appDependencies)
-		.filter((dependencyName) => dependencyName !== pureSourceName && isSourceFrameworkPackageName(dependencyName, 'pure'));
+		.filter((dependencyName) => dependencyName !== '@db3.ai/pure' && isSourceFrameworkPackageName(dependencyName, 'pure'));
 
 	if (alternatePureDependencies.length > 0) {
 		issues.push('Checked-in App must depend only on the checked-in Pure package identity.');
+	}
+	if (source.templateManifest?.dependencies?.['@db3.ai/app'] !== source.version) {
+		issues.push(`Checked-in Create template must depend on App at exact version ${source.version}.`);
 	}
 
 	return issues;
@@ -234,7 +238,10 @@ export function assertPackageInspection(expected, inspection) {
 	const issues = [];
 	const files = Array.isArray(inspection.files) ? inspection.files : [];
 	const filePaths = files.map((file) => file?.path).filter((path) => typeof path === 'string');
-	const requiredFiles = ['package.json', 'README.md', 'LICENSE', 'dist/index.js', 'dist/index.d.ts'];
+	const isCreator = expected.name === '@db3.ai/create';
+	const requiredFiles = ['package.json', 'README.md', 'LICENSE', ...(isCreator
+		? ['bin/create.mjs', 'src/createProject.mjs', 'template/package.json', 'template/.env.example', 'template/server/app.ts', 'template/tests/app.test.ts']
+		: ['dist/index.js', 'dist/index.d.ts'])];
 
 	if (inspection.name !== expected.name) {
 		issues.push(`npm pack reported package name "${String(inspection.name)}" instead of "${expected.name}".`);
@@ -255,15 +262,16 @@ export function assertPackageInspection(expected, inspection) {
 			issues.push(`${expected.name} tarball contains unsafe path "${filePath}".`);
 		}
 
-		if (/(^|\/)(tests|coverage|node_modules|\.github)(\/|$)/.test(filePath)) {
+		if (/(^|\/)(coverage|node_modules|\.github)(\/|$)/.test(filePath)
+			|| (/(^|\/)tests(\/|$)/.test(filePath) && !(isCreator && filePath.startsWith('template/tests/')))) {
 			issues.push(`${expected.name} tarball contains repository-only path "${filePath}".`);
 		}
 
-		if (/(^|\/)\.env(?:\.|$)/.test(filePath) || /(^|\/)package-lock\.json$/.test(filePath)) {
+		if ((/(^|\/)\.env(?:\.|$)/.test(filePath) && !(isCreator && filePath === 'template/.env.example')) || /(^|\/)package-lock\.json$/.test(filePath)) {
 			issues.push(`${expected.name} tarball contains sensitive or repository-only file "${filePath}".`);
 		}
 
-		if (filePath.endsWith('.map') || /(^|\/)tsconfig(?:\.[^/]*)?\.json$/.test(filePath)) {
+		if (filePath.endsWith('.map') || (/^(.+\/)?tsconfig(?:\.[^/]*)?\.json$/.test(filePath) && !(isCreator && (filePath === 'template/tsconfig.json' || /^template\/apps\/[a-z][a-z0-9_]*\/tsconfig\.build\.json$/.test(filePath))))) {
 			issues.push(`${expected.name} tarball contains build-only file "${filePath}".`);
 		}
 	}
@@ -328,15 +336,14 @@ function collectPackageManifestIssues(issues, definition, stagedPackage, version
 }
 
 /**
- * Reports whether a checked-in package name identifies the expected framework unit.
+ * Recognizes scoped framework basenames when rejecting alternate dependency identities.
  *
- * Source workspaces may use an internal scope before export, while the public
- * repository uses the final npm scope. Requiring the expected package basename
- * keeps the release policy portable without trusting one private namespace.
+ * Source and published packages share one public identity. Other scopes with
+ * the same basename must not introduce a second copy of a framework dependency.
  *
- * @param {unknown} packageName - Checked-in package name to validate.
+ * @param {unknown} packageName - Dependency package name to inspect.
  * @param {string} directory - Framework package directory and required basename.
- * @returns {packageName is string} True for a valid scoped source package name.
+ * @returns {packageName is string} True for a scoped package with the required basename.
  */
 function isSourceFrameworkPackageName(packageName, directory) {
 	return typeof packageName === 'string'
@@ -344,13 +351,13 @@ function isSourceFrameworkPackageName(packageName, directory) {
 }
 
 /**
- * Finds scoped App and Pure package references anywhere in a staged manifest.
+ * Finds scoped framework package references anywhere in a staged manifest.
  *
  * @param {Record<string, any>} manifest - Staged package manifest.
  * @returns {string[]} Unique framework package references found in the manifest.
  */
 function findFrameworkPackageReferences(manifest) {
-	const matches = JSON.stringify(manifest).match(/@[a-z0-9][a-z0-9._-]*\/(?:app|pure)\b/g) ?? [];
+	const matches = JSON.stringify(manifest).match(/@[a-z0-9][a-z0-9._-]*\/(?:app|pure|create)\b/g) ?? [];
 
 	return [...new Set(matches)];
 }

@@ -50,6 +50,8 @@ export interface QueueFailedJob {
  * recording. Queue owns handler execution and retry decisions.
  */
 export interface QueueDriver {
+	/** Inspects pending, delayed, reserved and chained work for maintenance; callers must quiesce producers first. */
+	hasPendingJobs?(jobPrefix: string): Promise<boolean>;
 	/** Driver name stored on failed job records and shown in diagnostics. */
 	readonly name: QueueDriverName | string;
 

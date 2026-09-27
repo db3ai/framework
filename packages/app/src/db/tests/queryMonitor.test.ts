@@ -181,9 +181,9 @@ describe('QueryMonitor', () => {
 
 		expect(defaultQueryMonitorOptions({
 			NODE_ENV: 'development',
-			npm_package_name: 'scout',
+			npm_package_name: 'example-app',
 		})).toMatchObject({
-			source: 'scout',
+			source: 'example-app',
 			includeBindings: true,
 			slowMs: 0,
 		});

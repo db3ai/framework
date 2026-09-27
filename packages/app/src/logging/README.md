@@ -4,27 +4,6 @@
 `app().log`. Pino is the default driver, while the framework owns service discovery,
 configuration, redaction, transport selection, and shutdown.
 
-## Run a structured logging lab
-
-From your independent app after [Installation](https://db3.ai/docs/installation):
-
-```sh
-mkdir -p examples
-cp -R node_modules/@db3.ai/app/src/logging/examples/. examples/
-npx tsx examples/runNoteLogs.ts
-```
-
-This captures the real Pino driver's output in a writable stream, with devtools HTTP delivery disabled. Expect three records: `Note saved`, `Summary failed`, and `Diagnostics enabled`. The first debug message is filtered, then changing `log.level` enables debug output. Changing it to silent suppresses later errors. The output omits unstable metadata and stack text only for readability.
-
-The [Logging guide](https://db3.ai/docs/logging#testing) contains the exact consumer test. Save it as `tests/logging/runNoteLogs.test.ts` and run:
-
-```sh
-npx vitest run tests/logging/runNoteLogs.test.ts
-npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --types node --skipLibCheck examples/*.ts
-```
-
-The test asserts structured context, error serialization, level changes and the absence of synthetic password/token/provider-key values. It uses the real logger, not a framework mock. This does not prove remote log ingestion or retention.
-
 ## Writing Logs
 
 Prefer a short message plus structured fields:
@@ -81,14 +60,18 @@ Supported environment values:
 
 - `PLATFORM_LOG_LEVEL`: minimum standard log level.
 - `PLATFORM_LOG_SOURCE`: source name copied to every record.
+- `PLATFORM_LOG_FORMAT`: console presentation: `auto`, `pretty`, or `json`.
 - `PLATFORM_LOG_DEVTOOLS`: explicitly enables or disables devtools delivery.
 - `PLATFORM_DEVTOOLS_EVENTS_URL`: complete development ingestion endpoint.
 - `PLATFORM_DEVTOOLS_HOST`: development service host when no URL is supplied.
 - `PLATFORM_DEVTOOLS_API_PORT`: development service port, defaulting to `9998`.
 
-Newline-delimited JSON is written to standard output by default. Interactive
-development also enables the framework devtools transport automatically. Tests
-do not enable network delivery unless explicitly configured.
+Development terminals show live pending requests and grouped request/response
+blocks. Production, tests and pipes keep structured JSON. `consoleFormat` or
+`PLATFORM_LOG_FORMAT` selects `auto`, `pretty` or `json`; files/devtools stay
+structured. See the [development logging guide](development/README.md) for payload
+capture, preview limits, terminal lifecycle, multi-process launchers and runnable
+examples. Tests only enable devtools network delivery when explicitly configured.
 
 ## Development Log Stream
 
@@ -137,3 +120,11 @@ framework event bus and must not trigger application behavior.
 Database query events, queue lifecycle events, and durable flow events retain
 their own typed contracts. They can be correlated with logs through fields such
 as `requestId`, `jobId`, `websiteId`, `flowId`, and `component`.
+
+## Persistent JSON files
+
+Set `log.file` or `PLATFORM_LOG_FILE` to append the same redacted JSON records to
+a persistent file, in addition to stdout unless `console: false`. Parent
+directories are created by the Pino file transport. `App.close()` flushes and
+closes the transport. Mount the destination outside ephemeral containers and
+configure rotation, retention, permissions and capacity monitoring externally.

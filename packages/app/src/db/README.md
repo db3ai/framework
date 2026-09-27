@@ -5,6 +5,75 @@ only a database-column description; it owns the lifecycle of one logical value
 as it moves between request/input data, app memory, storage, and display/API
 data.
 
+## Define an inferred model
+
+Prefer `ActiveRecord.define()` for new models. Declare fields once and infer model properties
+and constructor/`create()` inputs. Extend the returned class with ordinary
+instance and static methods. The [user example](examples/DefinedUser.ts) is a
+complete model with an inferred email property and a domain method.
+
+```ts
+import { ActiveRecord } from '@db3.ai/app/db';
+
+class User extends ActiveRecord.define({
+	table: 'users',
+	fields: field => ({
+		id: field.ulid({ primary: true }),
+		email: field.email({ required: true }),
+	}),
+}) {}
+
+const user = User.create({ email: ' USER@EXAMPLE.COM ' });
+// user.email is string | null, with the value 'user@example.com'.
+// create() returns immediately; the row is not saved yet.
+await user.save();
+```
+
+Configure the active application and table before saving, as described below.
+`define()` itself performs no database work and does not generate migrations.
+
+`class Admin extends User { ... }` retains inferred fields. `User.define({
+fields: field => ({ ... }) })` adds another layer, including all inherited
+fields. The normal `create()`, query, lookup, hydration and `useDb()` statics
+retain their actual receiver type, including methods added by later subclasses.
+
+A matching field name replaces the entire inherited definition, so repeat any
+configuration you still need. TypeScript requires overrides to preserve the
+application and input value types, protecting methods inherited from the base.
+Fields cannot replace existing non-field public instance members. Other settings
+inherit unless supplied, including table, primary key, request guards and soft
+deletes. Define a new root model if a field needs a different value type.
+
+Factories use the existing builder and accept field instances, field classes,
+and `{ type, config }` definitions. Field metadata is resolved per model; each
+record clones and binds its own live fields. Cloneable literal defaults, such
+as JSON objects and arrays, are copied for each record. Use default factories
+for custom objects that cannot be copied safely. Values explicitly assigned by
+reference retain the existing field's parsing and reference semantics.
+
+Properties describe application values. `required: true` is a runtime validation
+rule and does not remove `null` from a field's TypeScript value. Inputs use the
+field's existing `TInput`: many built-in fields intentionally accept `unknown`.
+For example, password properties read as `null`; provide plaintext through
+`create({ password })`, the constructor, or `assign({ password })`. Property
+writes use the same field setter at runtime, but TypeScript checks them against
+the application value type. `assign()` and request filling retain their existing
+dynamic input behavior. JSON generics do not validate nested input shapes.
+
+`ActiveRecord.InferInput<typeof User>`, `InferValue`, `InferDbRow` and
+`InferDisplay` work with the complete composed field map. Constructor and
+`create()` input fields are optional because records may be filled before
+validation or saving. Unknown keys in object literals are rejected by these
+typed constructors; runtime request filling still follows the existing policy.
+The concrete field map remains available through `typeof User.fields`.
+
+Existing `class User extends ActiveRecord` declarations remain supported, and
+can be extended with `define()`. Their static `fields()` overrides keep their
+existing behavior: use `...super.fields(field)` to include parent definitions.
+Dynamic field maps retain runtime behavior but cannot infer names unknown to
+TypeScript. The typed instance `getField()` API is not part of this change;
+`getBoundField(name)` continues to return the existing live field.
+
 ## Start With Workspace Notes
 
 The [note model](examples/KnowledgeNote.ts),
@@ -42,6 +111,29 @@ Use Node.js 24, MariaDB and credentials allowed to create/drop generated `db3_ap
 The [Fields walkthrough](https://db3.ai/docs/fields) demonstrates a reusable uppercase code field, normalized tags, nested JSON, ownership protection and hidden encrypted storage. Expect `BRIEF-1`, `["SEO", "Agency"]` and true protection flags. JSON generics describe types but do not validate nested shapes.
 
 The [Migrations walkthrough](https://db3.ai/docs/migrations) creates a note, refuses an unsafe required column without changing source, then applies a nullable replacement and checks the original data remains. This is the tested foundation for a real app's make/review/migrate/check workflow, not boot-time schema synchronization.
+
+`databaseCommands` from `@db3.ai/app/db/commands` registers `db:migrate`,
+`db:check` and `db:make-migration` through the shared [framework CLI](../cli/README.md).
+Each action has its own file under `db/commands/` and uses `app().db.migrations`.
+Supply only the model registry with `dbOptions: { migrations: { models } }`.
+The database service uses `server/database/migrations/` and
+`server/database/schema.snapshot.json` under `app().directory`, supplies the
+connection and dialect, and lazily creates the manager. No app-owned
+`migrations.ts` configuration file or migration path settings are needed.
+Register the command array in `server/cli.config.ts`.
+
+The app directory defaults to the working directory when `new App()` runs.
+The starter anchors it with `directory: new URL('../', import.meta.url)` in
+`server/app.ts`, so importing the app from elsewhere still uses its own files.
+The low-level `DatabaseMigrationManager` retains explicit paths for standalone
+tooling and disposable migration labs; app service paths follow the convention.
+
+The exported `migrate()`, `check()` and `makeMigration(options)` functions return
+ordinary results for application or authorized UI handlers in an existing app
+context. Commands retain the manager's validation, production restrictions and
+source-generation rules. The CLI owns startup and shutdown; direct action
+callers retain ownership of their app. App migration files and model registries live
+under `server/database/`.
 
 Copy the exact website tests to `tests/db/runFieldNotes.test.ts` and `tests/db/runNoteMigrations.test.ts`, then run:
 
@@ -81,7 +173,7 @@ automation should be thin adapters around that one configured manager.
 
 The intended command contract is:
 
-- `db:make:migration` compares current models with the committed snapshot,
+- `db:make-migration` compares current models with the committed snapshot,
 	writes one reviewable Knex migration for supported changes, and advances the
 	snapshot. Nullable columns, required columns with static defaults, ordinary
 	non-unique indexes, and static default changes are generated automatically.
@@ -414,3 +506,30 @@ class:
 Prefer normalising invalid input into a stable internal value and reporting
 problems through validation errors. Throw from parsing only for programmer
 errors or truly unrecoverable input.
+
+## Lock a row during a transaction
+
+Use `forUpdate()` when a read and subsequent update must exclude competing
+writers. It delegates to Knex's `forUpdate()` while keeping typed model results:
+
+```ts
+await app().db.transaction(async () => {
+	const user = await User.where('id', userId).forUpdate().firstOrFail();
+	// Read and update protected state here, then save the model.
+	await user.save();
+});
+```
+
+Create the query inside the transaction. `forUpdate()` adds the SQL lock clause;
+it does not open a transaction itself. The database releases locks on commit or
+rollback, including rollback when the callback throws. A terminated database
+connection also rolls back its transaction. Without an explicit transaction,
+autocommitted queries do not keep a useful lock across separate operations.
+Keep transactions short and avoid email, network requests or user input while
+holding locks. Ordinary consistent reads can still read committed state; locks
+coordinate competing writes and locking reads, not every reader. Actual lock
+scope and supported options depend on the database engine and indexes.
+
+`ActiveRecord.getScopedDb()` exposes only the explicit `withDb` connection, or
+`undefined`. It is an infrastructure-adapter seam for transaction participation;
+normal model/application code should continue using model APIs and `getDb()`.

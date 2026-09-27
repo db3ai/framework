@@ -6,3 +6,5 @@ export * from './QueueableJob';
 export * from './QueueService';
 export * from './QueueWorkerLifecycle';
 export * from './RedisQueueDriver';
+export * from './CreateJob';
+export type { QueueJobRunner } from './QueueJobRunner';

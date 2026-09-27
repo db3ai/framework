@@ -7,7 +7,7 @@ import { dailyScheduleIsDue, normalizeDailyTime, normalizeScheduleTimezone } fro
 export abstract class ScheduledEvent {
 	abstract readonly kind: scheduler.ScheduledTaskKind;
 	protected configuredName: string | null = null;
-	protected configuredFrequency: scheduler.DailyScheduleFrequency | null = null;
+	protected configuredFrequency: scheduler.ScheduleFrequency | null = null;
 	protected configuredTimezone = 'UTC';
 
 	/**
@@ -29,6 +29,18 @@ export abstract class ScheduledEvent {
 
 		this.configuredName = normalized;
 
+		return this;
+	}
+
+	/** Schedules one occurrence for each evaluated UTC minute, independent of timezone. */
+	everyMinute(): this {
+		this.configuredFrequency = { type: 'minute' };
+		return this;
+	}
+
+	/** Schedules one occurrence at minute zero of each UTC hour, independent of timezone. */
+	hourly(): this {
+		this.configuredFrequency = { type: 'hourly' };
 		return this;
 	}
 
@@ -72,10 +84,13 @@ export abstract class ScheduledEvent {
 	 * Returns whether this event is due at one canonical UTC minute.
 	 *
 	 * @param instant - UTC minute being evaluated.
-	 * @returns True when the configured daily time matches.
+	 * @returns True when the configured frequency matches a valid minute.
 	 */
 	isDue(instant: Date): boolean {
 		const frequency = this.frequency();
+
+		if (frequency.type === 'minute') return Number.isFinite(instant.getTime());
+		if (frequency.type === 'hourly') return Number.isFinite(instant.getTime()) && instant.getUTCMinutes() === 0;
 
 		return dailyScheduleIsDue(
 			instant,
@@ -119,11 +134,11 @@ export abstract class ScheduledEvent {
 	}
 
 	/**
-	 * Returns the daily frequency or throws when none was configured.
+	 * Returns the frequency or throws when none was configured.
 	 *
-	 * @returns Configured daily frequency.
+	 * @returns Configured frequency.
 	 */
-	private frequency(): scheduler.DailyScheduleFrequency {
+	private frequency(): scheduler.ScheduleFrequency {
 		if (!this.configuredFrequency) {
 			throw new Error(`Scheduled event "${this.resolvedName()}" requires a frequency.`);
 		}

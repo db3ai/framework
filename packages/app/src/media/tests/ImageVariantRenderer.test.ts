@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Transform, type Readable } from 'node:stream';
@@ -78,8 +78,8 @@ describe('ImageVariantRenderer', () => {
 		})).rejects.toThrow('Image width must be an integer between 1 and 4096.');
 	});
 
-	it('rejects a missing source without crashing the image process', async () => {
-		const { media, storage } = await createImageRenderer();
+	it('rejects a missing source after cleaning up all partial cache writes', async () => {
+		const { cacheRoot, media, storage } = await createImageRenderer();
 		const file = managedImageFile(1);
 		const variantPath = 'image-cache/v1/01K123456789ABCDEFGHJKMNR1/w-300.webp';
 
@@ -87,6 +87,7 @@ describe('ImageVariantRenderer', () => {
 			width: 300,
 		})).rejects.toThrow();
 		await expect(storage.disk('tmp').exists(variantPath)).resolves.toBe(false);
+		expect((await readdir(cacheRoot, { recursive: true })).filter(path => path.includes('.tmp-'))).toEqual([]);
 	});
 
 	it('compresses the original dimensions when width is omitted', async () => {

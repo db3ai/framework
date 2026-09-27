@@ -31,6 +31,9 @@ export interface DatabaseMigrationManagerOptions {
 	/** Migration file extensions Knex may load. */
 	loadExtensions?: readonly string[];
 
+	/** Generated migration format. Use .mjs for assets shared unchanged with npm packages. */
+	migrationExtension?: '.ts' | '.mjs';
+
 	/** Current application environment. Source generation is refused in production. */
 	environment?: string;
 
@@ -140,4 +143,10 @@ export interface DatabaseSyncResult {
 	make: MakeMigrationResult;
 	migrate: MigrateResult | null;
 	check: DatabaseCheckResult | null;
+}
+
+/** Result of executing the latest migration's app-authored down function. */
+export interface RollbackResult {
+	reverted: string[];
+	batch: number | null;
 }

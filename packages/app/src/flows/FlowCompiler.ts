@@ -4,7 +4,7 @@ import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE } from './blocks';
 import type { CompiledFlowBlock, CompiledFlowDefinition, FlowBlockDefinition, FlowBlockInstance, FlowConnection, FlowDefinition, FlowExecutionDefinition, FlowValueDefinition, FlowValueDefinitions } from './contracts';
 import { FlowBlockRegistry } from './FlowBlockRegistry';
 import { FlowDefinitionError, type FlowDefinitionIssue } from './FlowDefinitionError';
-import { matchesDefinition, validateFlowValues } from './FlowValueValidator';
+import { matchesDefinition, validateFlowValues } from './flowValueValidator';
 
 const FLOW_VALUE_TYPES = new Set([
 	'string',

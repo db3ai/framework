@@ -1,6 +1,7 @@
 {
 	"name": "@db3.ai/create",
-	"version": "0.1.0",
+	"private": true,
+	"version": "0.1.0-beta.2",
 	"description": "Create a DB3 app with authentication, private notes and optional AI.",
 	"type": "module",
 	"license": "MIT",
@@ -27,7 +28,6 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"private": true,
 	"homepage": "https://db3.ai/",
 	"bugs": {
 		"url": "https://github.com/db3ai/framework/issues"

@@ -4,6 +4,68 @@ Creates an independent Vue/DOM Studio + Fastify app using `@db3.ai/app`.
 The starter has password registration/login, private notes and optional AI note
 summaries. The developer supplies their own server-side OpenAI key.
 
+## Develop the starter in this repository
+
+`apps/starter` is the runnable application and the single source for generated
+apps. Use it to try framework features through real routes, screens, models and
+tests. Keep the initial login and notes journey simple; add optional feature
+examples without requiring every external service just to start the app.
+
+The default app layout is `client/` for the browser application and `server/`
+for the backend, with committed migrations under `server/database/` and behaviour
+tests under `tests/`. Generated apps preserve that same structure.
+
+Generated apps also include a root `AGENTS.md`. It directs AI coding tools to
+the installed `@db3.ai/app/agent-instructions` export and carries the concise
+framework naming rules, including PascalCase for class-owning TypeScript files
+and Vue components. Application-specific product instructions can be added
+outside the marked framework block.
+
+The app registers framework service commands in `server/cli.config.ts`.
+Its database npm scripts invoke the framework-owned `db3` executable.
+
+From the repository root, with Node.js 24 or newer:
+
+```sh
+npm ci
+cp apps/starter/.env.example apps/starter/.env
+```
+
+Configure the dedicated application database and test account described in
+`apps/starter/README.md`, then run from the repository root:
+
+```sh
+npm run db:migrate --workspace db3-starter
+npm run dev:starter
+```
+
+The workspace resolves `@db3.ai/app` and `@db3.ai/pure` to local framework source.
+Run `npm run build --workspace db3-starter` and `npm test --workspace db3-starter`
+to check the application. Its `.env` supplies the separate `TEST_DB_*` settings.
+No AI key is required for login, notes or automated tests.
+
+The starter declares the shared Tiptap core and ProseMirror runtime used by DOM
+Studio and deduplicates them with Vue in Vite. This keeps DOM Studio's nested
+editor extensions on one runtime in both workspace and independent installs.
+The starter overrides DOM Studio's older code-block and table extension pins
+to patched Tiptap releases. The public framework workspace carries the same
+overrides at its root, where npm applies workspace dependency overrides.
+
+The creator runs directly from source too:
+
+```sh
+node packages/create/bin/create.mjs ../my-app --no-install
+```
+
+Before npm publication, that independent app still needs the matching framework
+packages from the preview instructions below. Workspace development does not
+prove that a published package contains all required files and dependencies.
+
+Packaging includes a clean copy of `apps/starter` under the released creator's
+`template/` directory. Do not maintain a second template in source. The shared
+file selector excludes local credentials, installs, build output and runtime
+artifacts, and rejects symbolic links and unreviewed source roots.
+
 ## Release command
 
 **Not published yet.** Once Create, App and Pure are published together:
@@ -27,7 +89,7 @@ From this framework checkout:
 npm run framework:package
 npm pack ./dist/framework-packages/pure --pack-destination ./dist/framework-packages
 npm pack ./dist/framework-packages/app --pack-destination ./dist/framework-packages
-npm pack ./packages/create --pack-destination ./dist/framework-packages
+npm pack ./dist/framework-packages/create --pack-destination ./dist/framework-packages
 ```
 
 Give preview users the three tarballs. Outside this repository, replace the
@@ -53,6 +115,6 @@ Create is included in the framework-only public source export. The source
 workspace remains private in npm metadata to prevent accidental publication;
 the three-tarball preview above still works. It is not an npm release.
 
-Release TODO: staging/publishing for Create, existing framework
+Release TODO: npm publishing for Create, existing framework
 release gates, DOM Studio redistribution terms, and a documented production
 deployment. This package does not publish or deploy any app automatically.

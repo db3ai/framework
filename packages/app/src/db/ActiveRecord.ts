@@ -35,6 +35,7 @@ import type { FieldBuilder } from './fields/field';
 import { RecordNotFoundError, type ActiveRecordLookup } from './errors';
 import { activeAppDatabase } from '../server/appContext';
 import type { ValidationRules } from '../validation';
+import type * as db from './contracts';
 
 export type { FieldBuilder } from './fields/field';
 export { RecordNotFoundError } from './errors';
@@ -127,6 +128,9 @@ export type ActiveRecordClass<TRecord extends ActiveRecord = ActiveRecord> = Act
 	/** Static field definitions for the model. */
 	fields(field: FieldBuilder): FieldInputMap;
 
+	/** Creates an inferred subclass with inherited and additional field definitions. */
+	define: typeof ActiveRecord.define;
+
 	/** Resolved static field definitions for the model. */
 	getFields(): FieldMap;
 
@@ -163,7 +167,7 @@ export type ActiveRecordClass<TRecord extends ActiveRecord = ActiveRecord> = Act
 	/** Creates a new unsaved record bound to the model's current database. */
 	create<TModel extends ActiveRecordConstructor>(
 		this: TModel,
-		input?: Record<string, unknown>,
+		input?: NoInfer<ConstructorParameters<TModel>[0]>,
 		options?: Omit<ActiveRecordOptions, 'db'>,
 	): ActiveRecordInstance<TModel>;
 
@@ -288,6 +292,40 @@ export abstract class ActiveRecord {
 		return {};
 	}
 
+	/**
+	 * Defines an inferred model subclass using the existing field lifecycle.
+	 *
+	 * Inherited fields are included automatically. A matching name replaces the
+	 * complete definition while retaining its application and input value types.
+	 * Ordinary static field factories continue to control their own inheritance.
+	 *
+	 * @param definition - This layer's fields and optional model settings.
+	 * @returns A subclass that can be extended with application methods.
+	 * @example
+	 * class User extends ActiveRecord.define({
+	 * 	table: 'users',
+	 * 	fields: field => ({ id: field.ulid(), email: field.email({ required: true }) }),
+	 * }) {}
+	 */
+	static define<TBase extends db.ActiveRecordDefinitionBase, TFields extends FieldInputMap>(
+		this: TBase,
+		definition: db.ActiveRecordDefinition<TFields> & { fields(field: FieldBuilder): db.ActiveRecordFieldOverrides<TBase, TFields> },
+	): db.DefinedActiveRecord<TBase, TFields> {
+		const Base = this;
+		const { fields, ...settings } = definition;
+
+		/** Model layer resolved and cloned by the ordinary ActiveRecord path. */
+		class DefinedRecord extends (Base as unknown as typeof ActiveRecord) {
+			/** Resolves parent fields for the final subclass before applying overrides. */
+			static override fields(field: FieldBuilder): FieldInputMap {
+				return { ...Base.fields.call(this, field), ...fields.call(this, field) };
+			}
+		}
+
+		Object.assign(DefinedRecord, settings);
+		return DefinedRecord as unknown as db.DefinedActiveRecord<TBase, TFields>;
+	}
+
 	/** Optional model-level database connection. Falls back to the shared app connection. */
 	static db?: Knex;
 
@@ -360,6 +398,15 @@ export abstract class ActiveRecord {
 	}
 
 	/**
+	 * Returns the explicit transaction/database scope, without resolving model or app defaults.
+	 * Infrastructure adapters use this to participate in an application's atomic outbox writes.
+	 * @returns Current scoped connection, or undefined outside withDb().
+	 */
+	static getScopedDb(): Knex | undefined {
+		return scopedDb.getStore();
+	}
+
+	/**
 	 * Runs work with a temporary database connection for all ActiveRecord statics.
 	 */
 	static withDb<TResult>(db: Knex, callback: () => TResult): TResult {
@@ -368,10 +415,14 @@ export abstract class ActiveRecord {
 
 	/**
 	 * Creates a new unsaved record bound to this model's current database.
+	 *
+	 * @param input - Constructor input, inferred from fields for defined models.
+	 * @param options - Record hydration/persistence flags; the database is resolved here.
+	 * @returns The actual subclass instance, synchronously. Call `save()` to write it.
 	 */
 	static create<TModel extends ActiveRecordConstructor>(
 		this: TModel,
-		input: Record<string, unknown> = {},
+		input: NoInfer<NonNullable<ConstructorParameters<TModel>[0]>> = {},
 		options: Omit<ActiveRecordOptions, 'db'> = {},
 	): ActiveRecordInstance<TModel> {
 		return new this(input, {
@@ -1250,6 +1301,9 @@ type ModelFieldInputs<TModel extends { fields(field: FieldBuilder): FieldInputMa
 	ReturnType<TModel['fields']>;
 
 export namespace ActiveRecord {
+	/** Concrete field represented by an instance, constructor or configured definition. */
+	export type ResolvedField<TInput> = ResolvedFieldInput<TInput>;
+
 	export type InferInput<TModel extends { fields(field: FieldBuilder): FieldInputMap }> = {
 		[fieldName in keyof ModelFieldInputs<TModel>]:
 			FieldInputValue<ResolvedFieldInput<ModelFieldInputs<TModel>[fieldName]>>;

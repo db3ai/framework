@@ -2,27 +2,27 @@ import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { ActiveRecord, DatabaseMigrationManager, mariaDbDialect, type FieldBuilder } from '@db3.ai/app/db';
+import { ActiveRecord, DatabaseMigrationManager, mariaDbDialect } from '@db3.ai/app/db';
 import { createGeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 
 /** Initial version of a disposable note table, before a schema change. */
-class InitialNote extends ActiveRecord {
-	static override table = 'migration_guide_notes';
+class InitialNote extends ActiveRecord.define({
+	table: 'migration_guide_notes',
 	/** Defines the initial committed schema. */
-	static override fields(field: FieldBuilder) { return { id: field.ulid(), title: field.string({ required: true }) }; }
-}
+	fields(field) { return { id: field.ulid(), title: field.string({ required: true }) }; },
+}) {}
 
 /** Unsafe proposal: existing rows have no value for this required column. */
-class RequiredCategoryNote extends InitialNote {
+class RequiredCategoryNote extends InitialNote.define({
 	/** Adds a required field without pretending existing data has a value. */
-	static override fields(field: FieldBuilder) { return { ...super.fields(field), category: field.string({ required: true }) }; }
-}
+	fields(field) { return { category: field.string({ required: true }) }; },
+}) {}
 
 /** Repaired additive change that can be deployed before backfilling existing rows. */
-class OptionalCategoryNote extends InitialNote {
+class OptionalCategoryNote extends InitialNote.define({
 	/** Adds a nullable field safe for the existing note. */
-	static override fields(field: FieldBuilder) { return { ...super.fields(field), category: field.string() }; }
-}
+	fields(field) { return { category: field.string() }; },
+}) {}
 
 /**
  * Generates, applies and checks migrations against an owned disposable database.

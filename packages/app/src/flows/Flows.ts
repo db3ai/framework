@@ -8,7 +8,7 @@ import { FlowCompiler } from './FlowCompiler';
 import { FlowDefinitionError } from './FlowDefinitionError';
 import { flowErrorSnapshot } from './errors';
 import { FlowStepJob } from './FlowStepJob';
-import { validateFlowValues } from './FlowValueValidator';
+import { validateFlowValues } from './flowValueValidator';
 import { FlowRun, FlowRunEvent, FlowStepRun } from './models';
 
 const DEFAULT_MAX_PAYLOAD_BYTES = 1024 * 1024;

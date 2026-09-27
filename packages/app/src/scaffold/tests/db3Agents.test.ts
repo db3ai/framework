@@ -6,8 +6,17 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 const commandPath = fileURLToPath(new URL('../../../bin/db3-agents.mjs', import.meta.url));
+const instructionsPath = fileURLToPath(new URL('../../../agent-instructions.md', import.meta.url));
 
 describe('db3-agents', () => {
+	it('ships detailed application source naming instructions', async () => {
+		const instructions = await readFile(instructionsPath, 'utf8');
+
+		expect(instructions).toContain('A file whose primary export is a class uses PascalCase');
+		expect(instructions).toContain('Function modules use camelCase on both server and client');
+		expect(instructions).toContain('`useInvoice.ts` exports `useInvoice`');
+	});
+
 	it('creates an idempotent root instruction scaffold', async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'db3-agents-create-'));
 		const target = join(directory, 'AGENTS.md');
@@ -17,6 +26,7 @@ describe('db3-agents', () => {
 
 		expect(created).toContain('<!-- @db3.ai/app:start -->');
 		expect(created).toContain("require.resolve('@db3.ai/app/agent-instructions')");
+		expect(created).toContain('class-owning TypeScript files and Vue components with PascalCase');
 
 		expect(runScaffold(directory).status).toBe(0);
 		expect(await readFile(target, 'utf8')).toBe(created);

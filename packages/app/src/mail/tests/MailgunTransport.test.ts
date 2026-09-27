@@ -31,7 +31,7 @@ describe('MailgunTransport', () => {
 		const delivery = await transport.send({
 			from: {
 				email: 'hello@example.com',
-				name: 'Scout Team',
+				name: 'Example App Team',
 			},
 			to: [
 				'steve@example.com',
@@ -41,8 +41,8 @@ describe('MailgunTransport', () => {
 				},
 			],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
-			html: '<p>Hello from Scout.</p>',
+			text: 'Hello from Example App.',
+			html: '<p>Hello from Example App.</p>',
 		});
 		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
 		const body = init.body as URLSearchParams;
@@ -53,14 +53,14 @@ describe('MailgunTransport', () => {
 			authorization: `Basic ${Buffer.from('api:mailgun-key').toString('base64')}`,
 		});
 		expect(body).toBeInstanceOf(URLSearchParams);
-		expect(body.get('from')).toBe('"Scout Team" <hello@example.com>');
+		expect(body.get('from')).toBe('"Example App Team" <hello@example.com>');
 		expect(body.getAll('to')).toEqual([
 			'steve@example.com',
 			'"Ada" <ada@example.com>',
 		]);
 		expect(body.get('subject')).toBe('Welcome');
-		expect(body.get('text')).toBe('Hello from Scout.');
-		expect(body.get('html')).toBe('<p>Hello from Scout.</p>');
+		expect(body.get('text')).toBe('Hello from Example App.');
+		expect(body.get('html')).toBe('<p>Hello from Example App.</p>');
 		expect(delivery).toEqual({
 			id: '<mailgun-message-id@example.com>',
 			transport: 'mailgun',
@@ -87,10 +87,10 @@ describe('MailgunTransport', () => {
 			domain: 'mg.example.com',
 		});
 		const delivery = transport.send({
-			from: 'Scout <hello@example.com>',
+			from: 'Example App <hello@example.com>',
 			to: ['steve@example.com'],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
+			text: 'Hello from Example App.',
 		});
 
 		await expect(delivery).rejects.toBeInstanceOf(MailTransportError);
@@ -113,10 +113,10 @@ describe('MailgunTransport', () => {
 		});
 
 		await expect(transport.send({
-			from: 'Scout <hello@example.com>',
+			from: 'Example App <hello@example.com>',
 			to: ['steve@example.com'],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
+			text: 'Hello from Example App.',
 		})).rejects.toThrow('Mailgun rejected the message: Bad Gateway');
 	});
 

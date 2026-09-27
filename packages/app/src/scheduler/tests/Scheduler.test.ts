@@ -139,6 +139,44 @@ function successfulRun(evaluatedFor: Date) {
 }
 
 describe('Scheduler definitions', () => {
+	it('supports hourly UTC boundaries, including local daylight-saving changes', () => {
+		const scheduler = definitionScheduler();
+		const event = scheduler.job(DefinitionJob).hourly().timezone('Asia/Kolkata');
+		expect(scheduler.definitions()[0].frequency).toEqual({ type: 'hourly' });
+		for (const time of ['2026-03-29T00:00:00Z', '2026-03-29T01:00:00Z', '2026-10-25T01:00:00Z']) expect(event.isDue(new Date(time))).toBe(true);
+		for (const time of ['2026-03-29T00:01:00Z', '2026-03-29T00:30:00Z', 'invalid']) expect(event.isDue(new Date(time))).toBe(false);
+		event.everyMinute();
+		expect(event.isDue(new Date('2026-03-29T00:30:00Z'))).toBe(true);
+		scheduler.close();
+	});
+
+	it('owns schedule groups, rejects duplicate declarations atomically and cleans up idempotently', () => {
+		const scheduler = definitionScheduler();
+		scheduler.job(DefinitionJob).name('host.daily').daily();
+		const social = scheduler.register('social', schedule => { schedule.job(DefinitionJob).name('review').hourly(); });
+		expect(social.definitions[0]).toMatchObject({ name: 'social.review', owner: 'social', frequency: { type: 'hourly' } });
+		expect(() => scheduler.register('social', () => {})).toThrow('duplicate');
+		expect(() => scheduler.register('broken', schedule => { schedule.job(DefinitionJob).name('same').hourly(); schedule.job(DefinitionJob).name('same').daily(); })).toThrow('Duplicate');
+		expect(scheduler.definitions()).toHaveLength(2);
+		social.close(); social.close();
+		expect(scheduler.definitions().map(event => event.name)).toEqual(['host.daily']);
+		scheduler.register('social', schedule => { schedule.job(DefinitionJob).hourly(); }).close();
+		scheduler.close();
+	});
+
+	it('evaluates minute schedules across timezone transitions and supports changing frequency', () => {
+		const scheduler = definitionScheduler();
+		const event = scheduler.job(DefinitionJob).everyMinute().timezone('Europe/London');
+		expect(scheduler.definitions()[0]?.frequency).toEqual({ type: 'minute' });
+		for (const instant of ['2026-03-29T00:59:00Z', '2026-03-29T01:00:00Z', '2026-10-25T01:00:00Z']) {
+			expect(event.isDue(new Date(instant))).toBe(true);
+		}
+		expect(event.isDue(new Date('invalid'))).toBe(false);
+		event.dailyAt('12:00');
+		expect(event.isDue(new Date('2026-03-29T01:00:00Z'))).toBe(false);
+		scheduler.close();
+	});
+
 	it('uses a QueueableJob class name as the optional schedule name', () => {
 		const scheduler = definitionScheduler();
 
@@ -235,6 +273,7 @@ describe('SchedulerWorker', () => {
 	it('runs immediately and waits until the next minute boundary', async () => {
 		const now = new Date('2026-07-23T12:00:30.250Z');
 		const runDue = vi.fn(async () => successfulRun(now));
+		const onTick = vi.fn(async () => undefined);
 		let worker: SchedulerWorker;
 		const sleep = vi.fn(async (
 			_delayMs: number,
@@ -248,12 +287,14 @@ describe('SchedulerWorker', () => {
 		} as unknown as Scheduler, {
 			now: () => now,
 			sleep,
+			onTick,
 		});
 
 		await worker.start();
 
 		expect(runDue).toHaveBeenCalledOnce();
-		expect(runDue).toHaveBeenCalledWith(now);
+		expect(onTick).toHaveBeenCalledOnce();
+		expect(runDue).toHaveBeenCalledWith(new Date('2026-07-23T12:00:00.000Z'));
 		expect(sleep).toHaveBeenCalledWith(29_750, expect.any(AbortSignal));
 	});
 
@@ -267,6 +308,7 @@ describe('SchedulerWorker', () => {
 			warn: vi.fn(),
 			error: vi.fn(),
 		};
+		const onTick = vi.fn(async () => undefined);
 		let sleeps = 0;
 		let worker: SchedulerWorker;
 
@@ -275,6 +317,7 @@ describe('SchedulerWorker', () => {
 		} as unknown as Scheduler, {
 			now: () => now,
 			logger,
+			onTick,
 			sleep: async () => {
 				sleeps += 1;
 
@@ -285,8 +328,9 @@ describe('SchedulerWorker', () => {
 		await worker.start();
 
 		expect(runDue).toHaveBeenCalledTimes(2);
+		expect(onTick).toHaveBeenCalledOnce();
 		expect(logger.error).toHaveBeenCalledWith(
-			'[scheduler] Tick failed; the worker will continue.',
+			'[scheduler] Evaluation for 2026-07-23T12:00:00.000Z did not finish; retrying the same minute.',
 			expect.any(Error),
 		);
 	});

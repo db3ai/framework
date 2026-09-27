@@ -252,6 +252,21 @@ describe('Scheduler SQL occurrence lifecycle', () => {
 		await generatedDatabase?.destroy();
 	});
 
+	it('deduplicates competing minute schedules and dispatches the following minute independently', async () => {
+		const queue = new Queue(database, { driver: 'database' });
+		const first = new Scheduler(database, queue);
+		const second = new Scheduler(database, queue);
+		try {
+			first.job(ScheduledRecordingJob).everyMinute();
+			second.job(ScheduledRecordingJob).everyMinute();
+			const instant = new Date('2026-09-25T13:45:00Z');
+			const results = await Promise.all([first.runDue(instant), second.runDue(instant)]);
+			expect(results.reduce((total, result) => total + result.dispatched, 0)).toBe(1);
+			expect(results.reduce((total, result) => total + result.skipped, 0)).toBe(1);
+			expect(await first.runDue(new Date('2026-09-25T13:46:00Z'))).toMatchObject({ dispatched: 1 });
+		} finally { first.close(); second.close(); }
+	});
+
 	it('dispatches a due job and records queue success against its occurrence', async () => {
 		const dispatchQueue = new Queue(database, {
 			driver: 'database',

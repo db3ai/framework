@@ -1,0 +1,55 @@
+{
+	"name": "@db3.ai/social",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"description": "Local-first DB3 Social app and portable npm packaging example.",
+	"files": [
+		"dist",
+		"README.md",
+		"manifest.json"
+	],
+	"exports": {
+		"./client": {
+			"types": "./dist/client/index.d.ts",
+			"import": "./dist/client/index.js"
+		},
+		"./contracts": {
+			"types": "./dist/shared/index.d.ts",
+			"import": "./dist/shared/index.js"
+		},
+		".": {
+			"types": "./dist/App.d.ts",
+			"import": "./dist/App.js"
+		},
+		"./manifest.json": "./manifest.json",
+		"./package.json": "./package.json"
+	},
+	"peerDependencies": {
+		"@db3.ai/app": "^0.1.0",
+		"vue": "^3.5.0"
+	},
+	"peerDependenciesMeta": {
+		"vue": {
+			"optional": true
+		}
+	},
+	"dependencies": {
+		"zod": "^4.4.3"
+	},
+	"scripts": {
+		"build": "node scripts/build.mjs",
+		"prepack": "npm run build"
+	},
+	"devDependencies": {
+		"@types/node": "^25.9.3",
+		"@vitejs/plugin-vue": "^6.0.6",
+		"typescript": "^6.0.3",
+		"vite": "^8.2.1"
+	},
+	"db3": {
+		"app": true,
+		"entry": "./dist/App.js",
+		"client": "./dist/client/index.js"
+	}
+}

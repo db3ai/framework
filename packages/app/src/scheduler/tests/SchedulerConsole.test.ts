@@ -98,6 +98,10 @@ describe('scheduler console', () => {
 		try {
 			await runSchedulerConsole({
 				app: () => app,
+				checkpoint: {
+					async load() { throw new Error('One-off evaluations must not load the worker cursor.'); },
+					async save() { throw new Error('One-off evaluations must not advance the worker cursor.'); },
+				},
 			}, ['scheduler:run']);
 
 			expect(runDue).toHaveBeenCalledOnce();

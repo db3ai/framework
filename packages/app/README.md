@@ -11,22 +11,30 @@ document is not part of the installed runtime package.
 
 This package owns reusable runtime services and data-layer mechanics:
 
+- `apps`: local feature apps, optional public services, owned migrations, lifecycle and inspectable navigation metadata. See [Apps](src/apps/README.md) for local folders and npm extraction.
+
 - `config`: explicit config repositories and environment parsing helpers.
+- `cli`: shared `db3` commands, interactive app REPL, service registration, help and app lifecycle.
 - `cache`: named cache stores and driver-backed value lifecycles.
 - `events`: synchronous and asynchronous in-process event dispatch.
+- `health`: extensible application and component checks with a Fastify `/health` adapter.
+- `websocket`: public/authenticated JSON endpoint actions, server-owned local channels, presence and a small browser client; see [WebSocket setup](./src/websocket/README.md).
 - `logging`: structured application logging and development-tool delivery.
 - `server`: `App`, service discovery, request context, and database wiring.
 - `db`: ActiveRecord, FieldType, projections, schema installation, and SQL error helpers.
 - `validation`: request-data validation for routes, services, and jobs.
 - `auth`: user identity, configurable auth providers, auth tokens, password reset tokens, and password hashing.
-- `ai`: bounded, server-only OpenAI text generation for apps that supply their own key; full agent and accounting extraction is still planned.
+- `ai`: agents with function calls, streaming, durable conversations, provider request tracking, images, embeddings, structured output and failover.
 - `queue`: database-backed dispatch, handlers, job classes, retry/failure records, and workers.
 - `serialization`: registered root-constructor serialization from ordinary JSON state, with ActiveRecord identity references as the only special nested value.
 - `scheduler`: code-owned daily schedules, durable occurrence claims, queue correlation, and a dedicated worker.
 - `flows`: code-backed graph definitions, queue orchestration, durable block observability, nested flows, and replay.
 - `mail`: file, Mailgun, and Resend mail transports.
+- `in-app`: durable recipient inboxes, scoped access, deduplication and independent read/dismiss/archive state.
+- `notifications`: recipient-aware `via()`, `toInApp()` and `toMail()` definitions coordinated through framework delivery services.
 - `storage`: named local and S3-compatible disks, streams, transfers and scoped file operations.
 - `media`: scoped media libraries, managed file ULIDs, and browser-visible folder trees.
+- `network`: outbound request guards that keep user-supplied URLs, redirects and headless-browser traffic off private networks; see [Network](./src/network/README.md).
 - `security`: central key configuration and versioned authenticated encryption for application secrets.
 - `ssr`: optional render contracts, document assembly, safe hydration state, and Fastify adaptation for public HTML.
 - `url`: canonical base-URL configuration and standard URL resolution, without a named-route registry.
@@ -48,11 +56,12 @@ SSR adapters.
 
 The framework is MIT licensed; private applications sharing the development
 repository are excluded by the licence scope. Public framework source belongs
-in `github.com/db3ai/framework`; npm publication access still needs verification. The target package
-names are `@db3.ai/app` and `@db3.ai/pure`. Do not publish until npm access has
-been verified and the dedicated public repository plus trusted-publisher
-relationship have been configured. Repository contributors should follow
-`docs/framework-release.md`.
+in `github.com/db3ai/framework`. The published packages are `@db3.ai/app`,
+`@db3.ai/pure` and `@db3.ai/create`. Maintainers can publish a verified beta from
+the repository root with `npm run framework:publish -- --version 0.1.0-beta.1`;
+add `--dry-run` to inspect it without publishing. npm handles packaging, login
+and upload. See `docs/framework-release.md` for release checks and the manual
+bootstrap and trusted-publishing workflows.
 
 The [installation guide](https://db3.ai/docs/installation) distinguishes the
 unpublished preview tarballs from the future npm install command. The
@@ -78,9 +87,8 @@ installed Markdown links, and exercises the `db3-agents` scaffold.
 
 The workspace manifests intentionally keep their source exports for monorepo
 development; only the staged manifests target compiled JavaScript and
-declarations. The staging step also rewrites the internal `@platform/*`
-workspace aliases to the public `@db3.ai/*` scope throughout runtime files,
-declarations, examples, documentation, agent assets, and dependency metadata.
+declarations. Workspace manifests, runtime imports, examples, documentation,
+and consumer artifacts all use the same `@db3.ai/*` package names.
 The ordinary staged manifest omits the private monorepo repository identity.
 Release-mode staging requires the exact dedicated public framework repository
 and rejects ambiguous or non-GitHub URLs. Candidate preparation also requires
@@ -106,7 +114,42 @@ Only canonical public GitHub URLs are accepted. In this explicit release mode,
 the staged manifests include package-directory repository metadata and enable
 `publishConfig.provenance`; neither command publishes a package.
 
+## AI application guidance
+
+Generated DB3 applications include a root `AGENTS.md` that tells AI coding
+tools to resolve the installed framework instructions, use public package
+exports, preserve application/framework ownership, and follow the framework's
+file-naming conventions. In particular, class-owning TypeScript files and Vue
+components use PascalCase and match their primary concept.
+
+Existing applications can add the marked framework block without replacing
+their product-specific instructions:
+
+```sh
+npx db3-agents --target AGENTS.md
+```
+
+Refresh only that framework-owned block after upgrading `@db3.ai/app`:
+
+```sh
+npx db3-agents --target AGENTS.md --update
+```
+
+The scaffold directs AI tools to the installed
+`@db3.ai/app/agent-instructions` export. Those installed instructions are the
+consumer-facing source of truth for application layout, boundaries, naming,
+and verification.
+
 ## Testing
+
+In the source workspace, `npm test --workspace @db3.ai/app -- <optional test paths>`
+runs the selected behaviour tests, then source/example type checks and available
+workspace naming checks. All stages run after ordinary failures and a combined
+summary reports the final result and the convention findings path.
+`npm run quality --workspace @db3.ai/app` runs the same quality stages without
+tests. The Platform naming gate is not included in the public source export;
+the runner explicitly reports its absence there. The specialised service and
+coverage commands below remain available for iteration and release workflows.
 
 Framework tests live with the service they exercise under
 `src/{service}/tests`. Run the complete package suite before considering a
@@ -143,7 +186,7 @@ cp packages/app/.env.test.example packages/app/.env.test
 ```
 
 Framework integration suites create and remove unique disposable databases
-under that test-only namespace. They do not read Scout configuration or connect
+under that test-only namespace. They do not read application configuration or connect
 to an application's named database. A `DATABASE_URL` supplied by CI must itself
 target `db3_app_test` (or a disposable database with that prefix). The configured
 database server must be reachable for the complete suite and service suites that
@@ -173,6 +216,10 @@ in the release gate instead of accepting a skipped suite as proof.
 
 The richer guide at [db3.ai](https://db3.ai/) includes dedicated sections for
 Mail, Queue, creating jobs, and queue workers.
+
+See [src/cli/README.md](./src/cli/README.md) for the shared `db3` executable and
+service command registration. Generated apps configure it in `server/cli.config.ts`;
+database commands are owned by DB and job generation is owned by Queue.
 
 See [src/flows/README.md](./src/flows/README.md) for flow definitions, block contracts, file providers, durable run models, nested execution, and replay.
 
@@ -234,3 +281,7 @@ at least one usable login method.
 See [src/auth/README.md](./src/auth/README.md) for the account/provider mental
 model, route and session examples, provider management, custom drivers, security
 responsibilities, and complete password and Google setup instructions.
+
+See [src/in-app/README.md](./src/in-app/README.md) for `app().inApp`, storage setup, authenticated inbox operations and the current delivery boundary.
+
+See [src/notifications/README.md](./src/notifications/README.md) for notification classes, multi-channel sends and durable-job retry responsibilities.

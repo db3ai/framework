@@ -1,6 +1,6 @@
 import type { Readable } from 'node:stream';
 
-import { mimeTypeFromPath } from '../storage/mime';
+import { mimeTypeFromPath } from '../storage/mimeTypeFromPath';
 import { normalizeStoragePath } from '../storage/path';
 import type { Storage, StorageContents, StorageDisk, StorageVisibility } from '../storage';
 import { MEDIA_FILE_VISIBILITY, MEDIA_ITEM_TYPE, MEDIA_LIBRARY_DEFAULT_KEY } from './constants';
@@ -56,13 +56,14 @@ export class MediaManager {
 
 	/**
 	 * Finds or creates the media library for an application-owned scope.
+	 * Concurrent creators reuse the winning row without overwriting its defaults.
 	 *
 	 * @param input - Scope identity and defaults for a new library.
 	 * @returns Existing or newly-created media library.
 	 *
 	 * @example
 	 * const library = await app.media.libraryFor({
-	 * 	scopeType: 'scout.website',
+	 * 	scopeType: 'app.website',
 	 * 	scopeId: website.id,
 	 * 	key: 'default',
 	 * 	name: 'Website media',
@@ -92,9 +93,15 @@ export class MediaManager {
 			meta: input.meta ?? null,
 		});
 
-		await library.save();
-
-		return library;
+		try {
+			await library.save();
+			return library;
+		} catch (error) {
+			if (!isUniqueConstraintError(error) && !isRetriableTransactionConflict(error)) throw error;
+			const raced = await MediaLibrary.where({ scopeType, scopeId, key }).first();
+			if (!raced) throw error;
+			return raced;
+		}
 	}
 
 	/**
@@ -223,7 +230,7 @@ export class MediaManager {
 	}
 
 	/**
-	 * Finds or creates the root browser item for a library.
+	 * Finds or creates the root browser item for a library, including concurrent writers.
 	 *
 	 * @param libraryOrId - Media library row or id.
 	 * @returns Root browser item for the library.
@@ -248,13 +255,20 @@ export class MediaManager {
 			meta: null,
 		});
 
-		await root.save();
-
-		return root;
+		try {
+			await root.save();
+			return root;
+		} catch (error) {
+			if (!isUniqueConstraintError(error) && !isRetriableTransactionConflict(error)) throw error;
+			const raced = await MediaItem.where({ library, path: '/', type: MEDIA_ITEM_TYPE.root }).first();
+			if (!raced) throw error;
+			return raced;
+		}
 	}
 
 	/**
-	 * Finds or creates a slash-prefixed browser folder path.
+	 * Finds or creates a slash-prefixed browser folder path. Concurrent creators
+	 * reuse the winning directory without replacing its metadata.
 	 *
 	 * @param input - Library and folder path to ensure.
 	 * @returns Folder item for the requested path, or the root for `/`.
@@ -300,7 +314,14 @@ export class MediaManager {
 					path: currentPath,
 					meta: currentPath === path ? input.meta ?? null : null,
 				});
-				await folder.save();
+				try {
+					await folder.save();
+				} catch (error) {
+					if (!isUniqueConstraintError(error) && !isRetriableTransactionConflict(error)) throw error;
+					const raced = await MediaItem.where({ library, path: currentPath, type: MEDIA_ITEM_TYPE.directory }).first();
+					if (!raced) throw error;
+					folder = raced;
+				}
 			}
 
 			parent = folder;

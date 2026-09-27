@@ -2,6 +2,7 @@ import { createClient, type RedisArgument, type RedisClientOptions, type RedisCl
 import { unknownErrorMessage } from '@db3.ai/pure';
 
 import type * as queue from '../contracts';
+import { jobEnvelopeHasPrefix } from '../jobEnvelopeHasPrefix';
 
 type RedisCommandArgument = string | number;
 type ResolvedRedisQueueDriverOptions = Required<Pick<queue.RedisQueueDriverOptions, 'host' | 'port' | 'keyPrefix' | 'connectionTimeoutMs'>> & queue.RedisQueueDriverOptions;
@@ -206,6 +207,20 @@ export class RedisQueueDriver implements queue.QueueDriver {
 		]);
 
 		return String(id);
+	}
+
+	/** Scans active Redis payloads during quiesced maintenance; includes delayed, reserved and chained jobs. */
+	async hasPendingJobs(jobPrefix: string): Promise<boolean> {
+		let cursor = '0';
+		do {
+			const result = await this.#command<[string, string[]]>(['HSCAN', this.#jobsKey(), cursor, 'COUNT', 100]);
+			cursor = String(result[0]);
+			for (let index = 1; index < result[1].length; index += 2) {
+				const record = JSON.parse(result[1][index]) as RedisQueuedJobRecord;
+				if (jobEnvelopeHasPrefix(record.payload, jobPrefix)) return true;
+			}
+		} while (cursor !== '0');
+		return false;
 	}
 
 	/**

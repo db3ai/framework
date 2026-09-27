@@ -1,5 +1,11 @@
 # @db3.ai/pure
 
+Source-workspace verification uses `npm test --workspace @db3.ai/pure` for tests
+plus type checks and available naming checks, or `npm run quality --workspace
+@db3.ai/pure` for quality alone. A combined summary reports every stage even
+after an ordinary failure. The public source export reports that the
+Platform-only naming gate is unavailable; tests and type checks still run.
+
 Environment-independent TypeScript utilities shared by DB3 framework
 packages and applications.
 

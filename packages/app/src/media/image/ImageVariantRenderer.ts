@@ -60,6 +60,7 @@ export class ImageVariantRenderer {
 	 * SVG and animated GIF sources are returned unchanged because they either
 	 * scale natively or must preserve animation. Raster variants emit compressed
 	 * WebP while preserving aspect ratio and orientation without enlargement.
+	 * Failed renders settle source and cache streams before removing partial files.
 	 *
 	 * @param file - Managed source image.
 	 * @param options - Variant dimensions that form the cache identity.
@@ -127,17 +128,19 @@ export class ImageVariantRenderer {
 				});
 				const temporaryPath = `${path}.tmp-${randomUUID()}`;
 				const processing = pipeline(source, renderer);
+				const writing = cacheDisk.writeStream(temporaryPath, renderer, {
+					mimeType,
+					visibility: 'private',
+				});
 
 				try {
-					await Promise.all([
-						processing,
-						cacheDisk.writeStream(temporaryPath, renderer, {
-							mimeType,
-							visibility: 'private',
-						}),
-					]);
+					await Promise.all([processing, writing]);
 					await cacheDisk.move(temporaryPath, path);
 				} catch (error) {
+					// Stop both streams and finish storage work before removing partial bytes.
+					source.destroy();
+					renderer.destroy();
+					await Promise.allSettled([processing, writing]);
 					await deleteVariantQuietly(cacheDisk, temporaryPath);
 					throw error;
 				}

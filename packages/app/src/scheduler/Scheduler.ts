@@ -14,6 +14,8 @@ import { utcMinute } from './scheduleTime';
  */
 export class Scheduler {
 	readonly #events: ScheduledEvent[] = [];
+	readonly #owners = new Map<ScheduledEvent, { owner: string; run: scheduler.ScheduleRunner }>();
+	readonly #groups = new Set<string>();
 	readonly #unsubscribeQueueEvents: () => void;
 
 	/**
@@ -62,12 +64,46 @@ export class Scheduler {
 	}
 
 	/**
+	 * Atomically registers an owned schedule group. Declarations are synchronous and do not execute jobs.
+	 * Names are prefixed with the owner unless already namespaced. Failed declarations register nothing.
+	 */
+	register(owner: string, configure: (schedule: scheduler.Schedule) => void, run: scheduler.ScheduleRunner = operation => operation()): scheduler.ScheduleRegistration {
+		if (!/^[a-z][a-z0-9_]{0,39}$/.test(owner) || this.#groups.has(owner)) throw new Error(`Invalid or duplicate schedule owner "${owner}".`);
+		const events: ScheduledEvent[] = [];
+		const declaration = configure({
+			/** Collects a queued declaration without attaching it to the running scheduler yet. */
+			job: source => { const event = new ScheduledJob(source); events.push(event); return event; },
+			/** Collects a short callback under the same group ownership. */
+			call: handler => { const event = new ScheduledCall(handler); events.push(event); return event; },
+		}) as unknown;
+		if (declaration && typeof (declaration as Promise<unknown>).then === 'function') throw new Error('Schedule declarations must be synchronous.');
+		const names = new Set(this.definitions().map(definition => definition.name));
+		const definitions = events.map(event => {
+			const name = event.definition().name;
+			if (!name.startsWith(`${owner}.`)) event.name(`${owner}.${name}`);
+			const definition = { ...event.definition(), owner };
+			if (names.has(definition.name)) throw new Error(`Duplicate scheduled event name "${definition.name}".`);
+			names.add(definition.name);
+			return definition;
+		});
+		this.#groups.add(owner);
+		for (const event of events) { this.#events.push(event); this.#owners.set(event, { owner, run }); }
+		let closed = false;
+		return { definitions, close: () => {
+			if (closed) return;
+			closed = true;
+			for (const event of events) { this.#events.splice(this.#events.indexOf(event), 1); this.#owners.delete(event); }
+			this.#groups.delete(owner);
+		} };
+	}
+
+	/**
 	 * Returns validated normalized definitions in registration order.
 	 *
 	 * @returns Registered scheduler definitions.
 	 */
 	definitions(): scheduler.ScheduledTaskDefinition[] {
-		const definitions = this.#events.map(event => event.definition());
+		const definitions = this.#events.map(event => ({ ...event.definition(), ...(this.#owners.has(event) ? { owner: this.#owners.get(event)!.owner } : {}) }));
 		const names = new Set<string>();
 
 		for (const definition of definitions) {
@@ -111,37 +147,47 @@ export class Scheduler {
 		};
 
 		for (const event of dueEvents) {
-			const definition = event.definition();
-			const occurrence = await ActiveRecord.withDb(this.database.knex, () => {
-				return ScheduledOccurrence.claim({
-					name: definition.name,
-					kind: definition.kind,
-					scheduledFor: evaluatedFor,
-					jobName: definition.jobName,
+			const owner = this.#owners.get(event);
+			/** Runs a complete occurrence inside its registration owner's lifecycle gate. */
+			const execute = async (): Promise<void> => {
+				if (!this.#events.includes(event)) { result.skipped++; return; }
+				const definition = event.definition();
+				const occurrence = await ActiveRecord.withDb(this.database.knex, () => {
+					return ScheduledOccurrence.claim({
+						name: definition.name,
+						kind: definition.kind,
+						scheduledFor: evaluatedFor,
+						jobName: definition.jobName,
+					});
 				});
-			});
 
-			if (!occurrence) {
-				result.skipped += 1;
-				continue;
-			}
-
-			result.claimed += 1;
-
-			try {
-				if (event instanceof ScheduledJob) {
-					await this.dispatchJob(event, occurrence);
-					result.dispatched += 1;
-				} else if (event instanceof ScheduledCall) {
-					await this.runCall(event, occurrence);
-					result.completed += 1;
+				if (!occurrence) {
+					result.skipped += 1;
+					return;
 				}
-			} catch (error) {
-				await this.failOccurrence(occurrence, error);
-				result.failures.push({
-					name: definition.name,
-					error: errorDetails(error),
-				});
+
+				result.claimed += 1;
+
+				try {
+					if (event instanceof ScheduledJob) {
+						await this.dispatchJob(event, occurrence);
+						result.dispatched += 1;
+					} else if (event instanceof ScheduledCall) {
+						await this.runCall(event, occurrence);
+						result.completed += 1;
+					}
+				} catch (error) {
+					await this.failOccurrence(occurrence, error);
+					result.failures.push({
+						name: definition.name,
+						error: errorDetails(error),
+					});
+				}
+			};
+			if (!owner) await execute();
+			else {
+				try { await owner.run(execute); }
+				catch (error) { result.failures.push({ name: event.definition().name, error: errorDetails(error) }); }
 			}
 		}
 

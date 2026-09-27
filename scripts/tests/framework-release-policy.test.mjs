@@ -12,10 +12,10 @@ import {
 const VERSION = '1.2.3';
 const REPOSITORY = 'example-org/db3-framework';
 
-test('release policy fixes Pure before App', () => {
+test('release policy fixes Pure before App and Create', () => {
 	assert.deepEqual(
 		FRAMEWORK_RELEASE_PACKAGES.map((packageDefinition) => packageDefinition.name),
-		['@db3.ai/pure', '@db3.ai/app'],
+		['@db3.ai/pure', '@db3.ai/app', '@db3.ai/create'],
 	);
 });
 
@@ -75,9 +75,11 @@ test('release preparation rejects source versions and dependencies that do not m
 	const source = {
 		version: VERSION,
 		repository: REPOSITORY,
+		templateManifest: structuredClone(candidate.packages.create.templateManifest),
 		packages: {
 			pure: structuredClone(candidate.packages.pure.manifest),
 			app: structuredClone(candidate.packages.app.manifest),
+			create: structuredClone(candidate.packages.create.manifest),
 		},
 	};
 
@@ -94,14 +96,16 @@ test('release preparation rejects source versions and dependencies that do not m
 	assert.ok(issues.some((issue) => issue.includes('repository metadata')));
 });
 
-test('source release validation accepts an internal workspace scope without naming it in policy', () => {
+test('source release validation rejects package scopes that differ from public names', () => {
 	const candidate = createCandidate();
 	const source = {
 		version: VERSION,
 		repository: REPOSITORY,
+		templateManifest: structuredClone(candidate.packages.create.templateManifest),
 		packages: {
 			pure: structuredClone(candidate.packages.pure.manifest),
 			app: structuredClone(candidate.packages.app.manifest),
+			create: structuredClone(candidate.packages.create.manifest),
 		},
 	};
 
@@ -110,7 +114,11 @@ test('source release validation accepts an internal workspace scope without nami
 	delete source.packages.app.dependencies['@db3.ai/pure'];
 	source.packages.app.dependencies['@workspace/pure'] = VERSION;
 
-	assert.deepEqual(collectSourceReleaseIssues(source), []);
+	const issues = collectSourceReleaseIssues(source);
+	assert.ok(issues.some(issue => issue.includes('@db3.ai/pure source has unexpected name')));
+	assert.ok(issues.some(issue => issue.includes('@db3.ai/app source has unexpected name')));
+	assert.ok(issues.some(issue => issue.includes('App must depend on Pure at exact version')));
+	assert.ok(issues.some(issue => issue.includes('only on the checked-in Pure package identity')));
 });
 
 test('npm pack inspection rejects repository-only files and incomplete package contents', () => {
@@ -129,6 +137,20 @@ test('npm pack inspection rejects repository-only files and incomplete package c
 		() => assertPackageInspection({ name: '@db3.ai/pure', version: VERSION }, inspection),
 		/missing LICENSE[\s\S]*\.env\.production[\s\S]*tests\/strings\.test\.ts/,
 	);
+});
+
+test('Create requires its exact template version and permits only intentional template assets', () => {
+	const candidate = createCandidate();
+	candidate.packages.create.templateManifest.dependencies['@db3.ai/app'] = '^1.2.3';
+	assert.ok(collectReleaseArtifactIssues(candidate).some(issue => issue.includes("Create's template")));
+	const inspection = {
+		name: '@db3.ai/create', version: VERSION,
+		files: ['package.json', 'README.md', 'LICENSE', 'bin/create.mjs', 'src/createProject.mjs', 'template/package.json', 'template/.env.example', 'template/server/app.ts', 'template/tests/app.test.ts', 'template/tsconfig.json', 'template/apps/social/tsconfig.build.json'].map(path => ({ path })),
+	};
+	assert.doesNotThrow(() => assertPackageInspection(inspection, inspection));
+	for (const path of ['template/.env', 'template/.env.production', 'tests/createProject.test.mjs', 'template/node_modules/dependency/index.js', 'template/package-lock.json', 'template/apps/social/node_modules/private.js', 'template/apps/social/.env', 'template/apps/social/server/tsconfig.secret.json']) {
+		assert.throws(() => assertPackageInspection(inspection, { ...inspection, files: [...inspection.files, { path }] }), /Unsafe npm pack result/);
+	}
 });
 
 /**
@@ -151,6 +173,11 @@ function createCandidate() {
 				manifest: createManifest('app'),
 				licensePresent: true,
 			},
+			create: {
+				manifest: createManifest('create'),
+				templateManifest: { dependencies: { '@db3.ai/app': VERSION } },
+				licensePresent: true,
+			},
 		},
 	};
 }
@@ -158,10 +185,7 @@ function createCandidate() {
 /**
  * Creates one valid staged package manifest fixture.
  *
- * The MIT identifier is test data only; the repository's actual license remains
- * deliberately undecided and is never written by this test.
- *
- * @param {'app' | 'pure'} directory - Framework package directory.
+ * @param {'app' | 'pure' | 'create'} directory - Framework package directory.
  * @returns {Record<string, any>} Valid staged manifest fixture.
  */
 function createManifest(directory) {
@@ -191,7 +215,6 @@ function createManifest(directory) {
 		publishConfig: {
 			access: 'public',
 			registry: 'https://registry.npmjs.org/',
-			provenance: true,
 			provenance: true,
 		},
 		dependencies: directory === 'app'

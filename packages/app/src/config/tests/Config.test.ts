@@ -52,15 +52,15 @@ describe('Config', () => {
 describe('env', () => {
 	it('reads strings and required values', () => {
 		const env = createEnv({
-			APP_NAME: 'Scout',
+			APP_NAME: 'Notes',
 			EMPTY_VALUE: '',
 		});
 
-		expect(env('APP_NAME')).toBe('Scout');
+		expect(env('APP_NAME')).toBe('Notes');
 		expect(env('MISSING_NAME', 'Platform')).toBe('Platform');
-		expect(env.string('APP_NAME')).toBe('Scout');
+		expect(env.string('APP_NAME')).toBe('Notes');
 		expect(env.string('MISSING_NAME', 'Platform')).toBe('Platform');
-		expect(env.required('APP_NAME')).toBe('Scout');
+		expect(env.required('APP_NAME')).toBe('Notes');
 		expect(() => env.required('MISSING_NAME')).toThrow('Environment variable "MISSING_NAME" is required.');
 		expect(() => env.required('EMPTY_VALUE')).toThrow('Environment variable "EMPTY_VALUE" is required.');
 	});

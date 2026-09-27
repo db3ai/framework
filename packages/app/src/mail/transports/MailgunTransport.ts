@@ -57,6 +57,8 @@ export class MailgunTransport implements MailTransport {
 
 		const response = await fetch(`${this.baseUrl}/${this.domain}/messages`, {
 			method: 'POST',
+			signal: AbortSignal.timeout(15000),
+			redirect: 'error',
 			headers: {
 				authorization: `Basic ${Buffer.from(`api:${this.apiKey}`).toString('base64')}`,
 			},

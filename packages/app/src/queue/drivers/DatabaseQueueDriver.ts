@@ -2,6 +2,7 @@ import { ActiveRecord, RecordValidationError, withQueryMonitorCategory, type Dat
 import { FailedJob } from '../FailedJob';
 import { QueuedJob } from '../QueuedJob';
 import type * as queue from '../contracts';
+import { jobEnvelopeHasPrefix } from '../jobEnvelopeHasPrefix';
 
 /**
  * Queue driver that stores pending and failed jobs in the app database.
@@ -16,6 +17,18 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	 */
 	constructor(private readonly db: Database) {}
 
+	/** Scans active work in bounded pages during quiesced maintenance, including delayed and chained payloads. */
+	async hasPendingJobs(jobPrefix: string): Promise<boolean> {
+		if (!(await this.db.knex.schema.hasTable(QueuedJob.table))) return false;
+		let after: number | string = 0;
+		while (true) {
+			const rows = await this.db.knex(QueuedJob.table).select('id', 'payload').where('id', '>', after).orderBy('id').limit(100);
+			for (const row of rows) if (jobEnvelopeHasPrefix(typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload, jobPrefix)) return true;
+			if (rows.length < 100) return false;
+			after = rows[rows.length - 1].id;
+		}
+	}
+
 	/**
 	 * Persists a job in the `jobs` table.
 	 *
@@ -25,7 +38,8 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	async push<TData extends Record<string, unknown>>(
 		job: queue.QueueDriverPushInput<TData>,
 	): Promise<queue.QueueJobId> {
-		return withQueueQueryCategory(() => ActiveRecord.withDb(this.db.knex, async () => {
+		const connection = ActiveRecord.getScopedDb() ?? this.db.knex;
+		return withQueueQueryCategory(() => ActiveRecord.withDb(connection, async () => {
 			const record = QueuedJob.create({
 				queue: job.queue,
 				payload: job.payload,
@@ -45,7 +59,7 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 				isInsert: true,
 				onlyDirty: false,
 			});
-			const [jobId] = await this.db.knex(QueuedJob.table).insert(row);
+			const [jobId] = await connection(QueuedJob.table).insert(row);
 
 			return Number(jobId);
 		}));

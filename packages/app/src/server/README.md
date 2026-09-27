@@ -22,7 +22,7 @@ server/
 
 `App` composes framework services but leaves their behavior in the owning
 service modules. It currently discovers database, auth, request context, cache,
-events, logging, URL, queue, scheduler, security, serialization, storage, and
+events, health, logging, URL, queue, scheduler, security, serialization, storage, and
 media services. Application-specific capabilities belong on an application
 subclass and can reuse `service(...)` for lazy singleton ownership.
 
@@ -44,6 +44,8 @@ The public surface includes:
 - `activeAppDatabase()` and `activeAppRequestContext()`, which expose optional
   low-level context to framework internals.
 - `RequestContext` and `RequestContextValues` for request-isolated values.
+- `registerHttpErrorHandler(...)` for the shared Fastify error boundary and
+  `publicServerErrorMessage(...)` for other server-owned error renderers.
 
 Normal application code should use `app().db`, `app().queue`, and the other
 service getters. `activeAppDatabase()` is a framework escape hatch, not a
@@ -164,7 +166,50 @@ request-owned store.
 
 ## Shutdown And Failure Behaviour
 
-`App.close()` clears the active reference when it owns it, detaches the Scheduler recorder,
+### HTTP errors
+
+Install the framework boundary immediately after creating Fastify, **before any
+routes or plugins** (including awaited plugin registration):
+
+```ts
+import Fastify from 'fastify';
+import { registerHttpErrorHandler } from '@db3.ai/app/server';
+
+const server = Fastify({ logger: true });
+registerHttpErrorHandler(server);
+```
+
+Production, staging, unknown and unset `NODE_ENV` values receive only
+`{ error: 'server_error', message: 'Unexpected server error', reference }` for
+5xx responses. The final send hook replaces serialized bodies as well as thrown
+errors, including bodies returned by child-plugin error handlers or shaped by
+route response schemas. It preserves the HTTP failure status and disables caching.
+Captured SQL exceptions remain 500 errors even if a child handler tries to
+return them with a client or success status.
+SQL text, driver codes, provider payloads, stacks and nested exception metadata
+are never copied into that public envelope.
+
+Explicit `dev`, `develop`, `development`, `local` and `test` environments retain
+diagnostic messages. The original exception is logged through `request.log`
+with the same generated reference in every environment. Applications must enable
+and retain their server logs; Fastify with logging disabled has no log sink.
+The optional `onServerError(error, context)` observer can retain a support record.
+Explicitly returned 5xx bodies are retained in the server-only `responseBody`
+context/log field. Observer failures are logged without changing the public body.
+
+Fastify request-validation/parsing failures retain their 4xx status and message;
+missing ActiveRecord records return 404. Use `mapError` only for known application
+errors with deliberately public client messages. A third-party `statusCode: 400`
+does not make an exception safe. Mapped 5xx messages are still hidden in production.
+
+This boundary protects the ordinary Fastify reply lifecycle. Responses written
+directly to the raw socket, already-started streams, errors embedded inside
+successful 2xx data, and later send hooks that rewrite the body need their own
+safe public protocol. Do not return raw exceptions through those paths. CLI and
+worker exceptions keep their server-side diagnostics; database errors themselves
+are never mutated or stripped of information.
+
+`App.close()` first closes mounted WebSocket connections, then clears the active reference when it owns it, detaches the Scheduler recorder,
 clears Events listeners, awaits Cache and Log shutdown, closes the
 framework-owned default database, and clears cached service instances.
 Application subclasses remain responsible for closing any additional resources
@@ -217,3 +262,13 @@ specific real framework component they need, then call `close()` or
 and [`RequestContext.ts`](./RequestContext.ts). Behavioural tests live at
 `packages/app/src/server/tests/` in the source repository and are not included
 in the installed runtime package.
+
+## Composing feature apps
+
+Set the host directory and call `await application.apps.boot()` before serving
+requests. DB3 discovers apps/{id}/manifest.json and marked direct npm dependencies.
+A root App.ts extends AppService; app().social resolves the optional service.
+Generated declarations preserve its type. Explicit defineApp maps are supported
+for programmatic composition; an empty map disables discovery. App.close()
+releases app-owned resources before shared services. See [Apps](../apps/README.md)
+for local folders, npm packaging, owned migrations and administrator controls.

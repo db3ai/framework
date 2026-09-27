@@ -119,8 +119,7 @@ export default defineConfig({
 ```
 
 The auth package reads config values; it does not impose environment variable
-names. The names above are the convention used by Scout and are a useful
-default for other apps.
+names. The names above are examples; choose names that fit your application.
 
 ## Password Provider
 
@@ -162,6 +161,81 @@ stored hash through JSON.
 Password-reset routes should find the user without revealing whether the email
 exists, call `createPasswordResetToken(user)`, send the plaintext token once,
 and later redeem it with `resetPassword(...)`.
+
+Successful `resetPassword(...)` and `changePasswordProvider(...)` calls replace
+the password, invalidate all outstanding password-reset links, and revoke every
+bearer session in one database transaction. This includes the current device;
+the app should clear its browser credentials and return to sign-in after a
+successful password change. Account-row locks serialize concurrent password
+replacements so two recovery links cannot both succeed. Invalid input or a
+database failure rolls back the complete operation.
+
+`setPasswordProvider(...)` is the low-level credential setup operation. Use the
+reset/change methods for account recovery and authenticated password changes.
+
+### Failed-password suspension
+
+Register `PasswordLoginAttempt` alongside `AuthProvider`, `AuthToken` and
+`PasswordResetToken` in the application's model registry and committed migrations.
+The `auth_password_login_attempts` table keeps one unique normalized-identity
+SHA-256 key, readable normalized `identity` (email), consecutive failure count and
+nullable `suspendedAt`. It has no user foreign key and records attempts for unknown
+emails exactly as for existing ones. `createdAt` records when the identity was
+first seen; `updatedAt` records the latest password sign-in or recovery activity,
+including refused attempts after suspension. Passwords are never recorded here.
+The digest remains the exact unique key independently of SQL text collation;
+it does not conceal the email. Legacy digest-only rows gain their readable
+identity on the next attempt without clearing their failure count or suspension.
+
+After 20 failures by default, password sign-in for that email requires recovery.
+There is no timed unlock and a correct password cannot clear suspension. Before
+suspension, successful verification resets consecutive failures. A completed,
+identity-matched password reset clears the state in the same transaction as the
+credential replacement and session revocation. Asking for a reset or submitting
+an invalid/expired reset link does not clear it. Google sign-in remains available.
+
+```ts
+password: {
+	driver: 'password',
+	suspension: { maxFailedAttempts: 20 }, // or suspension: false
+},
+```
+
+Known and unknown identities receive the same `PasswordSuspendedError` and public
+message. Unknown identities also perform password-hash verification with the
+configured hasher (default-cost scrypt by default) before recording failure.
+No account ID, timestamp, automatic retry deadline or
+account-existence flag belongs in the response. An HTTP adapter can map this error
+to `429 too_many_attempts`, with no `Retry-After` because recovery is required.
+The public message is "Too many sign-in attempts. Use password recovery to continue."
+
+Only the error that first commits a suspension carries a `suspension` value:
+`{ attemptId, suspensionId }`. Later blocked requests carry `null`. These opaque
+identifiers exist equally for registered and unknown identities and are for
+server-side work only; serialize the public code/message, not the whole error.
+An application can enqueue one recovery-notice job after catching this transition.
+The worker should find the attempt, confirm its `suspensionId` is still current,
+resolve an exactly matching account and send that owner a secure link from
+`Auth.createPasswordResetToken`. Never email unregistered submitted addresses.
+Templates, queueing and delivery policy remain application-owned. A reset clears
+the occurrence ID; a later suspension receives a new ID, so delayed jobs can be
+discarded without confusing separate suspension periods.
+
+Verification, failure counting and suspension share a per-identity SQL row lock.
+Concurrent first attempts use a unique-key upsert, and each verifier sees committed
+state before checking a password. Recovery takes the same lock. An attempt already
+verified before a later suspension is ordered before it; a verifier waiting behind
+the threshold-reaching failure cannot authenticate or clear the suspension.
+
+Keep IP-based limits and explicit trusted-proxy configuration: suspension does not
+prevent password spraying across many identities or intentional denial of password
+sign-in for an email. Records are retained without automatic deletion so operators
+can inspect targeted emails and recent activity. This is current suspension state,
+not a per-attempt event history: successful verification resets the counter before
+suspension, and verified recovery clears suspension. Operational logs may supplement
+investigations but do not replace this transactional state. A later manual cleanup
+or retention job should exclude rows with `suspendedAt` set; deleting those rows
+would remove the reset requirement. An email in this table is not proof of an account.
 
 ## Google Provider
 
@@ -337,6 +411,7 @@ List and revoke active sessions through the authenticated account:
 const sessions = await app.auth.tokensFor(user);
 await app.auth.revokeToken(user, sessionId);
 await app.auth.revokeCurrentToken();
+await app.auth.revokeAllTokens(user);
 ```
 
 Revocation sets `revokedAt`; the next bearer-token authentication rejects the
@@ -344,12 +419,25 @@ session before loading its user. `tokensFor(...)` excludes revoked and expired
 sessions. The current authenticated token is available as `app.auth.token`
 inside the request context so an app can mark the current browser session.
 
+`revokeAllTokens(user)` implements **Log out all devices**. The app must authorize
+the supplied account first; never accept a user id from the request as authority.
+It revokes all previously unrevoked tokens, including expired rows, and returns
+the number of rows changed. Revoked rows remain available for audit. Authentication
+cached in the calling request is invalidated and the current user is cleared
+when that account is logged out. Other requests already in progress may finish;
+subsequent authentication rejects the old tokens. A new sign-in can create a new
+session. This does not disconnect existing application-owned streams or revoke
+external provider credentials. Show failures and retain browser state if the
+all-devices request fails; clear browser credentials after successful confirmation.
+
 ## Security Responsibilities
 
 The auth package validates credentials and tokens, but the application still
 owns HTTP security controls:
 
 - Rate-limit public sign-in, sign-up, provider, forgot-password, and reset routes.
+  The password provider's per-identity suspension complements, and does not replace,
+  these IP limits.
 - Use generic invalid-credential and forgot-password responses to reduce account
   enumeration.
 - Accept bearer tokens only over HTTPS in production.
@@ -384,10 +472,11 @@ dedicated test account allowed to create/drop `db3_app_test_*` databases.
 It creates a unique database and removes it in `finally`; no email is sent and
 no token is logged. It is not a public HTTP auth endpoint.
 
-The lab does not establish race-safety for concurrent registration or reset
-redemption. Resetting a password does not automatically revoke existing bearer
-sessions; the application must choose and enforce that policy. The website's
-Auth page includes the exact test to copy into an independent application.
+The lab verifies account-wide logout and automatic revocation after password
+reset. The service's SQL regression tests additionally cover concurrent reset
+redemption, transaction rollback and cross-account isolation. Concurrent
+registration is a separate workflow. The website's Auth page includes the
+exact lab test to copy into an independent application.
 
 Run the auth package tests from the repository root:
 

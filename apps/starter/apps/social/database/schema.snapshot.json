@@ -1,0 +1,82 @@
+{
+	"formatVersion": 1,
+	"dialect": "mariadb",
+	"tables": [
+		{
+			"name": "social_opportunities",
+			"comment": null,
+			"columns": [
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "notes",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "owner_id",
+					"type": "varchar(26)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "status",
+					"type": "varchar(16)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null,
+					"default": "saved"
+				},
+				{
+					"name": "title",
+					"type": "varchar(200)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "url",
+					"type": "varchar(2048)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				}
+			],
+			"indexes": [
+				{
+					"name": "social_opportunities_owner_id_index",
+					"columns": [
+						{
+							"name": "owner_id"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		}
+	]
+}

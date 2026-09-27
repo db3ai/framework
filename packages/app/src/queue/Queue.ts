@@ -37,6 +37,7 @@ type QueueJobExecutionFactory = (
  */
 export class Queue implements queue.QueueService {
 	private readonly handlers = new Map<string, QueueJobExecutionFactory>();
+	readonly #ownedJobs = new Map<string, { Job: queue.QueueableJobClass; run: queue.QueueJobRunner }>();
 	private readonly driver: queue.QueueDriver;
 	private readonly monitor: QueueMonitor | null;
 	readonly events: QueueEvents;
@@ -63,6 +64,31 @@ export class Queue implements queue.QueueService {
 	 */
 	get queueMonitor(): QueueMonitor | null {
 		return this.monitor;
+	}
+
+	/** Registers app-owned stable job names atomically and returns cleanup for this process only. */
+	registerJobs(owner: string, jobs: readonly queue.QueueableJobClass[], run: queue.QueueJobRunner = operation => operation()): () => void {
+		if (!/^[a-z][a-z0-9_]{0,39}$/.test(owner)) throw new Error('Invalid queue job owner.');
+		const names = new Set<string>();
+		for (const Job of jobs) {
+			const name = queueableJobName(Job);
+			if (!isQueueableJobClass(Job) || !Job.jobName?.startsWith(`${owner}.`) || names.has(name) || this.handlers.has(name)) throw new Error(`Invalid or duplicate owned job "${name}"; use an explicit ${owner}. jobName.`);
+			names.add(name);
+		}
+		for (const Job of jobs) { this.registerJob(Job); this.#ownedJobs.set(queueableJobName(Job), { Job, run }); }
+		let closed = false;
+		return () => {
+			if (closed) return;
+			closed = true;
+			for (const name of names) { this.handlers.delete(name); this.#ownedJobs.delete(name); }
+		};
+	}
+
+	/** Checks active, delayed, reserved and chained payloads after producers have been quiesced. */
+	async hasPendingJobs(jobPrefix: string): Promise<boolean> {
+		if (!jobPrefix.trim()) throw new Error('A non-empty job prefix is required.');
+		if (!this.driver.hasPendingJobs) throw new Error(`Queue driver "${this.driver.name}" cannot inspect outstanding app work.`);
+		return this.driver.hasPendingJobs(jobPrefix);
 	}
 
 	/**
@@ -130,6 +156,7 @@ export class Queue implements queue.QueueService {
 		name: string,
 		handler: queue.JobHandler<TData>,
 	): void {
+		if (this.#ownedJobs.has(name)) throw new Error(`Job "${name}" belongs to an owned registration.`);
 		this.handlers.set(name, job => {
 			return {
 				handle: () => handler(job as queue.QueueJob<TData>),
@@ -147,6 +174,11 @@ export class Queue implements queue.QueueService {
 			throw new Error('Queue.registerJob requires a QueueableJob class.');
 		}
 
+		const owned = this.#ownedJobs.get(queueableJobName(Job));
+		if (owned) {
+			if (owned.Job !== Job) throw new Error(`Job "${queueableJobName(Job)}" belongs to another registration.`);
+			return;
+		}
 		this.handlers.set(queueableJobName(Job), job => {
 			const instance = queueableJobFromJSON(Job, job.payload.data);
 			const context = this.createQueueableJobContext(job);
@@ -265,6 +297,23 @@ export class Queue implements queue.QueueService {
 
 		if (!job) return null;
 
+		const owned = this.#ownedJobs.get(job.payload.job);
+		if (!owned) return this.#workClaimedJob(job, retryAfterSeconds, options);
+		let entered = false;
+		try {
+			return await owned.run(async () => { entered = true; return this.#workClaimedJob(job, retryAfterSeconds, options); });
+		} catch (error) {
+			if (entered) throw error;
+			// Admission was refused before app code ran. Retain the job without consuming an attempt.
+			if (!(await this.driver.defer(job, 30))) return this.recordLostLease(job, performance.now(), this.lostLeaseError(job, 'defer'));
+			const deferred = { ...job, attempts: Math.max(0, job.attempts - 1) };
+			await this.publishJobEvent('deferred', deferred, { delaySeconds: 30, error });
+			return { job: deferred, status: 'deferred', delaySeconds: 30, error };
+		}
+	}
+
+	/** Processes an already claimed job and completes its durable transition and hooks before releasing ownership. */
+	async #workClaimedJob(job: queue.QueueJob, retryAfterSeconds: number, options: queue.QueueWorkOptions): Promise<queue.QueueProcessResult> {
 		options.onClaimed?.(job);
 		await this.publishJobEvent('claimed', job);
 

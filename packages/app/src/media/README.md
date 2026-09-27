@@ -33,7 +33,7 @@ organizations, teams, or users. Apps map those concepts into a scoped library:
 
 ```ts
 const library = await app.media.libraryFor({
-	scopeType: 'scout.website',
+	scopeType: 'app.website',
 	scopeId: website.id,
 	key: 'default',
 	name: 'Website media',
@@ -50,6 +50,10 @@ scope_type + scope_id + library_key
 This lets one app start with one default library per scope, while still allowing
 future libraries such as `generated-images`, `reference-material`, or
 `brand-assets` when they need separate configuration or workflows.
+
+Concurrent first uploads reuse the same scoped library, root and directory
+rows when another writer wins creation. Existing defaults and folder metadata
+are preserved. Other database errors still propagate to the caller.
 
 ## Managed Files Without Browser Items
 
@@ -286,6 +290,8 @@ const media = {
 
 Deleting the cache directory never removes originals. A later request
 regenerates the missing variant using the managed source file.
+Failed renders stop both streams and finish pending storage writes before
+removing partial cache files and returning the error.
 
 The default `SharpImageProcessor` uses Sharp/libvips. It is isolated behind the
 `ImageProcessor` contract so another engine, such as an ImageMagick adapter, can

@@ -1,17 +1,20 @@
 # db3.ai Framework Agent Instructions
 
 This repository contains public framework source, tests, examples, and package
-release tooling. It does not contain consuming product applications.
+release tooling, plus apps/starter as the runnable example and feature playground.
 
 ## Orientation
 
 - Read `packages/app/package.json`, `packages/app/README.md`, and the relevant
   service README and public barrel before changing App.
 - Read `packages/pure/README.md` and the focused utility module before changing Pure.
-- Read `packages/create/README.md`, its template and safety tests before changing Create.
+- Read `packages/create/README.md`, apps/starter and the creator safety tests before changing Create.
 - Follow `docs/framework-conventions.md` for service ownership, contracts,
   examples, exports, and documentation.
 - Keep service behaviour tests under `packages/app/src/{service}/tests`.
+- Use `client/` for browser code and `server/` for backend code in new apps,
+  following apps/starter, with migrations and schema snapshots in `server/database/`.
+  Framework library source stays in package `src/` directories.
 
 ## Standards
 

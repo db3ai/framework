@@ -1,0 +1,1 @@
+export { registerAppRoutes } from './registerAppRoutes';

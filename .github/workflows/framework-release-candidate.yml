@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Lockstep Pure and App SemVer version
+        description: Lockstep Pure, App and Create SemVer version
         required: true
         type: string
       confirmation:
@@ -30,6 +30,7 @@ jobs:
       DB_PORT: 3306
       DB_USER: root
       DB_PASSWORD: root
+      TEST_DB_PASSWORD: root
       QUEUE_REDIS_URL: redis://127.0.0.1:6379
       QUEUE_REDIS_PREFIX: db3:release-candidate
       FRAMEWORK_RELEASE_VERSION: ${{ inputs.version }}
@@ -74,22 +75,31 @@ jobs:
           package-manager-cache: false
 
       - name: Install only framework workspaces
-        run: npm ci --ignore-scripts --workspace packages/pure --workspace packages/app
+        run: npm ci --ignore-scripts --workspace packages/pure --workspace packages/app --workspace packages/create --workspace apps/starter
 
       - name: Reject high-severity production dependency advisories
-        run: npm audit --omit=dev --audit-level=high --workspace packages/pure --workspace packages/app
+        run: npm audit --omit=dev --audit-level=high --workspace packages/pure --workspace packages/app --workspace apps/starter
 
       - name: Verify Pure
         run: npm run check --workspace packages/pure && npm test --workspace packages/pure
+
+      - name: Install Chromium for browser network guard tests
+        run: npx playwright install --with-deps chromium
 
       - name: Verify App with required MariaDB and Redis
         run: npm run test:release --workspace packages/app
 
       - name: Verify release policy
-        run: npm run framework:release:test
+        run: npm run framework:release:test && npm run framework:publish:test
+
+      - name: Verify Create and the runnable starter
+        run: npm test --workspace packages/create && npm run build --workspace apps/starter && npm test --workspace apps/starter
 
       - name: Verify packed packages in a clean consumer
         run: npm run framework:package:test
+
+      - name: Verify the packed creator and generated application
+        run: npm run framework:create:test
 
       - name: Inspect and pack the candidate without publishing
         run: npm run framework:release:prepare -- --version "$FRAMEWORK_RELEASE_VERSION" --repository "$GITHUB_REPOSITORY"

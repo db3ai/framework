@@ -179,6 +179,7 @@ async function readSourceMetadata(release) {
 		version: release.version,
 		repository: release.repository,
 		packages,
+		templateManifest: JSON.parse(await readFile(join(REPOSITORY_ROOT, 'apps/starter/package.json'), 'utf8')),
 	};
 }
 
@@ -198,6 +199,7 @@ async function readCandidateMetadata(release, stagedRoot) {
 		packages[packageDefinition.directory] = {
 			manifest: JSON.parse(await readFile(join(packageRoot, 'package.json'), 'utf8')),
 			licensePresent: await pathExists(join(packageRoot, 'LICENSE')),
+			...(packageDefinition.directory === 'create' ? { templateManifest: JSON.parse(await readFile(join(packageRoot, 'template/package.json'), 'utf8')) } : {}),
 		};
 	}
 

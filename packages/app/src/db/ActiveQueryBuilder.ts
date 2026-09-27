@@ -318,6 +318,18 @@ export class ActiveQueryBuilder<TRecord extends ActiveRecord> {
 	}
 
 	/**
+	 * Adds SELECT ... FOR UPDATE while retaining typed ActiveRecord results.
+	 * Execute inside a transaction; locks are released on commit or rollback.
+	 * This delegates to Knex and does not start or finish a transaction.
+	 * @returns This query for further filtering or execution.
+	 * @example await app().db.transaction(async () => { const user = await User.where('id', id).forUpdate().first(); });
+	 */
+	forUpdate(): this {
+		this.qb.forUpdate();
+		return this;
+	}
+
+	/**
 	 * Limits the number of returned records.
 	 */
 	limit(count: number): this {

@@ -31,12 +31,12 @@ describe('UrlGenerator', () => {
 	it('is exposed as one shared application service', () => {
 		const application = new App({
 			url: {
-				baseUrl: 'https://scout.example.test/',
+				baseUrl: 'https://app.example.test/',
 			},
 		});
 
 		expect(application.url).toBe(application.url);
-		expect(application.url.baseUrl).toBe('https://scout.example.test');
+		expect(application.url.baseUrl).toBe('https://app.example.test');
 	});
 
 	it('rejects an application without a public URL or local port', () => {

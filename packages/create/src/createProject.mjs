@@ -1,7 +1,9 @@
-import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { basename, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { listStarterFiles } from './starterFiles.mjs';
 
 /**
  * Creates a new starter without overwriting an existing path or inheriting secrets.
@@ -14,11 +16,14 @@ export async function createProject(destination, options = {}) {
 	const target = resolve(destination);
 	const name = basename(target);
 	if (!/^[a-z][a-z0-9-]{0,63}$/.test(name)) throw new Error('Use a project name starting with a lowercase letter, containing lowercase letters, numbers or hyphens.');
+	const bundled = new URL('../template/', import.meta.url);
+	const template = fileURLToPath(existsSync(new URL('package.json', bundled)) ? bundled : new URL('../../../apps/starter/', import.meta.url));
+	const files = await listStarterFiles(template);
 	// Exclusive mkdir rejects existing files, directories and symlinks, even empty ones.
 	await mkdir(target);
-	const template = fileURLToPath(new URL('../template/', import.meta.url));
-	for (const entry of await readdir(template)) {
-		await cp(join(template, entry), join(target, entry), { recursive: true, force: false, errorOnExist: true });
+	for (const file of files) {
+		await mkdir(dirname(join(target, file)), { recursive: true });
+		await cp(join(template, file), join(target, file), { force: false, errorOnExist: true });
 	}
 	const manifest = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'));
 	manifest.name = name;
@@ -28,6 +33,6 @@ export async function createProject(destination, options = {}) {
 		? example.replace('DB_PORT=3306', 'DB_PORT=33067').replace('DB_PASSWORD=\n', `DB_PASSWORD=${randomBytes(24).toString('hex')}\n`)
 		: example;
 	await writeFile(join(target, '.env'), environment, { flag: 'wx', mode: 0o600 });
-	await writeFile(join(target, '.gitignore'), 'node_modules/\ndist/\n.env\n.env.*\n!.env.example\ncoverage/\n');
+	await writeFile(join(target, '.gitignore'), 'node_modules/\ndist/\n.env\n.env.*\n!.env.example\ncoverage/\nstorage/\n');
 	return target;
 }

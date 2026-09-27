@@ -46,7 +46,7 @@ export class MediaLibrary extends ActiveRecord {
 						columns: ['scope_type', 'scope_id'],
 					},
 				],
-				comment: 'Application-owned scope type, for example scout.website or scout.organization.',
+				comment: 'Application-owned scope type, for example app.website or app.organization.',
 			}),
 
 			scopeId: field.string({

@@ -1,28 +1,15 @@
+import { randomBytes, randomUUID } from 'node:crypto';
 import { AuthProvider, PASSWORD_AUTH_PROVIDER } from '../AuthProvider';
 import type * as auth from '../contracts';
 import type { PasswordCredentials } from '../Auth';
 import type { UserIdentity, UserIdentityModel } from '../UserIdentity';
 import { defaultPasswordHash, type PasswordHash } from '../passwordHash';
+import { PasswordSuspendedError } from '../PasswordSuspendedError';
+import { PasswordLoginAttempt } from '../PasswordLoginAttempt';
 
-/**
- * Construction options for the password auth provider.
- */
-export interface PasswordAuthProviderOptions<TIdentity extends UserIdentity = UserIdentity> {
-	/**
-	 * User identity model configured for the host app.
-	 */
-	identityModel: UserIdentityModel<TIdentity>;
-
-	/**
-	 * Provider-link model configured for the auth service.
-	 */
-	providerModel?: typeof AuthProvider;
-
-	/**
-	 * Password hashing service used to verify stored hashes.
-	 */
-	passwordHash?: PasswordHash;
-}
+const DEFAULT_MAX_FAILED_ATTEMPTS = 20;
+/** Valid default-cost scrypt value used only for unknown-identity timing parity. */
+const DUMMY_PASSWORD_HASH = 'scrypt$1$16384$8$1$64$0123456789abcdef0123456789abcdef$' + '00'.repeat(64);
 
 /**
  * Provider driver for first-party email and password authentication.
@@ -36,37 +23,102 @@ export class PasswordAuthProvider<TIdentity extends UserIdentity = UserIdentity>
 	private readonly IdentityModel: UserIdentityModel<TIdentity>;
 	private readonly ProviderModel: typeof AuthProvider;
 	private readonly passwordHash: PasswordHash;
+	readonly #suspension: Required<auth.PasswordSuspensionOptions> | null;
+	#dummyHash: Promise<string> | undefined;
 
 	/**
 	 * Creates a password auth provider.
 	 *
 	 * @param options - Password provider dependencies configured at app startup.
 	 */
-	constructor(options: PasswordAuthProviderOptions<TIdentity>) {
+	constructor(options: auth.PasswordAuthProviderOptions<TIdentity>) {
 		this.IdentityModel = options.identityModel;
 		this.ProviderModel = options.providerModel ?? AuthProvider;
 		this.passwordHash = options.passwordHash ?? defaultPasswordHash;
+		this.#suspension = resolveSuspension(options.suspension);
 	}
 
 	/**
-	 * Verifies submitted password credentials against the stored provider row.
+	 * Verifies credentials under the identity's durable attempt lock.
 	 *
-	 * @param input - Submitted password credential payload.
-	 * @returns Normalized password provider profile, or null when verification fails.
+	 * Unknown identities receive the same failed-attempt accounting and password
+	 * hashing work as existing accounts. Suspension persists until verified
+	 * password recovery; a correct password cannot clear a suspended identity.
+	 *
+	 * @param input - Submitted password credentials.
+	 * @returns Verified provider profile, or null for an invalid password.
+	 * @throws {PasswordSuspendedError} When this identity needs password recovery.
 	 */
 	async verify(input: PasswordCredentials): Promise<auth.AuthProviderProfile | null> {
 		if (!isPasswordCredentials(input)) return null;
-
 		const identity = normalizeIdentity(input[this.IdentityModel.identityField]);
+		if (!identity || identity.length > 255) return null;
 
-		if (!identity) return null;
+		if (!this.#suspension) return this.#verifyPassword(identity, input.password);
 
+		// Return the refusal from the transaction so the threshold update commits
+		// before the public error is thrown.
+		const result = await PasswordLoginAttempt.withIdentityLock(identity, async attempt => {
+			if (attempt.suspendedAt) return new PasswordSuspendedError();
+			const profile = await this.#verifyPassword(identity, input.password);
+			if (profile) {
+				attempt.failedAttempts = 0;
+			} else {
+				attempt.failedAttempts += 1;
+				if (attempt.failedAttempts >= this.#suspension!.maxFailedAttempts) {
+					attempt.suspendedAt = new Date();
+					attempt.suspensionId = randomUUID();
+				}
+			}
+			await attempt.save();
+			return attempt.suspendedAt ? new PasswordSuspendedError({ attemptId: String(attempt.id), suspensionId: attempt.suspensionId! }) : profile;
+		});
+
+		if (result instanceof PasswordSuspendedError) throw result;
+		return result;
+	}
+
+	/**
+	 * Performs equivalent hashing work for known and unknown identities.
+	 * @param identity - Normalized submitted identity.
+	 * @param password - Submitted plaintext password, never persisted.
+	 * @returns Profile only when an existing password credential matches.
+	 */
+	async #verifyPassword(identity: string, password: string): Promise<auth.AuthProviderProfile | null> {
 		const provider = await this.findProvider(identity);
+		// SQL collations may match distinct identities (for example accented text).
+		// Only our exact normalized key may reach the credential verification path.
+		if (!provider || normalizeIdentity(provider.providerUserId) !== identity) {
+			const dummy = this.passwordHash === defaultPasswordHash
+				? DUMMY_PASSWORD_HASH
+				: await (this.#dummyHash ??= this.passwordHash.hash(randomBytes(32).toString('hex')).catch(error => {
+					this.#dummyHash = undefined;
+					throw error;
+				}));
+			await this.passwordHash.verify(password, dummy);
+			return null;
+		}
+		return await provider.verifyPassword(password, this.passwordHash) ? profileFromProvider(provider) : null;
+	}
 
-		if (!provider) return null;
-		if (!await provider.verifyPassword(input.password, this.passwordHash)) return null;
-
-		return profileFromProvider(provider);
+	/**
+	 * Replaces a verified owner's password and clears suspension atomically.
+	 * Called by Auth only after a usable, identity-matched recovery token is locked.
+	 * @param user - Account whose email recovery proof was verified.
+	 * @param password - Replacement plaintext password.
+	 * @returns Saved password provider.
+	 */
+	async recoverPassword(user: TIdentity, password: string): Promise<AuthProvider> {
+		const identity = this.userIdentityValue(user);
+		if (!identity) throw new Error('Cannot recover a password without an identity.');
+		return PasswordLoginAttempt.withIdentityLock(identity, async attempt => {
+			const provider = await this.setPassword(user, password);
+			attempt.failedAttempts = 0;
+			attempt.suspendedAt = null;
+			attempt.suspensionId = null;
+			await attempt.save();
+			return provider;
+		});
 	}
 
 	/**
@@ -253,4 +305,18 @@ function profileFromProvider(provider: AuthProvider): auth.AuthProviderProfile {
 		label: provider.label,
 		profile: provider.profile,
 	};
+}
+
+/**
+ * Resolves the failed-attempt threshold and rejects invalid startup config.
+ * @param options - Identity suspension policy, or false to disable accounting.
+ * @returns Validated threshold, or null when disabled.
+ */
+function resolveSuspension(options: auth.PasswordSuspensionOptions | false | undefined): Required<auth.PasswordSuspensionOptions> | null {
+	if (options === false) return null;
+	const maxFailedAttempts = options?.maxFailedAttempts ?? DEFAULT_MAX_FAILED_ATTEMPTS;
+	if (!Number.isSafeInteger(maxFailedAttempts) || maxFailedAttempts < 1 || maxFailedAttempts > 1_000_000) {
+		throw new Error('Password suspension maxFailedAttempts must be an integer between 1 and 1000000.');
+	}
+	return { maxFailedAttempts };
 }

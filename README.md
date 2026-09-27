@@ -2,12 +2,13 @@
 
 Typed TypeScript application framework packaged as `@db3.ai/app` and
 `@db3.ai/pure`, with the `@db3.ai/create` application starter. This repository
-contains their public source, service documentation, examples and behaviour tests.
+contains their public source, the runnable starter, service documentation, examples and behaviour tests.
 
 This is the development branch, not a stable npm release. Packages are not yet
-published. Start with the [three-tarball preview](./packages/create/README.md#test-the-unpublished-preview)
-to try the Notes + AI app from this checkout. A live AI key is optional and must
-remain in your generated app, never in this repository.
+published. Run [apps/starter](./apps/starter/README.md) directly from this checkout
+to develop and try framework features. Its local environment file is ignored by
+Git. AI is optional. The [independent consumer checks](./packages/create/README.md#test-the-unpublished-preview)
+verify the same app against packaged framework releases.
 
 ## Packages
 
@@ -25,11 +26,23 @@ Redis for the complete release gate.
 
 ```sh
 npm ci
+cp apps/starter/.env.example apps/starter/.env
 cp packages/app/.env.test.example packages/app/.env.test
 npm run check
 npm test
 npm run test:release
 ```
+
+Configure a dedicated application database and test account using the
+[starter README](./apps/starter/README.md). Then run:
+
+```sh
+npm run db:migrate --workspace db3-starter
+npm run dev:starter
+```
+
+The starter uses local framework workspace packages while you develop. Its source
+is also bundled into Create; edit apps/starter rather than a second template.
 
 The clean consumer gate compiles, packs, installs, imports, and type-checks both
 packages without publishing them:

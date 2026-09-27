@@ -43,7 +43,7 @@ export async function runSchedulerConsole(
 			await runWithApp(options, app => {
 				for (const definition of app.scheduler.definitions()) {
 					console.log(
-						`${definition.name}\t${definition.kind}\tdaily at ${definition.frequency.time}\t${definition.timezone}${definition.jobName ? `\t${definition.jobName}` : ''}`,
+						`${definition.name}\t${definition.kind}\t${definition.frequency.type === 'minute' ? 'every minute' : definition.frequency.type === 'hourly' ? 'hourly (UTC)' : `daily at ${definition.frequency.time}`}\t${definition.timezone}${definition.jobName ? `\t${definition.jobName}` : ''}`,
 					);
 				}
 			});
@@ -153,6 +153,8 @@ async function workScheduler(
 	app.scheduler.definitions();
 
 	const worker = new SchedulerWorker(app.scheduler, {
+		onTick: options.onTick,
+		checkpoint: options.checkpoint,
 		logger: app.log ? schedulerLogger(app.log) : undefined,
 	});
 	let shuttingDown = false;

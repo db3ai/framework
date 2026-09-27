@@ -29,8 +29,8 @@ const serializer: SerializerOptions = {
 		'report.request': ReportRequest,
 	},
 	models: {
-		'scout.user': User,
-		'scout.website': Website,
+		'app.user': User,
+		'app.website': Website,
 	},
 };
 
@@ -43,7 +43,7 @@ The same entries can be registered during application boot:
 
 ```ts
 app().serializer.registry.registerClass('report.request', ReportRequest);
-app().serializer.registry.registerModel('scout.website', Website);
+app().serializer.registry.registerModel('app.website', Website);
 ```
 
 Registration is idempotent for the same name and constructor. Reusing a name
@@ -126,7 +126,7 @@ logical primary key rather than as an attribute snapshot:
 ```json
 {
 	"$platform": "active-record",
-	"model": "scout.website",
+	"model": "app.website",
 	"id": "01J..."
 }
 ```
@@ -167,31 +167,3 @@ const payload = app().serializer.serialize(value);
 const durablePayload = JSON.parse(JSON.stringify(payload));
 const restored = await app().serializer.deserialize(durablePayload);
 ```
-
-## Current queued-agent example
-
-Scout's `BaseAgent` implements the root contract by returning its constructor
-context from `toJSON()`. `ArticleGenerationAgent` accepts and validates one
-context object containing `User`, `Website`, `ContentPlanItem`, and the
-generation trigger.
-
-When that agent is queued, `BaseAgent.queue()` serializes the concrete agent
-before creating the tracked run. An unregistered agent therefore fails before
-creating conversation or request rows. The resulting `AgentRunJob` data
-contains:
-
-- the versioned agent envelope;
-- the message, model, trace, conversation, and AI request identifiers; and
-- small lifecycle `metadata`, such as `contentPlanItemId`, that failure
-  observers need without reconstructing the agent.
-
-In the worker, `AgentRunJob` deserializes the envelope. The serializer reloads
-the three ActiveRecord references, invokes the registered
-`ArticleGenerationAgent` constructor, and the job calls `runQueued()` on that
-fresh instance. The agent's constructor is now the single context contract;
-there is no parallel factory that manually maps stored ids back into a
-different runtime shape.
-
-This is an explicit integration at the queued-agent boundary. Ordinary
-`QueueableJob` classes continue to use their existing JSON `data` constructor
-round trip.

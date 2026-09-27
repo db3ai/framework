@@ -10,3 +10,4 @@ export * from './console';
 export * from './drivers/DatabaseQueueDriver';
 export * from './drivers/RedisQueueDriver';
 export * from './contracts';
+export * from './createJob';

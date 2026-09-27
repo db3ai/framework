@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { AuthProvider, AuthToken, PasswordResetToken, UserIdentity } from '@db3.ai/app/auth';
+import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, UserIdentity } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { MediaFile, MediaItem, MediaLibrary } from '@db3.ai/app/media';
 import { App } from '@db3.ai/app/server';
@@ -16,7 +16,7 @@ export async function runPrivateFiles() {
 		const application = new App({ db: database.db, config: { auth: { providers: { password: true } } }, storage: { disks: { local: { driver: 'local', root } } } });
 		const server = createPrivateFileServer(application);
 		try {
-			await application.db.install(UserIdentity, AuthProvider, AuthToken, PasswordResetToken, MediaLibrary, MediaFile, MediaItem);
+			await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, MediaLibrary, MediaFile, MediaItem);
 			const ada = await application.auth.registerWithPassword({ name: 'Ada', email: 'ada@example.test', password: 'example-password-123' });
 			const grace = await application.auth.registerWithPassword({ name: 'Grace', email: 'grace@example.test', password: 'example-password-456' });
 			const headers = { authorization: `Bearer ${ada.token}`, 'content-type': 'text/plain' };

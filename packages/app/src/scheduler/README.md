@@ -1,7 +1,7 @@
 # Scheduler
 
 The framework scheduler keeps recurring definitions in application code and
-stores one durable occurrence for every due named minute. It supports daily
+stores one durable occurrence for every due named minute. It supports minute and daily
 jobs and short inline calls:
 
 ```ts
@@ -28,10 +28,10 @@ A `QueueableJob` class uses its durable job name as the schedule name, so
 stable name because function identity is not durable. Names must be unique
 within one application schedule.
 
-The first implementation intentionally supports only `daily()` and
-`dailyAt('HH:mm')`. Times use UTC unless `.timezone(...)` selects an IANA
-timezone. The scheduler evaluates the current minute only; it does not run
-missed historical minutes after downtime.
+Use `everyMinute()` for bounded background collection, or `daily()` and
+`dailyAt('HH:mm')` for daily work. Minute schedules are independent of timezone;
+daily times use UTC unless `.timezone(...)` selects an IANA timezone. The worker covers every elapsed UTC minute in order. Applications
+can provide durable progress to preserve that coverage across downtime.
 
 ## Runtime
 
@@ -51,8 +51,12 @@ There are two execution boundaries:
 
 - `scheduler.runDue()` evaluates one minute and is suitable for cron or a
   one-off framework command.
-- `SchedulerWorker` evaluates immediately, waits to the next minute boundary,
-  and repeats without overlapping ticks in the same process.
+- `SchedulerWorker` starts with the current minute, then evaluates every minute
+  through the current clock time without overlapping ticks in one process.
+  All tasks due in a minute retain that original due time, even if dispatching
+  them crosses several later minutes. Those later minutes are evaluated next.
+  Late or early timers cannot discard minutes. Catch-up yields after sixty
+  evaluations to allow shutdown and other work; it does not truncate the backlog.
 
 Run one dedicated scheduler process in production. Multiple processes are
 still safe: `scheduled_occurrences` has a unique `(name, scheduled_for)` claim,
@@ -61,6 +65,30 @@ so only one process can dispatch a named task for a minute.
 Scheduled jobs are the preferred path. The scheduler only creates and
 dispatches the job; queue workers perform the expensive work. `call()` runs
 inside the scheduler process, so reserve it for short operations.
+
+### Durable worker progress
+
+Pass an application-owned `SchedulerCheckpoint` as `checkpoint` to
+`SchedulerWorker` or `runSchedulerConsole`. Its two operations are:
+
+- `load(firstMinute)` atomically establishes the minute immediately before
+  `firstMinute` on first use, or returns the existing last evaluated UTC minute.
+- `save(evaluatedFor)` durably advances that minute after the complete batch.
+  Concurrent writers must never move it backwards.
+
+The initialization boundary is saved before any dispatch. A replacement worker
+starts with the minute after the saved cursor and covers every elapsed minute.
+Existing occurrence claims deduplicate reconsidered jobs. Without a checkpoint,
+a new process starts in its current minute and cannot recover downtime. A
+liveness timestamp is not a coverage cursor: it can be written after a boundary
+even though that new minute has not been evaluated.
+
+An incomplete evaluation or failed checkpoint write retries the same minute
+after one second. Individual event failures are recorded as failed occurrences;
+they do not prevent the rest of that batch or later minutes from being evaluated.
+Catch-up uses currently registered definitions and invokes factories at the time
+of dispatch. Business-date-sensitive jobs must define their own date policy.
+One-off `scheduler:run`, list and history commands leave the worker cursor alone.
 
 ## Occurrence History
 
@@ -132,8 +160,21 @@ or runs an application's historical schedules. The website includes the exact
 consumer-copyable test. Framework contributors run
 `npm run test:service --workspace packages/app -- scheduler`.
 
+The [elapsed-window runner](./examples/runSchedulerWindow.ts) demonstrates a
+boundary crossed during a heartbeat and a slow batch spanning the next minute,
+using the real SQL queue and a controlled clock. Run
+`npx tsx examples/runSchedulerWindow.ts` with the same dedicated test credentials.
+
 A daily local time may not occur during a spring DST transition and may map to
 two UTC minutes during an autumn transition. Claims are keyed by UTC minute,
-not by a local business date. There is no catch-up or exactly-once side-effect
-guarantee. Claims and queue dispatch are separate operations; monitor and
+not by a local business date. A nonexistent DST wall-clock minute is not a
+missed UTC evaluation. There is no exactly-once side-effect guarantee.
+Claims and queue dispatch are separate operations; monitor and
 reconcile occurrences left claimed by an interrupted dispatch.
+
+`SchedulerWorkerOptions.onTick` (also accepted by the scheduler console) lets
+an application persist a successful tick heartbeat, with `result.evaluatedFor`
+identifying the covered minute. It runs only when `runDue` returns without
+failures. Hook failures are logged and cause the same minute to be reconsidered.
+An independent monitor must detect stale heartbeats; scheduler self-logging
+cannot detect a scheduler process that has stopped.

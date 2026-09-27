@@ -24,6 +24,46 @@ documentation and demos must describe implemented, tested public APIs for the
 stated package version. Use real consumer attempts and observed friction to
 judge improvements; do not claim the best experience from a code review alone.
 
+## Starter And Optional Example Apps
+
+The starter is the foundation for a real application: a polished authentication
+experience, account settings, an admin shell and normal feature-app integration.
+Developers should be able to copy it and start building without first removing
+demonstration models, pages and jobs.
+
+Keep runnable demonstrations in an optional examples collection using feature
+apps. Each example owns its UI, server behaviour, models, migrations and tests,
+while sharing the host's authentication and framework services. Tutorials teach
+the public API directly and link to these apps as complete runnable examples.
+Examples should be available for local demos but excluded from newly generated
+projects by default. Service-owned library examples remain useful for focused
+package and documentation verification.
+
+Use flat, prefixed folders: `apps/example_model_sync/`, with sibling apps such
+as `apps/example_job_progress/`. The folder and canonical app ID are both
+`example_model_sync`; the manifest display name is `Example model sync` and
+owned tables use the prefix `example_model_sync_`. Use `example_` consistently
+for demo apps. Underscores fit the existing identifier rules; hyphens do not.
+
+This uses the current immediate-folder discovery without adding nested app
+namespaces. Keep the examples optional and verify creator exclusions when
+adding them. Moving existing demos still requires updating their registrations,
+owned data and tests; a directory rename alone is not a migration.
+
+## Application Environments And Recovery
+
+Operational knowledge should live in a versioned application profile: source
+revision, build recipe, process roles, database, storage, configuration and required
+secret names. The optional `@db3.ai/environments` package owns these operations
+outside the application runtime. Its CLI and future visual tools share one API.
+
+The first implemented slice captures non-Git state and rebuilds an exact Git
+revision into isolated local Docker for a recovery drill. It verifies restored
+data and HTTP health, then stops the copy. Remote deployment, persistent previews
+and a visual environment manager remain future work. See
+[environment recovery](framework-environment-recovery.md) for scope and evidence;
+a live-host clone alone does not establish disaster recovery after host loss.
+
 ## Core Embeddings And Retrieval
 
 Embeddings are a first-class framework capability for files, explicitly selected
@@ -104,6 +144,11 @@ A complete visual workspace should eventually make it possible to:
 - **Visual parity by design.** A capability may launch through the CLI first,
   but its contract should allow a visual client to expose it without invoking a
   shell command or duplicating its implementation.
+- **Round-trip by design.** Authoritative code, configuration, and application
+  definitions update their visual representations. Supported visual edits use
+  the same framework operations to produce validated, reviewable source,
+  configuration, and migration changes. Capabilities that cannot safely make
+  that round trip remain explicitly read-only.
 - **Safe, reviewable changes.** Schema, API, deployment, and destructive
   operations should provide validation, previews, diffs, and explicit
   confirmation where appropriate.
@@ -129,3 +174,32 @@ workspace. It can grow from requests, queries, logs, and queue inspection into
 complete application observability and then expose safe framework operations.
 Reusable instrumentation and operations remain owned by `packages/app`; the
 panel is a client and control plane for those capabilities.
+
+### First Studio command surface
+
+The standalone development panel now provides an initial Commands workspace:
+app selection, registered-command discovery, positional-input forms, incremental
+CLI output and bounded run history. It uses shared framework APIs and isolated
+local execution; no builder interface or command routes belong in consuming applications.
+
+The longer-term Studio direction is one local application for setup, app and
+source exploration, code review, model/relationship inspection and framework
+code generation. It should eventually provision and operate a local development
+application without requiring terminal use, using the same underlying operations
+as a future cloud control plane. Guided environment/database setup, relationship
+diagrams and additional generators are future work, not capabilities of the
+initial command explorer.
+
+## Local Feature Apps And Visual Structure
+
+Start cohesive features in a host-local apps/ directory, with a root manifest.json
+and App.ts service extending AppService. Folder discovery and marked npm dependency
+discovery avoid per-feature host registration. Keep the same ownership when a
+feature becomes an independent package. Public services are available through
+app().social, with reserved framework names and generated optional types.
+
+The Apps service separates code presence, installation and runtime readiness.
+Starter supplies visual exploration, navigation and single-process administrator
+installation controls. Apps own migrations and down functions; uninstall retains
+data. Visual definition editing, live replacement of loaded code and per-tenant
+installation remain future work.

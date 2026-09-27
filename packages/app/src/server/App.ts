@@ -1,4 +1,9 @@
+import type { WebSocketServiceOptions } from '../websocket';
 import type { Knex } from 'knex';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Ai, type AIOptions } from '../ai';
+import { Apps, type AppDefinitions, type AppServices, type InstalledApps } from '../apps';
 
 import {
 	Auth,
@@ -20,6 +25,12 @@ import {
 	Database,
 	type DatabaseOptions,
 } from '../db';
+import { InApp, type InAppOptions } from '../in-app';
+import { Health, type HealthOptions } from '../health';
+import { Mail, type MailOptions } from '../mail';
+import { Notifications } from '../notifications';
+import { WebSockets } from '../websocket';
+import { UserIdentity } from '../auth';
 import { Events } from '../events';
 import { UrlGenerator, type UrlGeneratorOptions } from '../url';
 import {
@@ -44,7 +55,14 @@ import {
 	setActiveApp,
 } from './appContext';
 
-export interface AppOptions {
+/** Application root, service configuration and optional dependencies supplied at bootstrap. */
+export interface AppOptions<TApps extends AppDefinitions = {}> {
+	/** Optional explicit composition. Omit to discover local apps and marked npm dependencies. */
+	apps?: TApps;
+	/** App root as a path or file URL; defaults to the working directory at construction. */
+	directory?: string | URL;
+	/** Provider adapters and extensible ActiveRecord models for app().ai. */
+	ai?: AIOptions;
 	db?: Knex;
 	dbOptions?: DatabaseOptions;
 	auth?: Omit<AuthOptions<any>, 'db' | 'requestContext'>;
@@ -54,6 +72,14 @@ export interface AppOptions {
 	/** Canonical application URL configuration used across all runtimes. */
 	url?: UrlGeneratorOptions;
 	queue?: QueueOptions;
+	/** Authorization policy for application-scoped in-app inboxes. */
+	inApp?: InAppOptions;
+	/** Optional shared transport for channel events from API and worker processes. */
+	webSockets?: WebSocketServiceOptions;
+	/** Application health identity and initial component checks. */
+	health?: HealthOptions;
+	/** Provider-neutral mail delivery used directly and by app().notifications. */
+	mail?: MailOptions;
 	/** Serializable classes and ActiveRecord models registered with app().serializer. */
 	serializer?: SerializerOptions;
 	storage?: StorageOptions;
@@ -65,27 +91,63 @@ export interface AppOptions {
  * Keep this as the place where top-level framework capabilities are discovered
  * and wired, not where domain logic itself accumulates.
  */
-export class App {
+export class App<TApps extends AppDefinitions = {}> {
 	private readonly services = new Map<string, unknown>();
+	/** Absolute app root used for conventional server paths, independent of later working-directory changes. */
+	readonly directory: string;
 
 	/**
 	 * Creates an application service hub and validates configured startup security.
 	 *
 	 * @param options - Framework services and application configuration.
 	 */
-	constructor(protected readonly options: AppOptions = {}) {
+	constructor(protected readonly options: AppOptions<TApps> = {}) {
+		this.directory = resolve(options.directory instanceof URL ? fileURLToPath(options.directory) : options.directory ?? process.cwd());
+		if (options.apps) void this.apps;
 		setActiveApp(this);
 
 		if (this.config.has('security')) void this.security;
 	}
 
+	/** Returns the app composition registry with optional, inferred public service accessors. */
+	get apps(): Apps<TApps> & AppServices<TApps> {
+		return this.service('apps', () => new Apps(this, this.options.apps)) as Apps<TApps> & AppServices<TApps>;
+	}
+
+	/** Returns the lazy database service with this app's connection, model registry and root directory. */
 	get db(): Database {
 		return this.service('db', () => {
 			return new Database(
 				this.resolveDbConnection(),
 				this.resolveDatabaseOptions(),
+				this.directory,
 			);
 		});
+	}
+
+	/** Returns the durable inbox service using the configured Auth identity model. */
+	get inApp(): InApp {
+		return this.service('inApp', () => new InApp(this.options.inApp, this.options.auth?.identityModel ?? UserIdentity));
+	}
+
+	/** Returns the extensible application health registry. */
+	get health(): Health {
+		return this.service('health', () => new Health(this.options.health));
+	}
+
+	/** Returns the provider-neutral mail service configured for this application. */
+	get mail(): Mail {
+		return this.service('mail', () => new Mail(this.options.mail));
+	}
+
+	/** Returns the notification coordinator for application-owned channel renderers. */
+	get notifications(): Notifications<any> {
+		return this.service('notifications', () => new Notifications(this.inApp, this.mail, this.options.auth?.identityModel ?? UserIdentity));
+	}
+
+	/** Returns authenticated WebSocket endpoints owned by this application's lifecycle. */
+	get webSockets(): WebSockets {
+		return this.service('webSockets', () => new WebSockets(this, this.options.webSockets));
 	}
 
 	get auth(): Auth<any> {
@@ -99,6 +161,11 @@ export class App {
 
 	get requestContext(): RequestContext {
 		return this.service('requestContext', () => new RequestContext());
+	}
+
+	/** Returns the application AI service with durable request and conversation history. */
+	get ai(): Ai {
+		return this.service('ai', () => new Ai(this.options.ai ?? this.config.get<AIOptions>('ai', {})));
 	}
 
 	/**
@@ -250,18 +317,26 @@ export class App {
 	 * Closes shared resources owned by the default app.
 	 */
 	async close(): Promise<void> {
+		const errors: unknown[] = [];
+		/** Continues releasing host resources when an app or transport disposer fails. */
+		const release = async (cleanup: () => void | Promise<void>): Promise<void> => {
+			try { await cleanup(); } catch (error) { errors.push(error); }
+		};
+		await release(() => (this.services.get('apps') as Apps | undefined)?.close());
+		await release(() => (this.services.get('webSockets') as WebSockets | undefined)?.close());
 		clearActiveApp(this);
 
-		(this.services.get('scheduler') as Scheduler | undefined)?.close();
-		(this.services.get('events') as Events | undefined)?.clear();
-		await (this.services.get('cache') as Cache | undefined)?.close();
-		await (this.services.get('log') as Log | undefined)?.close();
+		await release(() => (this.services.get('scheduler') as Scheduler | undefined)?.close());
+		await release(() => (this.services.get('events') as Events | undefined)?.clear());
+		await release(() => (this.services.get('cache') as Cache | undefined)?.close());
+		await release(() => (this.services.get('log') as Log | undefined)?.close());
 
 		if (!this.options.db) {
-			await destroyDatabase();
+			await release(() => destroyDatabase());
 		}
 
 		this.services.clear();
+		if (errors.length) throw new AggregateError(errors, 'Application shutdown failed.');
 	}
 
 	private resolveDbConnection(): Knex {
@@ -306,3 +381,6 @@ function parseOptionalBoolean(input: string | undefined): boolean | undefined {
 			);
 	}
 }
+
+/** Optional discovered app services, generated from root App.ts classes by DB3 tooling. */
+export interface App<TApps extends AppDefinitions = {}> extends InstalledApps {}

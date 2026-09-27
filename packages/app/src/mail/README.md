@@ -177,7 +177,7 @@ The framework does not retry a failed send or persist an outbox. Dispatch a
 dedicated queued job when the application needs retry policy, idempotency, or
 delivery that survives process shutdown.
 
-Queue retry alone does not prevent duplicate email. A timeout can follow provider acceptance. These built-in HTTP transports do not expose provider idempotency keys or an outbox transaction; a message header is not an API idempotency key. Make that business decision explicitly.
+Queue retry alone does not prevent duplicate email. A timeout can follow provider acceptance. Set `MailMessage.idempotencyKey` to a stable request identity when using Resend. The transport forwards it as the API `Idempotency-Key` header, separately from email headers. Resend deduplicates identical requests for 24 hours; applications must preserve the exact payload and manage retries within that window. Keys accept 1–256 printable non-space ASCII characters. File and Mailgun transports ignore this field. Mail does not persist an outbox or promise exactly-once delivery across all transports. See [Resend idempotency](https://resend.com/docs/dashboard/emails/idempotency-keys).
 
 `accepted` means transport/provider acceptance, not inbox delivery. The built-ins have no attachments, CC/BCC, delivery tracking, scheduled sending or explicit request timeout. File and Resend preserve custom `headers`; Mailgun currently does not forward them. `App` has no built-in `mail` getter, and Mail has no close method. Own any resources introduced by your custom transport.
 
@@ -204,3 +204,7 @@ External mail APIs are controlled through the injectable transport or a stubbed
 in [`Mail.ts`](./Mail.ts) and [`transports/`](./transports). Behavioural tests
 live at `packages/app/src/mail/tests/` in the source repository and are not
 included in the installed runtime package.
+
+Resend and Mailgun HTTP submissions now reject redirects and have a 15-second
+request timeout. A timeout may follow provider acceptance, so callers must still
+use stable idempotency identities and tolerate at-least-once delivery.

@@ -1,7 +1,11 @@
 import type * as scheduler from './contracts';
 import { Scheduler } from './Scheduler';
+import { utcMinute } from './scheduleTime';
 
 const DEFAULT_SLOW_TICK_WARNING_MS = 50_000;
+const MINUTE_MS = 60_000;
+const MAX_MINUTES_PER_BATCH = 60;
+const FAILED_TICK_RETRY_MS = 1_000;
 
 /**
  * Long-running minute-aligned process adapter around Scheduler.runDue().
@@ -10,6 +14,9 @@ export class SchedulerWorker {
 	#running = false;
 	#abortController: AbortController | null = null;
 	readonly #now: () => Date;
+	#nextMinute: number | null = null;
+	readonly #onTick?: scheduler.SchedulerWorkerOptions['onTick'];
+	readonly #checkpoint?: scheduler.SchedulerCheckpoint;
 	readonly #sleep: scheduler.SchedulerSleep;
 	readonly #logger: scheduler.SchedulerLogger;
 	readonly #slowTickWarningMs: number;
@@ -24,6 +31,8 @@ export class SchedulerWorker {
 		private readonly schedulerService: Scheduler,
 		options: scheduler.SchedulerWorkerOptions = {},
 	) {
+		this.#onTick = options.onTick;
+		this.#checkpoint = options.checkpoint;
 		this.#now = options.now ?? (() => new Date());
 		this.#sleep = options.sleep ?? schedulerSleep;
 		this.#logger = options.logger ?? consoleSchedulerLogger();
@@ -32,7 +41,9 @@ export class SchedulerWorker {
 	}
 
 	/**
-	 * Runs immediately, then evaluates at each subsequent wall-clock minute.
+	 * Evaluates every uncovered minute in order, including time spent dispatching
+	 * earlier batches. Catch-up yields after sixty minutes without discarding work.
+	 * A durable checkpoint resumes coverage across replacement processes.
 	 *
 	 * @throws Error when the same worker instance is started twice.
 	 */
@@ -45,15 +56,28 @@ export class SchedulerWorker {
 		this.#abortController = new AbortController();
 
 		try {
+			if (this.#nextMinute === null) {
+				const firstMinute = utcMinute(this.#now());
+				const previous = await this.#checkpoint?.load(firstMinute);
+				this.#nextMinute = previous ? utcMinute(previous).getTime() + MINUTE_MS : firstMinute.getTime();
+			}
+			let batchSize = 0;
 			while (this.#running) {
-				await this.runTick();
-
-				if (!this.#running) break;
-
-				await this.#sleep(
-					millisecondsUntilNextMinute(this.#now()),
-					this.#abortController.signal,
-				);
+				const now = this.#now();
+				const currentMinute = utcMinute(now).getTime();
+				if (this.#nextMinute <= currentMinute) {
+					const completed = await this.#runTick(new Date(this.#nextMinute));
+					if (completed) this.#nextMinute += MINUTE_MS;
+					if (!this.#running) break;
+					if (!completed || ++batchSize >= MAX_MINUTES_PER_BATCH) {
+						await this.#sleep(completed ? 1 : FAILED_TICK_RETRY_MS, this.#abortController.signal);
+						batchSize = 0;
+					}
+					continue;
+				}
+				batchSize = 0;
+				// An early timer or backward clock step must not skip or repeat a minute.
+				await this.#sleep(Math.min(MINUTE_MS, Math.max(1, this.#nextMinute - now.getTime())), this.#abortController.signal);
 			}
 		} finally {
 			this.#running = false;
@@ -70,13 +94,22 @@ export class SchedulerWorker {
 	}
 
 	/**
-	 * Evaluates one scheduler minute and reports failures without ending work.
+	 * Evaluates one fixed minute, preserving progress only after the whole batch.
+	 * Recorded event failures remain visible and do not prevent later minutes;
+	 * incomplete evaluations and checkpoint failures retry this same minute.
+	 *
+	 * @param evaluatedFor - Original scheduled minute, independent of dispatch duration.
+	 * @returns Whether the complete minute was evaluated and its checkpoint saved.
 	 */
-	private async runTick(): Promise<void> {
+	async #runTick(evaluatedFor: Date): Promise<boolean> {
 		const startedAt = performance.now();
+		let completed = false;
 
 		try {
-			const result = await this.schedulerService.runDue(this.#now());
+			const result = await this.schedulerService.runDue(evaluatedFor);
+			if (result.failures.length === 0) await this.#onTick?.(result);
+			await this.#checkpoint?.save(evaluatedFor);
+			completed = true;
 
 			if (result.due > 0 || result.failures.length > 0) {
 				this.#logger.info(
@@ -90,7 +123,7 @@ export class SchedulerWorker {
 				);
 			}
 		} catch (error) {
-			this.#logger.error('[scheduler] Tick failed; the worker will continue.', error);
+			this.#logger.error(`[scheduler] Evaluation for ${evaluatedFor.toISOString()} did not finish; retrying the same minute.`, error);
 		}
 
 		const durationMs = performance.now() - startedAt;
@@ -100,6 +133,7 @@ export class SchedulerWorker {
 				`[scheduler] Tick took ${Math.round(durationMs)}ms; inline calls should remain short.`,
 			);
 		}
+		return completed;
 	}
 }
 
@@ -126,14 +160,15 @@ async function schedulerSleep(
 	signal: AbortSignal,
 ): Promise<void> {
 	await new Promise<void>(resolve => {
-		const timeout = setTimeout(resolve, delayMs);
-
-		signal.addEventListener('abort', () => {
+		/** Clears the timer and its abort subscription on either completion path. */
+		const finish = (): void => {
 			clearTimeout(timeout);
+			signal.removeEventListener('abort', finish);
 			resolve();
-		}, {
-			once: true,
-		});
+		};
+		const timeout = setTimeout(finish, delayMs);
+		signal.addEventListener('abort', finish, { once: true });
+		if (signal.aborted) finish();
 	});
 }
 

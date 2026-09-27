@@ -1,6 +1,6 @@
 {
 	"name": "@db3.ai/app",
-	"version": "0.1.0",
+	"version": "0.1.0-beta.2",
 	"description": "A typed backend application framework with service-owned runtime modules and behavioural contracts.",
 	"private": true,
 	"license": "MIT",
@@ -24,16 +24,23 @@
 		"node": ">=20"
 	},
 	"bin": {
-		"db3-agents": "bin/db3-agents.mjs"
+		"db3-agents": "bin/db3-agents.mjs",
+		"db3": "bin/db3.mjs"
 	},
 	"exports": {
+		"./apps": "./src/apps/index.ts",
+		"./apps/contracts": "./src/apps/contracts/index.ts",
+		"./apps/fastify": "./src/apps/fastify.ts",
+		"./apps/commands": "./src/apps/commands/index.ts",
 		"./ai": "./src/ai/index.ts",
 		".": "./src/index.ts",
 		"./agent-instructions": "./agent-instructions.md",
 		"./auth": "./src/auth/index.ts",
 		"./auth/password-hash": "./src/auth/passwordHash.ts",
 		"./cache": "./src/cache/index.ts",
+		"./cli": "./src/cli/index.ts",
 		"./db": "./src/db/index.ts",
+		"./db/commands": "./src/db/commands/index.ts",
 		"./db/ActiveProjection": "./src/db/ActiveProjection.ts",
 		"./db/ActiveRecord": "./src/db/ActiveRecord.ts",
 		"./db/ActiveQueryBuilder": "./src/db/ActiveQueryBuilder.ts",
@@ -48,14 +55,23 @@
 		"./db/test/db": "./src/db/test/db.ts",
 		"./config": "./src/config/index.ts",
 		"./events": "./src/events/index.ts",
+		"./health": "./src/health/index.ts",
+		"./health/fastify": "./src/health/fastify.ts",
 		"./flows": "./src/flows/index.ts",
 		"./flows/blocks": "./src/flows/blocks/index.ts",
 		"./url": "./src/url/index.ts",
+		"./in-app": "./src/in-app/index.ts",
+		"./in-app/contracts": "./src/in-app/contracts/index.ts",
 		"./mail": "./src/mail/index.ts",
 		"./logging": "./src/logging/index.ts",
+		"./network": "./src/network/index.ts",
+		"./network/playwright": "./src/network/playwright/index.ts",
 		"./media": "./src/media/index.ts",
 		"./media/image": "./src/media/image/index.ts",
+		"./notifications": "./src/notifications/index.ts",
+		"./notifications/contracts": "./src/notifications/contracts/index.ts",
 		"./queue": "./src/queue/index.ts",
+		"./queue/commands": "./src/queue/commands/index.ts",
 		"./scheduler": "./src/scheduler/index.ts",
 		"./security": "./src/security/index.ts",
 		"./serialization": "./src/serialization/index.ts",
@@ -64,7 +80,12 @@
 		"./ssr/fastify": "./src/ssr/fastify/index.ts",
 		"./ssr/vite": "./src/ssr/vite/index.ts",
 		"./storage": "./src/storage/index.ts",
-		"./validation": "./src/validation/index.ts"
+		"./validation": "./src/validation/index.ts",
+		"./websocket": "./src/websocket/index.ts",
+		"./websocket/fastify": "./src/websocket/fastify.ts",
+		"./websocket/client": "./src/websocket/client/index.ts",
+		"./websocket/contracts": "./src/websocket/contracts/index.ts",
+		"./apps/vite": "./src/apps/vite.ts"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
@@ -73,36 +94,47 @@
 		"check:source": "tsc -p tsconfig.json --noEmit",
 		"check:examples": "tsc -p tsconfig.examples.json --noEmit",
 		"agents:scaffold": "node ./bin/db3-agents.mjs",
-		"test": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run",
+		"test": "node ../../scripts/verify.mjs test",
+		"test:raw": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run",
+		"quality": "node ../../scripts/verify.mjs quality",
+		"quality:types": "npm run check:source && npm run check:examples",
 		"test:service": "node --import ./scripts/test-environment.mjs ./scripts/test-service.mjs",
 		"test:coverage": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run --coverage",
 		"test:db": "node --import ./scripts/test-environment.mjs ../../node_modules/vitest/vitest.mjs run src/db/tests",
 		"test:release": "npm run check && node --import ./scripts/test-release-environment.mjs ../../node_modules/vitest/vitest.mjs run --coverage"
 	},
 	"dependencies": {
-		"openai": "^6.44.0",
 		"@aws-sdk/client-s3": "^3.1077.0",
+		"@db3.ai/pure": "0.1.0-beta.2",
 		"@flystorage/aws-s3": "^1.2.0",
 		"@flystorage/file-storage": "^1.2.2",
 		"@flystorage/local-fs": "^1.2.0",
 		"@keyv/redis": "^5.1.6",
-		"@db3.ai/pure": "0.1.0",
+		"@openai/agents": "0.12.1",
 		"@redis/client": "^6.1.0",
+		"@types/ws": "^8.18.1",
 		"cache-manager": "^7.2.9",
 		"cacheable": "^2.5.0",
 		"dotenv": "^17.4.2",
+		"js-tiktoken": "^1.0.21",
 		"knex": "^3.2.10",
 		"mysql2": "^3.22.5",
+		"openai": "^6.44.0",
 		"pino": "^10.3.1",
 		"pino-abstract-transport": "^3.0.0",
-		"sharp": "^0.35.3",
-		"thread-stream": "^4.0.0"
+		"sharp": "^0.35.4",
+		"thread-stream": "^4.0.0",
+		"tsx": "^4.22.4",
+		"undici": "^7.29.1",
+		"ws": "^8.21.0",
+		"zod": "^4.4.3"
 	},
 	"peerDependencies": {
 		"@fastify/middie": "^9.3.3",
 		"@fastify/static": "^10.1.3",
 		"fastify": "^5.11.3",
-		"vite": "^8.2.1"
+		"vite": "^8.2.1",
+		"playwright": "^1.61.1"
 	},
 	"peerDependenciesMeta": {
 		"@fastify/middie": {
@@ -116,6 +148,9 @@
 		},
 		"vite": {
 			"optional": true
+		},
+		"playwright": {
+			"optional": true
 		}
 	},
 	"devDependencies": {
@@ -124,10 +159,12 @@
 		"@types/node": "^25.9.3",
 		"@vitest/coverage-v8": "^4.1.8",
 		"fastify": "^5.11.3",
-		"tsx": "^4.22.4",
+		"playwright": "^1.61.1",
 		"typescript": "^6.0.3",
 		"vite": "^8.2.1",
-		"vitest": "^4.1.8"
+		"vitest": "^4.1.8",
+		"pinia": "^3.0.4",
+		"vue": "^3.5.33"
 	},
 	"bugs": {
 		"url": "https://github.com/db3ai/framework/issues"

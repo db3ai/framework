@@ -10,7 +10,7 @@ import type { MediaLibrary } from './MediaLibrary';
  * App-owned scope used to find or create a media library.
  */
 export interface MediaLibraryScope {
-	/** Opaque scope type such as `scout.website` or `scout.organization`. */
+	/** Opaque scope type such as `app.website` or `app.organization`. */
 	scopeType: string;
 
 	/** Opaque app-owned scope id. */

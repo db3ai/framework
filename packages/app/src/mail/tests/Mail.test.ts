@@ -15,7 +15,7 @@ describe('Mail', () => {
 	it('writes messages with the file transport', async () => {
 		const directory = await mkdtemp(join(tmpdir(), 'platform-mail-'));
 		const mail = new Mail({
-			from: 'Scout <hello@example.com>',
+			from: 'Example App <hello@example.com>',
 			transport: new FileMailTransport({
 				directory,
 			}),
@@ -39,7 +39,7 @@ describe('Mail', () => {
 		expect(delivery.transport).toBe('file');
 		expect(delivery.accepted).toEqual(['steve@example.com']);
 		expect(written).toMatchObject({
-			from: 'Scout <hello@example.com>',
+			from: 'Example App <hello@example.com>',
 			to: ['"Steve" <steve@example.com>'],
 			subject: 'Reset your password',
 			text: 'Use this link.',
@@ -86,7 +86,7 @@ describe('Mail', () => {
 		const delivery = await transport.send({
 			from: {
 				email: 'hello@example.com',
-				name: 'Scout Team',
+				name: 'Example App Team',
 			},
 			to: [
 				'steve@example.com',
@@ -96,10 +96,10 @@ describe('Mail', () => {
 				},
 			],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
-			html: '<p>Hello from Scout.</p>',
+			text: 'Hello from Example App.',
+			html: '<p>Hello from Example App.</p>',
 			headers: {
-				'X-Scout-Test': 'true',
+				'X-Example-Test': 'true',
 			},
 		});
 		const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -111,16 +111,16 @@ describe('Mail', () => {
 			'content-type': 'application/json',
 		});
 		expect(JSON.parse(init.body as string)).toEqual({
-			from: '"Scout Team" <hello@example.com>',
+			from: '"Example App Team" <hello@example.com>',
 			to: [
 				'steve@example.com',
 				'"Ada" <ada@example.com>',
 			],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
-			html: '<p>Hello from Scout.</p>',
+			text: 'Hello from Example App.',
+			html: '<p>Hello from Example App.</p>',
 			headers: {
-				'X-Scout-Test': 'true',
+				'X-Example-Test': 'true',
 			},
 		});
 		expect(delivery).toEqual({
@@ -150,10 +150,10 @@ describe('Mail', () => {
 		});
 
 		await expect(transport.send({
-			from: 'Scout <hello@example.com>',
+			from: 'Example App <hello@example.com>',
 			to: ['steve@example.com'],
 			subject: 'Welcome',
-			text: 'Hello from Scout.',
+			text: 'Hello from Example App.',
 		})).rejects.toThrow('Resend rejected the message: Invalid from address.');
 	});
 });

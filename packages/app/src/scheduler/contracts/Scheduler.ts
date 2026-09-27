@@ -18,25 +18,40 @@ export type ScheduledOccurrenceStatus =
 	| 'failed';
 
 /**
- * Daily frequency supported by the initial scheduler implementation.
+ * Daily frequency interpreted in the configured timezone.
  */
 export interface DailyScheduleFrequency {
-	/** Frequency discriminator reserved for future schedule types. */
+	/** Frequency discriminator. */
 	type: 'daily';
 	/** Local wall-clock time in 24-hour HH:mm format. */
 	time: string;
+}
+
+/** Runs once for each evaluated UTC minute, including catch-up after downtime. */
+export interface MinuteScheduleFrequency {
+	type: 'minute';
+}
+
+/** Supported calendar frequencies; durable claims remain scoped to UTC minutes. */
+export type ScheduleFrequency = DailyScheduleFrequency | MinuteScheduleFrequency | HourlyScheduleFrequency;
+
+/** Runs at minute zero of each UTC hour, including catch-up; independent of local daylight-saving changes. */
+export interface HourlyScheduleFrequency {
+	type: 'hourly';
 }
 
 /**
  * Normalized public description of one registered schedule.
  */
 export interface ScheduledTaskDefinition {
+	/** App or other runtime group that owns this registration; absent for host declarations. */
+	owner?: string;
 	/** Stable task name used for deduplication and history. */
 	name: string;
 	/** Whether the task dispatches a job or executes an inline callback. */
 	kind: ScheduledTaskKind;
-	/** Daily frequency and local wall-clock time. */
-	frequency: DailyScheduleFrequency;
+	/** Minute/hour cadence or daily local wall-clock time. */
+	frequency: ScheduleFrequency;
 	/** IANA timezone used to interpret the frequency. */
 	timezone: string;
 	/** Durable queue job name when known without invoking a factory. */

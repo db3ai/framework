@@ -1,3 +1,6 @@
+export * from './contracts';
+export { publicServerErrorMessage } from './publicServerErrorMessage';
+export { registerHttpErrorHandler } from './registerHttpErrorHandler';
 export {
 	App,
 	type AppOptions,

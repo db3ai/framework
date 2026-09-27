@@ -19,6 +19,22 @@ if (redisRequired && !redisAvailable) {
 const describeRedis = redisAvailable ? describe : describe.skip;
 
 describeRedis('RedisQueueDriver', () => {
+	it('finds owned work in delayed, reserved and nested chained payloads without matching application data', async () => {
+		const keyPrefix = testKeyPrefix(); const driver = testDriver(keyPrefix);
+		try {
+			expect(await driver.hasPendingJobs('social.')).toBe(false);
+			const payload = testPayload('host.prepare', { job: 'crm.private-data' });
+			payload.chained = [{ job: 'host.step', data: {}, chained: [{ job: 'social.review', data: {} }] }];
+			await driver.push({ queue: 'default', payload, delaySeconds: 60, createdAt: unixTimestamp() - 61 });
+			expect(await driver.hasPendingJobs('social.')).toBe(true);
+			expect(await driver.hasPendingJobs('crm.')).toBe(false);
+			const job = await driver.pop('default', { retryAfterSeconds: 90 });
+			expect(await driver.hasPendingJobs('social.')).toBe(true);
+			await driver.delete(job!);
+			expect(await driver.hasPendingJobs('social.')).toBe(false);
+		} finally { await driver.close(); await clearRedisPrefix(keyPrefix); }
+	});
+
 	it('pushes and claims immediate jobs', async () => {
 		const keyPrefix = testKeyPrefix();
 		const driver = testDriver(keyPrefix);

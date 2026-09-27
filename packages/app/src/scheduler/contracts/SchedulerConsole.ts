@@ -1,5 +1,6 @@
 import type { Scheduler } from '../Scheduler';
 import type { Logger } from '../../logging';
+import type { SchedulerWorkerOptions } from './SchedulerWorker';
 
 /**
  * Parsed scheduler command name, positional arguments, and long options.
@@ -29,6 +30,10 @@ export interface SchedulerConsoleApp {
  * Application hooks and help customisation for scheduler console commands.
  */
 export interface SchedulerConsoleOptions {
+	/** Called after a successful scheduler worker tick for application-owned health reporting. */
+	onTick?: SchedulerWorkerOptions['onTick'];
+	/** Durable worker progress, initialized only by scheduler:work. One-off commands leave it alone. */
+	checkpoint?: SchedulerWorkerOptions['checkpoint'];
 	/** Resolves the active application instance after bootstrap. */
 	app: () => SchedulerConsoleApp;
 	/** Prepares schema, queue jobs, and schedule definitions. */

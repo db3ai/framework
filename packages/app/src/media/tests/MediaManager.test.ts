@@ -10,7 +10,7 @@ import {
 } from 'vitest';
 import { Database } from '../../db';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '../../db/test/db';
-import { MediaFile, MediaItem, MediaLibrary } from '..';
+import { MediaFile, MediaItem, MediaLibrary } from '@db3.ai/app/media';
 import { App } from '../../server';
 
 const tempRoots: string[] = [];
@@ -53,6 +53,19 @@ describe('MediaManager', () => {
 		expect(second.name).toBe('Default media');
 		expect(reference.id).not.toBe(first.id);
 		expect(reference.key).toBe('reference-material');
+	});
+
+	it('shares one library and folder tree between concurrent first uploads', async () => {
+		const { app } = await createMediaTestApp('concurrent_library');
+		const libraries = await Promise.all(Array.from({ length: 5 }, () => app.media.libraryFor({ scopeType: 'test.concurrent', scopeId: 'one', name: 'Shared' })));
+		expect(new Set(libraries.map(library => library.id)).size).toBe(1);
+		const stored = await Promise.all(libraries.map(library => app.media.storeVisibleFile({ library, folderPath: '/Generated images/Nested', name: 'image.txt', contents: Buffer.from('synthetic image'), mimeType: 'text/plain' })));
+		expect(new Set(stored.map(file => file.file.id)).size).toBe(5);
+		expect(new Set(stored.map(file => file.item.path)).size).toBe(5);
+		expect(await MediaLibrary.where('scopeType', 'test.concurrent').count()).toBe(1);
+		for (const path of ['/', '/Generated images', '/Generated images/Nested']) {
+			expect(await MediaItem.where({ library: libraries[0]!, path }).count()).toBe(1);
+		}
 	});
 
 	it('stores managed files without creating browser items', async () => {

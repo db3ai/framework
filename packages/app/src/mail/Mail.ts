@@ -26,6 +26,8 @@ export interface MailMessage {
 	html?: string;
 	/** Extra message headers; File and Resend preserve them, Mailgun currently does not. */
 	headers?: Record<string, string>;
+	/** Stable request identity for provider retries. Resend deduplicates identical requests for 24 hours; other built-in transports ignore this value. */
+	idempotencyKey?: string;
 }
 
 /** Transport input with a default sender resolved and recipients normalized to an array. */
@@ -83,6 +85,9 @@ export class Mail {
 
 	/** Resolves the sender and recipient list without changing application content. */
 	private resolveMessage(message: MailMessage): ResolvedMailMessage {
+		if (message.idempotencyKey !== undefined && !/^[\x21-\x7e]{1,256}$/.test(message.idempotencyKey)) {
+			throw new Error('Mail idempotencyKey must contain 1 to 256 printable non-space ASCII characters.');
+		}
 		const to = Array.isArray(message.to) ? message.to : [message.to];
 
 		if (to.length === 0) {

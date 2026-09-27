@@ -25,6 +25,8 @@ export interface DevtoolsLogOptions {
  * Application logging configuration.
  */
 export interface LoggingOptions {
+	/** Optional JSON log file retained outside the process/container. The operator owns rotation and retention. */
+	file?: string;
 	/** Injectable logging driver used by tests or alternate implementations. */
 	driver?: LoggerDriver;
 	/** Minimum emitted severity. Defaults to info, or silent in tests. */
@@ -39,8 +41,14 @@ export interface LoggingOptions {
 	bindings?: LogBindings;
 	/** Sensitive field paths removed before records reach any destination. */
 	redact?: false | string[];
-	/** Writes newline-delimited JSON to standard output. Defaults to true. */
+	/** Writes logs to standard output. Defaults to true. */
 	console?: boolean;
+	/**
+	 * Console presentation only; files and devtools always retain structured JSON.
+	 * Auto (the default) uses pretty output in development terminals and JSON
+	 * elsewhere. Set PLATFORM_LOG_FORMAT to override the default process-wide.
+	 */
+	consoleFormat?: 'auto' | 'pretty' | 'json';
 	/**
 	 * Streams logs to Platform devtools.
 	 *
