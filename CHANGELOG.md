@@ -5,6 +5,13 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+## [0.1.0-beta.3] - 2026-09-28
+
+- Include the beta 2 feature set below and correct the public Git filename of
+	`flowValueValidator.ts` so Linux checkouts resolve the Flow imports.
+- Beta 2 was tagged as a candidate but was not published to npm after the
+	clean Linux source check exposed the filename mismatch. Its tag is retained.
+
 ## [0.1.0-beta.2] - 2026-09-27
 
 - Add discoverable feature apps with app-owned services, routes, migrations,

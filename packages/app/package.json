@@ -1,6 +1,6 @@
 {
 	"name": "@db3.ai/app",
-	"version": "0.1.0-beta.2",
+	"version": "0.1.0-beta.3",
 	"description": "A typed backend application framework with service-owned runtime modules and behavioural contracts.",
 	"private": true,
 	"license": "MIT",
@@ -105,7 +105,7 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-s3": "^3.1077.0",
-		"@db3.ai/pure": "0.1.0-beta.2",
+		"@db3.ai/pure": "0.1.0-beta.3",
 		"@flystorage/aws-s3": "^1.2.0",
 		"@flystorage/file-storage": "^1.2.2",
 		"@flystorage/local-fs": "^1.2.0",
