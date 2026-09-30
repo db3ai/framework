@@ -3,7 +3,8 @@ import Fastify from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Health } from '@db3.ai/app/health';
 import { registerHealthRoute } from '@db3.ai/app/health/fastify';
-import { registerBrowserJsonFormatting, registerHttpErrorHandler } from '@db3.ai/app/server';
+import { registerBrowserJsonFormatting } from '@db3.ai/app/server/browser-json';
+import { registerHttpErrorHandler } from '@db3.ai/app/server';
 
 const navigation = { 'sec-fetch-mode': 'navigate', accept: 'text/html,application/xhtml+xml,*/*;q=0.8' };
 

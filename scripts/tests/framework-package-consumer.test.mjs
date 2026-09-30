@@ -402,7 +402,8 @@ async function writeConsumerFixtures(consumerRoot, stagedRoot) {
 
 	await writeFile(join(consumerRoot, 'runtime.mjs'), `
 import Fastify from 'fastify';
-import { registerBrowserJsonFormatting, registerHttpErrorHandler, publicServerErrorMessage } from '@db3.ai/app/server';
+import { registerBrowserJsonFormatting } from '@db3.ai/app/server/browser-json';
+import { registerHttpErrorHandler, publicServerErrorMessage } from '@db3.ai/app/server';
 const previousErrorEnvironment = process.env.NODE_ENV;
 process.env.NODE_ENV = 'production';
 const errorServer = Fastify();
@@ -621,7 +622,8 @@ const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsP
 const boundedWorker = new QueueWorker(consumingQueue, { queues: ['default', 'articles'] });
 const boundedResult = boundedWorker.workOnce();
 void [selectedWorker, boundedResult];
-import { registerBrowserJsonFormatting, registerHttpErrorHandler, publicServerErrorMessage, type AppOptions, type HttpErrorHandlerOptions, type HttpServerErrorContext } from '@db3.ai/app/server';
+import { registerBrowserJsonFormatting } from '@db3.ai/app/server/browser-json';
+import { registerHttpErrorHandler, publicServerErrorMessage, type AppOptions, type HttpErrorHandlerOptions, type HttpServerErrorContext } from '@db3.ai/app/server';
 import Fastify from 'fastify';
 const httpErrorOptions: HttpErrorHandlerOptions = {
 	mapError: () => ({ statusCode: 422, body: { error: 'invalid_request', message: 'Check the request.' } }),

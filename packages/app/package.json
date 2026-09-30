@@ -76,6 +76,7 @@
 		"./security": "./src/security/index.ts",
 		"./serialization": "./src/serialization/index.ts",
 		"./server": "./src/server/index.ts",
+		"./server/browser-json": "./src/server/registerBrowserJsonFormatting.ts",
 		"./ssr": "./src/ssr/index.ts",
 		"./ssr/fastify": "./src/ssr/fastify/index.ts",
 		"./ssr/vite": "./src/ssr/vite/index.ts",

@@ -52,6 +52,11 @@ The public surface includes:
 - `registerBrowserJsonFormatting(...)` for servers with their own error handler;
   the shared error boundary installs it automatically.
 
+Standalone HTTP hosts can import the formatting hook from
+`@db3.ai/app/server/browser-json`. This narrow entry point does not load `App`
+or its database, AI, storage, and queue dependencies when the host bundles only
+the hook into an isolated website runtime.
+
 Normal application code should use `app().db`, `app().queue`, and the other
 service getters. `activeAppDatabase()` is a framework escape hatch, not a
 second application data-access pattern.
