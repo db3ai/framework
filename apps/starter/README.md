@@ -207,8 +207,9 @@ that database creation succeeded and `DB_DATABASE` matches its name.
 ## Optional Docker database
 
 The creator's `--docker` option generates a random database password and starts
-MariaDB with Docker Compose. The Node app still runs locally. Docker is not a
-requirement for development.
+MariaDB 11.8 with Docker Compose. This is the minimum supported version for the
+planned guided setup's native vector storage and similarity search. The Node app
+still runs locally. Docker is not a requirement for manual development setup.
 
 Install Docker with Compose support. The creator also recognises the standalone
 `docker-compose` command used by some Homebrew setups; use that spelling in the
@@ -229,6 +230,10 @@ npm run dev
 `docker compose stop` stops the database while retaining its volume. Do not use
 `docker compose down -v` unless you intend to delete its data. Changing a password
 in `.env` does not reset credentials in an existing database volume.
+
+The bundled image now uses the 11.8 release series. Existing 11.4 databases need
+a backed-up, verified upgrade before reusing their data volume with the new image;
+changing this template does not upgrade an existing installation automatically.
 
 ## Add your own AI key
 

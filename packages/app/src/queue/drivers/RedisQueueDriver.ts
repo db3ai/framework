@@ -209,6 +209,27 @@ export class RedisQueueDriver implements queue.QueueDriver {
 		return String(id);
 	}
 
+	/**
+	 * Discovers queue names from ready/delayed/reserved keys without reading payloads.
+	 * SCAN includes existing queues written before this capability was introduced.
+	 */
+	async queueNames(): Promise<string[]> {
+		const prefix = `${this.#key('queues')}:`;
+		const pattern = prefix.replace(/[\\*?\[\]]/g, '\\$&') + '*';
+		const names = new Set<string>();
+		let cursor = '0';
+		do {
+			const [next, keys] = await this.#command<[string, string[]]>(['SCAN', cursor, 'MATCH', pattern, 'COUNT', 100]);
+			cursor = String(next);
+			for (const key of keys) {
+				if (!key.startsWith(prefix)) continue;
+				const suffix = key.slice(prefix.length).match(/^(.*):(ready|delayed|reserved)$/);
+				if (suffix?.[1]) names.add(suffix[1]);
+			}
+		} while (cursor !== '0');
+		return [...names].sort();
+	}
+
 	/** Scans active Redis payloads during quiesced maintenance; includes delayed, reserved and chained jobs. */
 	async hasPendingJobs(jobPrefix: string): Promise<boolean> {
 		let cursor = '0';

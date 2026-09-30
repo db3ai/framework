@@ -62,6 +62,32 @@ test('packed Create generates an independent app that installs, builds and passe
 		assert.ok(!(await readdir(join(target, 'server/database'))).includes('migrations.ts'));
 		assert.match(await readFile(join(target, '.env'), 'utf8'), /^OPENAI_API_KEY=$/m);
 		run(npm, ['install', '--ignore-scripts', '--no-audit', '--no-fund', tarballs.pure, tarballs.app], target, environment);
+		// Use the framework-owned samples rendered in the guide, with no undocumented code edits.
+		const fragments = JSON.parse(run(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', "import { helloGuideSamples } from './packages/app/src/apps/examples/helloGuideSamples.ts'; process.stdout.write(JSON.stringify(helloGuideSamples));"], repositoryRoot, environment));
+		const guide = [
+			{ id: 'hello-test', code: fragments.helloTest },
+			{ id: 'hello-test-explicit', code: fragments.helloTestExplicit },
+			{ id: 'hello-use', code: fragments.helloUse },
+		];
+		for (const [id, path] of [['hello-manifest', 'hello/manifest.json'], ['hello-service', 'hello/App.ts'], ['hello-definition', 'helloDefinition.ts']]) {
+			guide.push({ id, code: await readFile(join(repositoryRoot, 'packages/app/src/apps/examples', path), 'utf8') });
+		}
+		await mkdir(join(target, 'apps/hello'), { recursive: true });
+		for (const [id, path] of [['hello-manifest', 'apps/hello/manifest.json'], ['hello-service', 'apps/hello/App.ts'], ['hello-definition', 'apps/helloDefinition.ts'], ['hello-test', 'tests/hello.test.ts'], ['hello-use', 'server/greetWithHello.ts']]) {
+			const sample = guide.find(item => item.id === id);
+			assert.ok(sample?.code, `Missing published guide sample ${id}`);
+			await writeFile(join(target, path), sample.code);
+		}
+		run(npm, ['test', '--', 'tests/hello.test.ts'], target, environment);
+		const originalHelloTest = guide.find(item => item.id === 'hello-test').code;
+		const explicitEdits = guide.find(item => item.id === 'hello-test-explicit').code;
+		const explicitHelloTest = explicitEdits.split('\n')[0] + '\n' + originalHelloTest.replace(/^\tconst host = new App\(.*$/m, '\t' + explicitEdits.split('\n').find(line => line.startsWith('const host =')));
+		await writeFile(join(target, 'tests/hello.test.ts'), explicitHelloTest);
+		run(npm, ['test', '--', 'tests/hello.test.ts'], target, environment);
+
+		run(npm, ['run', 'check'], target, environment);
+		console.log('Published Hello guide: discovery, explicit composition, cleanup and consumer types passed.');
+
 		assert.match(run(process.execPath, [join(target, 'node_modules/@db3.ai/app/bin/db3.mjs'), '--help'], target, environment), /db:make-migration/);
 		// Exercise a real model change through the generated app's migration CLI.
 		const migrationDirectory = join(target, 'server/database/migrations');
@@ -91,7 +117,7 @@ try {
 		const result = spawnSync(process.execPath, ['node_modules/@db3.ai/app/bin/db3.mjs', command], { env, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(result.status, expected, result.stdout + result.stderr);
 	}
-	for (const args of [['apps:list'], ['apps:make-migration', 'social', 'no_change'], ['apps:install', 'social'], ['apps:disable', 'social'], ['apps:enable', 'social'], ['apps:uninstall', 'social']]) {
+	for (const args of [['apps:list'], ['apps:install', 'hello'], ['apps:disable', 'hello'], ['apps:enable', 'hello'], ['apps:uninstall', 'hello'], ['apps:make-migration', 'social', 'no_change'], ['apps:install', 'social'], ['apps:disable', 'social'], ['apps:enable', 'social'], ['apps:uninstall', 'social']]) {
 		const result = spawnSync(process.execPath, ['node_modules/@db3.ai/app/bin/db3.mjs', ...args], { env, encoding: 'utf8', timeout: 30_000 });
 		assert.equal(result.status, 0, result.stdout + result.stderr);
 	}
@@ -127,6 +153,12 @@ try {
 } finally { await database.destroy(); }
 `);
 		run(process.execPath, ['cli-smoke.mjs'], target, environment);
+		// The guide's CLI smoke has uninstalled Hello. Remove only its disposable
+		// consumer files before exercising the unchanged Starter's own catalogue tests.
+		for (const path of ['apps/hello', 'apps/helloDefinition.ts', 'tests/hello.test.ts', 'server/greetWithHello.ts']) {
+			await rm(join(target, path), { recursive: true, force: true });
+		}
+
 		// Exercise framework-owned examples against installed public packages.
 		await mkdir(join(target, 'tests/examples'), { recursive: true });
 		await mkdir(join(target, 'tests/ai'), { recursive: true });

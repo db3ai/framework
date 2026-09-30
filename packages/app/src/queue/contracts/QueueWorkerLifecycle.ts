@@ -60,12 +60,12 @@ export interface QueueWorkerLifecycle {
 	start(): void;
 
 	/**
-	 * Stops future polling ticks without aborting an active tick.
+	 * Stops claiming further work without aborting the current job.
 	 */
 	stop(): void;
 
 	/**
-	 * Stops future polling and resolves after the active tick has completed.
+	 * Stops claiming further work and resolves after the current job has completed.
 	 */
 	stopAndDrain(): Promise<void>;
 }

@@ -11,25 +11,39 @@ const DEFAULT_MAX_JOBS_PER_TICK = 5;
 const MIN_MAX_JOBS_PER_TICK = 1;
 
 /**
- * Polls one queue and asks Queue to process available jobs.
+ * Polls eligible named queues in round-robin order, executing one job at a time.
  *
  * The worker intentionally owns only timer and lifecycle behavior. It delegates claims,
  * handler execution, retries, and failure recording back to Queue.
  */
 export class QueueWorker implements queue.QueueWorkerLifecycle {
 	#activeTick: Promise<void> | null = null;
+	#activeJob: Promise<queue.QueueProcessResult | null> | null = null;
+	#lastQueue: string | null = null;
+	#stopping = false;
+	readonly #queues: readonly string[] | '*';
+	readonly #excludeQueues: ReadonlySet<string>;
+	private readonly queue: string;
 	private timer: NodeJS.Timeout | null = null;
 	private readonly intervalMs: number;
 	private readonly maxJobsPerTick: number;
 
+	/** Creates a worker without starting its polling loop; workOnce can be used for bounded execution. */
 	constructor(
 		private readonly queueManager: Queue,
-		private readonly queue = 'default',
+		selection: string | queue.QueueSelection = 'default',
 		intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || DEFAULT_WORKER_INTERVAL_MS),
 		maxJobsPerTick = Number(process.env.QUEUE_WORKER_MAX_JOBS_PER_TICK || DEFAULT_MAX_JOBS_PER_TICK),
 		private readonly logger?: queue.QueueLogger,
 		private readonly verbose = false,
 	) {
+		const requested = typeof selection === 'string' ? { queues: [selection] } : selection;
+		this.#queues = requested.queues === '*' ? '*' : normalizeQueueNames(requested.queues ?? ['default']);
+		if (this.#queues !== '*' && this.#queues.length === 0) throw new Error('A worker must select at least one queue.');
+		this.#excludeQueues = new Set(normalizeQueueNames(requested.excludeQueues ?? []));
+		if (this.#queues !== '*' && this.#queues.every(name => this.#excludeQueues.has(name))) throw new Error('Worker queue exclusions leave no eligible queues.');
+		this.queue = (this.#queues === '*' ? '*' : this.#queues.join(', '))
+			+ (this.#excludeQueues.size ? ` excluding ${[...this.#excludeQueues].join(', ')}` : '');
 		this.intervalMs = normalizeWorkerIntervalMs(intervalMs);
 		this.maxJobsPerTick = normalizeMaxJobsPerTick(maxJobsPerTick);
 	}
@@ -39,6 +53,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	start(): void {
 		if (this.timer) return;
+		this.#stopping = false;
 
 		this.logger?.info(this.verbose
 			? `[queue] Worker started for "${this.queue}" (interval ${this.intervalMs}ms, max ${this.maxJobsPerTick} jobs/tick).`
@@ -50,9 +65,10 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	}
 
 	/**
-	 * Stops future polling ticks. Any already-running tick is allowed to finish.
+	 * Stops future claims. An already-running job is allowed to finish.
 	 */
 	stop(): void {
+		this.#stopping = true;
 		if (!this.timer) return;
 
 		clearInterval(this.timer);
@@ -61,7 +77,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	}
 
 	/**
-	 * Stops future polling and waits for the active queue tick to finish.
+	 * Stops future claims and waits for the current job, including timer-free execution.
 	 */
 	async stopAndDrain(): Promise<void> {
 		this.stop();
@@ -69,6 +85,51 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		if (this.#activeTick) {
 			await this.#activeTick;
 		}
+		await this.#activeJob;
+	}
+
+	/**
+	 * Processes at most one eligible job, rotating after each claim and skipping empty queues.
+	 * Wildcard discovery is refreshed on every call, including after an idle poll.
+	 * Concurrent calls are rejected so one worker cannot occupy multiple execution slots.
+	 */
+	async workOnce(options: queue.QueueWorkOptions = {}): Promise<queue.QueueProcessResult | null> {
+		if (this.#activeJob) throw new Error('This queue worker is already processing a job.');
+		if (this.#stopping) return null;
+		const pending = this.#workOnce(options);
+		this.#activeJob = pending;
+		try {
+			return await pending;
+		} finally {
+			this.#activeJob = null;
+		}
+	}
+
+	/** Resolves eligible names and delegates each atomic claim to the queue service. */
+	async #workOnce(options: queue.QueueWorkOptions): Promise<queue.QueueProcessResult | null> {
+		const names = (this.#queues === '*' ? [...new Set(await this.queueManager.queueNames())].sort() : [...this.#queues])
+			.filter(name => !this.#excludeQueues.has(name));
+		let start = 0;
+		if (this.#lastQueue !== null) {
+			const previous = names.indexOf(this.#lastQueue);
+			start = previous >= 0 ? previous + 1 : names.findIndex(name => name > this.#lastQueue!);
+			if (start < 0 || start >= names.length) start = 0;
+		}
+		for (let offset = 0; offset < names.length && !this.#stopping; offset++) {
+			const name = names[(start + offset) % names.length]!;
+			const result = await this.queueManager.workNextJob(name, {
+				...options,
+				onClaimed: job => {
+					this.#lastQueue = name;
+					options.onClaimed?.(job);
+				},
+			});
+			if (result) {
+				this.#lastQueue = name;
+				return result;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -94,8 +155,8 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		let processedThisTick = 0;
 
 		try {
-			for (let processed = 0; processed < this.maxJobsPerTick; processed += 1) {
-				const result = await this.queueManager.workNextJob(this.queue, {
+			for (let processed = 0; processed < this.maxJobsPerTick && !this.#stopping; processed += 1) {
+				const result = await this.workOnce({
 					onClaimed: job => this.logClaimed(job),
 				});
 
@@ -225,6 +286,14 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 }
 
 export { QueueWorker as DatabaseQueueWorker };
+
+/** Validates and copies exact queue names so caller mutations cannot alter worker admission. */
+function normalizeQueueNames(names: readonly string[]): string[] {
+	if (!Array.isArray(names) || names.some(name => typeof name !== 'string' || !name.trim() || name !== name.trim() || name === '*')) {
+		throw new Error('Queue names must be non-empty exact names; use queues: "*" to select all queues.');
+	}
+	return [...new Set(names)];
+}
 
 /**
  * Formats a singular or plural word for a count.

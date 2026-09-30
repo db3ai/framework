@@ -134,7 +134,7 @@ For a continuous worker, use a separate terminal:
 npx tsx examples/reportConsole.ts queue:work --queue=reports --max-jobs=1
 ```
 
-Ctrl-C drains the active tick before closing the App. To replay a repaired
+Ctrl-C finishes the active job before closing the App. To replay a repaired
 terminal failure, use its failed-record ID, not its original active-job ID:
 
 ```sh
@@ -176,6 +176,49 @@ one available job and returns `null` when idle. Its statuses are `succeeded`,
 work per tick; it is not concurrency. Use more supervised worker processes for
 parallelism. Polling defaults to 1000 ms and valid intervals are clamped to at
 least 100 ms. `queue:work --once` checks once and exits, even if delayed work exists.
+
+### Share worker capacity
+
+Jobs still target one queue. Workers can consume several exact names or all
+names in their database/Redis namespace:
+
+```ts
+const general = app.queue.startWorker({
+	queues: '*',
+	excludeQueues: ['articles', 'article-images'],
+});
+const shared = app.queue.startWorker({ queues: '*' });
+// Fixed selection: { queues: ['default', 'articles'] }.
+// At shutdown:
+await Promise.all([general?.stopAndDrain(), shared?.stopAndDrain()]);
+```
+
+Exclusions win before claiming. Names are exact, without patterns; duplicates
+are removed. Empty names/arrays and fully excluded explicit selections fail.
+Omitting selection retains the configured default. Each worker executes one
+job at a time, rotates after a claim and skips unavailable queues. Round-robin
+shares claim opportunities, not processing time; running jobs are not preempted.
+
+Wildcard discovery refreshes before each claim/poll and includes delayed and
+reserved queues. Claims still enforce availability and lease ownership.
+Database and Redis support discovery; custom drivers need `queueNames()`.
+Redis uses SCAN over existing queue keys. Prefer explicit names on large shared
+keyspaces. Newly introduced queues automatically become eligible for `'*'`.
+
+```sh
+node --import tsx server/console.ts queue:work --queues=default,articles
+node --import tsx server/console.ts queue:work --queues='*' --exclude-queues=articles,article-images
+```
+
+Pass selections in `runQueueConsole({ app, workers: { general: selection } })`
+and use `--pool=general`, without queue flags. `--once` applies the same rules
+and closes the app on success/failure. Existing `--queue=reports` still works.
+For timer-free processing, use `new QueueWorker(app.queue, selection).workOnce()`;
+concurrent calls on one worker fail. See the disposable SQL
+[selection lab](examples/runQueueSelection.ts).
+
+Routing changes affect new jobs only: retain consumers for old names during
+rollout/rollback. Monitor each workload queue independently of general health.
 
 ## Retries and repair
 

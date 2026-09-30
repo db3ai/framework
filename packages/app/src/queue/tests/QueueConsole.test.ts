@@ -1,7 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseQueueConsoleArgs, queueConsoleOptionNumber, queueConsoleWorkerProcessTitle, runQueueConsole } from '../index';
+import { parseQueueConsoleArgs, queueConsoleOptionNumber, queueConsoleWorkerProcessTitle, queueConsoleSelection, runQueueConsole } from '@db3.ai/app/queue';
 
 describe('queue console options', () => {
+	it('selects multiple exact queues and applies exclusions without changing the default', () => {
+		expect(queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queue=default']))).toEqual({ queues: ['default'], excludeQueues: [] });
+		expect(queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queues=default,articles', '--exclude-queues=articles']))).toEqual({ queues: ['default', 'articles'], excludeQueues: ['articles'] });
+		expect(queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queues=*']))).toEqual({ queues: '*', excludeQueues: [] });
+	});
+
+	it('uses checked-in pool admission and rejects ambiguous or unknown pool selections', () => {
+		const general = { queues: '*' as const, excludeQueues: ['articles', 'article-images'] };
+		expect(queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--pool=general']), { general })).toEqual(general);
+		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--pool=unknown']), { general })).toThrow('Unknown worker pool');
+		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--pool=general', '--queues=*']), { general })).toThrow('cannot be combined');
+		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queue=a', '--queues=b']))).toThrow('not both');
+	});
+
+	it.each(['--queues', '--queues=', '--exclude-queues', '--pool='])('rejects missing selection values: %s', flag => {
+		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', flag]))).toThrow('requires a non-empty value');
+	});
 	afterEach(() => {
 		vi.restoreAllMocks();
 	});

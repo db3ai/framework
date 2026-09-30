@@ -56,6 +56,13 @@ export interface QueueDriver {
 	readonly name: QueueDriverName | string;
 
 	/**
+	 * Discovers names with pending, delayed or reserved work in this driver's namespace.
+	 * Required for wildcard workers; explicit selections do not need discovery.
+	 * Returned names may disappear before a claim, which must still be atomic.
+	 */
+	queueNames?(): Promise<string[]>;
+
+	/**
 	 * Persists a job so a worker can claim it later.
 	 *
 	 * @param job - Queue job payload and scheduling data.

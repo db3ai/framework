@@ -76,8 +76,9 @@ npm create @db3.ai@latest my-app
 
 Use local MariaDB by default. The command creates files, waits for local database
 configuration, installs packages, migrates and starts development. `-- --docker`
-starts the bundled MariaDB container instead. `-- --no-install` only creates
-files; `-- --no-start` installs and migrates without starting development.
+starts the bundled MariaDB 11.8 container instead, supporting native vectors.
+`-- --no-install` only creates files; `-- --no-start` installs and migrates without
+starting development.
 Existing target paths are refused. No credential from the creator's environment
 is written into the new app. `OPENAI_API_KEY` is always initially empty.
 
@@ -118,3 +119,13 @@ the three-tarball preview above still works. It is not an npm release.
 Release TODO: npm publishing for Create, existing framework
 release gates, DOM Studio redistribution terms, and a documented production
 deployment. This package does not publish or deploy any app automatically.
+
+## Planned guided database setup
+
+The agreed Studio setup has two paths: a local MariaDB 11.8+ database managed
+through Docker, or a db3.ai Cloud development database provisioned after account
+creation/sign-in. Both keep the application running locally during development.
+Local setup does not require a db3.ai account. Cloud account integration,
+provisioning and the setup UI are not implemented by this creator yet; the CLI
+behaviour above remains current. See the repository's
+`docs/db3-cloud-product-plan.md` for the proposed workflow and delivery checks.

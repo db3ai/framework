@@ -1,4 +1,5 @@
 export * from './QueueDriver';
+export * from './QueueSelection';
 export * from './QueueEvents';
 export * from './QueuePayload';
 export * from './QueueRetry';

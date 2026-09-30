@@ -1,0 +1,6 @@
+{
+	"name": "Hello",
+	"version": "0.1.0",
+	"description": "An authenticated greeting from a feature app.",
+	"apiVersion": 1
+}

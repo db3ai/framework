@@ -3,6 +3,7 @@ import { parseJsonRecord, unknownErrorMessage } from '@db3.ai/pure';
 import type { Logger } from '../logging';
 import type * as queue from './contracts';
 import type { Queue } from './Queue';
+import { QueueWorker } from './QueueWorker';
 
 interface QueueConsoleLogOptions {
 	verbose?: boolean;
@@ -37,8 +38,11 @@ export interface QueueConsoleCommand {
 	run(context: QueueConsoleCommandContext): void | Promise<void>;
 }
 
+/** Application bootstrap, named worker selections and extra commands shared by queue CLI invocations. */
 export interface QueueConsoleOptions {
 	app: () => QueueConsoleApp;
+	/** Checked-in worker selections selected with --pool=<name>; credentials remain in the application environment. */
+	workers?: Readonly<Record<string, queue.QueueSelection>>;
 	bootstrap?: () => void | Promise<void>;
 	commands?: QueueConsoleCommand[];
 	helpText?: string;
@@ -283,14 +287,13 @@ async function bootstrap(options: QueueConsoleOptions): Promise<void> {
 	await options.bootstrap?.();
 }
 
+/** Runs a configured worker selection, with identical admission for one-shot and polling execution. */
 async function workQueue(
 	options: QueueConsoleOptions,
 	parsed: ParsedQueueConsoleArgs,
 ): Promise<void> {
-	const queue = queueConsoleOptionString(parsed, 'queue')
-		|| parsed.args[0]
-		|| process.env.QUEUE_NAME
-		|| 'default';
+	const selection = queueConsoleSelection(parsed, options.workers);
+	const queue = selection.queues === '*' ? '*' : selection.queues?.join(', ') ?? 'default';
 	const once = queueConsoleOptionBoolean(parsed, 'once');
 	const verbose = queueConsoleVerbose(parsed);
 
@@ -301,30 +304,32 @@ async function workQueue(
 	const app = options.app();
 
 	if (once) {
-		if (verbose) {
-			console.log(`[queue] Checking "${queue}" once.`);
-		}
+		try {
+			if (verbose) {
+				console.log(`[queue] Checking "${queue}" once.`);
+			}
 
-		const result = await app.queue.workNextJob(queue, {
-			onClaimed: job => logQueueClaimed(job, {
+			const result = await new QueueWorker(app.queue, selection).workOnce({
+				onClaimed: job => logQueueClaimed(job, {
+					verbose,
+				}),
+			});
+
+			if (!result) {
+				console.log(`[queue] No jobs available on "${queue}".`);
+				return;
+			}
+
+			logQueueProcessResult(result, {
 				verbose,
-			}),
-		});
-
-		if (!result) {
-			console.log(`[queue] No jobs available on "${queue}".`);
+			});
+		} finally {
 			await app.close();
-			return;
 		}
-
-		logQueueProcessResult(result, {
-			verbose,
-		});
-		await app.close();
 		return;
 	}
 
-	const worker = app.queue.startWorker(queue, {
+	const worker = app.queue.startWorker(selection, {
 		force: true,
 		logger: app.log?.child({
 			component: 'queue-worker',
@@ -355,6 +360,31 @@ async function workQueue(
 	process.on('SIGTERM', () => {
 		void shutdown('SIGTERM');
 	});
+}
+
+/**
+ * Resolves one worker selection from explicit CLI flags or a checked-in named pool.
+ * Pool admission cannot be silently broadened by combining it with queue flags.
+ */
+export function queueConsoleSelection(parsed: ParsedQueueConsoleArgs, workers: QueueConsoleOptions['workers'] = {}): queue.QueueSelection {
+	for (const flag of ['pool', 'queues', 'queue', 'exclude-queues']) {
+		if (Object.hasOwn(parsed.options, flag) && queueConsoleOptionString(parsed, flag) === undefined) throw new Error(`--${flag} requires a non-empty value.`);
+	}
+	const pool = queueConsoleOptionString(parsed, 'pool');
+	const queues = queueConsoleOptionString(parsed, 'queues');
+	const single = queueConsoleOptionString(parsed, 'queue') || parsed.args[0];
+	const excluded = queueConsoleOptionString(parsed, 'exclude-queues');
+	if (pool) {
+		if (queues !== undefined || single !== undefined || excluded !== undefined) throw new Error('--pool cannot be combined with queue selection flags.');
+		if (!Object.hasOwn(workers, pool)) throw new Error(`Unknown worker pool "${pool}".`);
+		return workers[pool]!;
+	}
+	if (queues !== undefined && single !== undefined) throw new Error('Use --queues or --queue, not both.');
+	const names = queues ?? single ?? process.env.QUEUE_NAME ?? 'default';
+	return {
+		queues: names === '*' ? '*' : names.split(',').map(name => name.trim()),
+		excludeQueues: excluded === undefined ? [] : excluded.split(',').map(name => name.trim()),
+	};
 }
 
 async function dispatchQueueJob(
@@ -429,6 +459,9 @@ function defaultHelpText(): string {
 
 Options:
   --queue=<name>       Queue name, defaults to "default".
+  --queues=<names|*>  Worker queue names, comma-separated; quote '*'.
+  --exclude-queues=<names>  Exact queue names this worker cannot claim.
+  --pool=<name>        Checked-in worker selection; cannot combine with queue flags.
   --delay=<seconds>    Delay before the job is available.
   --tries=<count>      Maximum attempts before jobs_failed.
   --once               Process one available job, then exit.

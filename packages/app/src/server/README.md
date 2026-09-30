@@ -15,6 +15,9 @@ server/
 	App.ts
 	appContext.ts
 	RequestContext.ts
+	registerBrowserJsonFormatting.ts
+	registerHttpErrorHandler.ts
+	publicServerErrorMessage.ts
 	tests/
 	index.ts
 	README.md
@@ -46,6 +49,8 @@ The public surface includes:
 - `RequestContext` and `RequestContextValues` for request-isolated values.
 - `registerHttpErrorHandler(...)` for the shared Fastify error boundary and
   `publicServerErrorMessage(...)` for other server-owned error renderers.
+- `registerBrowserJsonFormatting(...)` for servers with their own error handler;
+  the shared error boundary installs it automatically.
 
 Normal application code should use `app().db`, `app().queue`, and the other
 service getters. `activeAppDatabase()` is a framework escape hatch, not a
@@ -165,6 +170,34 @@ factory normally without caching, while `set(...)` throws because there is no
 request-owned store.
 
 ## Shutdown And Failure Behaviour
+
+### Browser JSON navigation
+
+Visit a JSON route such as `/health` directly in a browser to see indented
+JSON. `registerHttpErrorHandler(server)` installs this behavior once for every
+route on that Fastify server. A server with its own error handler can use the
+framework hook independently before registering routes:
+
+```ts
+import { registerBrowserJsonFormatting } from '@db3.ai/app/server';
+
+registerBrowserJsonFormatting(server);
+```
+
+Only a GET request with `Sec-Fetch-Mode: navigate` receives readable spacing.
+A browser `fetch()`, POST, API client, or request without navigation metadata
+keeps compact JSON. Detection does not depend on `User-Agent` or `Accept`, which
+cannot reliably distinguish a page visit from a JavaScript request. The body
+remains `application/json` with the same data and HTTP status.
+
+The send hook runs after Fastify's response schema has filtered the payload and,
+when registered through the shared error boundary, after its production error
+sanitizer. It preserves existing `Vary` fields and adds `Sec-Fetch-Mode` so a
+cache keeps the two representations separate. Streams, encoded responses,
+attachments, responses with integrity headers, and JSON bodies over 1,000,000
+characters remain untouched. Depth and formatted-size limits also bound this
+browser-only work. Formatting removes a pre-set `Content-Length` so Fastify can
+write the correct length.
 
 ### HTTP errors
 

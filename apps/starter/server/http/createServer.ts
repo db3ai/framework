@@ -1,5 +1,6 @@
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { registerHttpExchangeMonitor } from '@db3.ai/app/logging';
+import { registerBrowserJsonFormatting } from '@db3.ai/app/server';
 import { InAppError } from '@db3.ai/app/in-app';
 import { databaseHealthCheck } from '@db3.ai/app/health';
 import { registerHealthRoute } from '@db3.ai/app/health/fastify';
@@ -34,6 +35,7 @@ const notePatch = { ...noteBody, required: [], minProperties: 1 };
 export async function createServer(application: App, config: StarterConfig) {
 	await application.apps.boot();
 	const server = Fastify({ loggerInstance: application.log.logger as FastifyBaseLogger, bodyLimit: 96 * 1024, ajv: { customOptions: { removeAdditional: false } } });
+	registerBrowserJsonFormatting(server);
 	registerHttpExchangeMonitor(server);
 	const ai = config.ai.apiKey ? application.ai : null;
 	const allowance = new AiAllowance();

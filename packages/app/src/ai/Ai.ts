@@ -13,6 +13,7 @@ import { estimateTokensFromText } from './Estimates.js';
 import { calculateAIImageRequestCostUSD, calculateAIRequestCostUSD } from './modelPricing.js';
 import { AI_PROVIDER } from './contracts/AI.js';
 import { AIAllowanceExceededError, AIConfigurationError, AIRequestError } from './AIErrors.js';
+import { AIRequestTrackingError } from './AIRequestTrackingError.js';
 import { isFailoverableFailure, isFailoverableResponse } from './AIFailover.js';
 import { providerChainFromEnvironment, resolveProviderChain, simulatedProviderOutage, type AIProviderAttempt, type AIProviderAttemptFailure } from './AIProviders.js';
 import { AIRateLimitDeferredError, AIRateLimiter, embeddingsRateLimitEndpoint, imagesRateLimitEndpoint, providerResponseMetadata, responsesRateLimitEndpoint, type AIProviderResponseMetadata, type AIRateLimitLease } from './AIRateLimiter.js';
@@ -890,7 +891,12 @@ export class Ai {
 			request,
 			metadata: options.metadata ?? null,
 			startedAt: new Date(),
-		}).save();
+		});
+		try {
+			await aiRequest.save();
+		} catch (error) {
+			throw new AIRequestTrackingError(error);
+		}
 
 		return {
 			aiRequest,
@@ -1637,6 +1643,7 @@ export class Ai {
 			}
 
 			if (error instanceof AIRateLimitDeferredError) throw error;
+			if (error instanceof AIRequestTrackingError) throw error;
 			if (error instanceof AIRequestError) throw error;
 
 			throw new AIRequestError(errorMessage(error));

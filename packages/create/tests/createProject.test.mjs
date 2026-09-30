@@ -44,7 +44,8 @@ test('creates an independent client/server app with optional AI and no inherited
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 
-test('Docker gets a unique local DB password, never an AI key', async () => {
+/** Verifies generated Docker projects select the vector-capable database and isolate credentials. */
+test('Docker gets MariaDB 11.8 and a unique local DB password, never an AI key', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'db3-create-test-'));
 	try {
 		const one = await createProject(join(root, 'one'), { docker: true });
@@ -54,6 +55,7 @@ test('Docker gets a unique local DB password, never an AI key', async () => {
 		assert.match(first, /^DB_PASSWORD=[a-f0-9]{48}$/m);
 		assert.match(first, /^OPENAI_API_KEY=$/m);
 		assert.notEqual(first, await readFile(join(two, '.env'), 'utf8'));
+		assert.match(await readFile(join(one, 'docker-compose.yml'), 'utf8'), /^\s+image: mariadb:11\.8$/m);
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
 

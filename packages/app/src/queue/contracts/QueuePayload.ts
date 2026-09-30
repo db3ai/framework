@@ -89,7 +89,7 @@ export interface DispatchOptions {
 	/**
 	 * Named queue/channel the job should be pushed onto.
 	 *
-	 * Workers process one named queue at a time, so this lets callers route
+	 * Workers select eligible named queues, so this lets callers route
 	 * different classes of work to different worker pools. When omitted, the
 	 * queue service uses its configured default queue name.
 	 */

@@ -598,17 +598,27 @@ export class Queue implements queue.QueueService {
 	}
 
 	/**
-	 * Starts a polling worker for a queue unless workers are disabled by configuration.
+	 * Discovers named queues without reading or changing job payloads.
+	 * @throws When a custom driver does not implement wildcard discovery.
+	 */
+	async queueNames(): Promise<string[]> {
+		if (!this.driver.queueNames) throw new Error(`Queue driver "${this.driver.name}" does not support wildcard queue discovery.`);
+		return this.driver.queueNames();
+	}
+
+	/**
+	 * Starts a polling worker for a named queue or selection unless disabled.
+	 * @example queue.startWorker({ queues: '*', excludeQueues: ['articles'] });
 	 */
 	startWorker(
-		queue = process.env.QUEUE_NAME || this.options.queue || 'default',
+		queue: string | queue.QueueSelection = process.env.QUEUE_NAME || this.options.queue || 'default',
 		options: queue.QueueWorkerOptions = {},
 	): QueueWorker | null {
 		if (this.workerDisabled() && !options.force) return null;
 
 		const worker = new QueueWorker(
 			this,
-			queue,
+			typeof queue === 'string' ? queue : { ...queue, queues: queue.queues ?? [this.options.queue || 'default'] },
 			options.intervalMs ?? this.workerIntervalMs(),
 			options.maxJobsPerTick ?? this.maxJobsPerTick(),
 			options.logger,

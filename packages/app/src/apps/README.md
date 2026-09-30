@@ -9,6 +9,10 @@ Start locally and extract the folder into an independent npm package when it
 needs reuse or independent releases. General-purpose libraries still belong in
 `packages/`. A feature app shares the host's runtime, database and authentication.
 
+The documentation generator and packed Create test share the Hello fragments in
+`examples/helloGuideSamples.ts`, allowing an independent public checkout to verify
+the exact copyable tutorial code.
+
 ## Local structure
 
 The runnable Social example is `apps/starter/apps/social` in this repository:

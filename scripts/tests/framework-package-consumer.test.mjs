@@ -402,7 +402,7 @@ async function writeConsumerFixtures(consumerRoot, stagedRoot) {
 
 	await writeFile(join(consumerRoot, 'runtime.mjs'), `
 import Fastify from 'fastify';
-import { registerHttpErrorHandler, publicServerErrorMessage } from '@db3.ai/app/server';
+import { registerBrowserJsonFormatting, registerHttpErrorHandler, publicServerErrorMessage } from '@db3.ai/app/server';
 const previousErrorEnvironment = process.env.NODE_ENV;
 process.env.NODE_ENV = 'production';
 const errorServer = Fastify();
@@ -417,6 +417,15 @@ try {
 	if (previousErrorEnvironment === undefined) delete process.env.NODE_ENV;
 	else process.env.NODE_ENV = previousErrorEnvironment;
 }
+const formattingServer = Fastify();
+registerBrowserJsonFormatting(formattingServer);
+formattingServer.get('/json', async () => ({ nested: { value: 1 } }));
+try {
+	const browserJson = await formattingServer.inject({ url: '/json', headers: { 'sec-fetch-mode': 'navigate' } });
+	if (browserJson.body !== JSON.stringify(browserJson.json(), null, 2)) throw new Error('Installed browser JSON formatting failed.');
+} finally {
+	await formattingServer.close();
+}
 import { storageContentsToBuffer, mimeTypeFromPath } from '@db3.ai/app/storage';
 import { validateFlowValues, cloneFlowValue } from '@db3.ai/app/flows';
 if (storageContentsToBuffer('consumer').toString() !== 'consumer' || mimeTypeFromPath('report.JSON') !== 'application/json') throw new Error('Installed storage helpers failed.');
@@ -428,6 +437,16 @@ import { RuntimeEventEmitter } from '@openai/agents-core';
 import { normalizedKey } from '@db3.ai/pure';
 import { Config } from '@db3.ai/app/config';
 import { App } from '@db3.ai/app';
+import { QueueWorker, parseQueueConsoleArgs, queueConsoleSelection } from '@db3.ai/app/queue';
+const workerSelection = queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queues=*', '--exclude-queues=articles,article-images']));
+if (workerSelection.queues !== '*' || workerSelection.excludeQueues.join(',') !== 'articles,article-images') throw new Error('Installed queue selection failed.');
+const selectionConnection = knex({ client: 'mysql2' });
+const selectionApp = new App({ db: selectionConnection, queue: { workerEnabled: false, queueMonitor: false } });
+try {
+	const protectedWorker = new QueueWorker(selectionApp.queue, workerSelection);
+	await protectedWorker.stopAndDrain();
+	if (await protectedWorker.workOnce() !== null) throw new Error('Stopped installed worker claimed work.');
+} finally { await selectionApp.close(); await selectionConnection.destroy(); }
 import { SchedulerWorker, ScheduledCall } from '@db3.ai/app/scheduler';
 const minuteSchedule = new ScheduledCall(() => {}).name('consumer-minute').everyMinute();
 if (minuteSchedule.definition().frequency.type !== 'minute' || !minuteSchedule.isDue(new Date('2026-09-25T13:45:00Z'))) throw new Error('Installed every-minute schedule failed.');
@@ -466,9 +485,11 @@ import { createSsrRenderContext, renderSsrDocument, SSR_APP_MARKER, SSR_STATE_MA
 
 import { ActiveRecord, mariaDbDialect, rememberDatabaseDialect } from '@db3.ai/app/db';
 if (ActiveRecord.getScopedDb() !== undefined) throw new Error('Unexpected database scope.');
-import { Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
+import { AIRequestTrackingError, Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
 const passages = chunkEmbeddingText('Unicode 🪵 text '.repeat(1000), { context: 'Page title', maxTokens: 256 });
 if (passages.length < 2 || passages.some(chunk => chunk.tokens > 256)) throw new Error('Installed embedding chunk preparation failed.');
+const trackingFailure = new AIRequestTrackingError({ code: 'ER_LOCK_WAIT_TIMEOUT', message: 'private SQL binding' });
+if (trackingFailure.code !== 'ER_LOCK_WAIT_TIMEOUT' || trackingFailure.message.includes('private')) throw new Error('Installed tracking error export failed.');
 
 /** Verifies installed agents accept an explicit unlimited turn setting. */
 class UnlimitedAgent extends Agent {
@@ -593,21 +614,30 @@ import { Cli, defineCommand, listDb3Commands, runRepl, type CliCommandInfo, type
 import { databaseCommands } from '@db3.ai/app/db/commands';
 import { StringField } from '@db3.ai/app/db/fields/StringField';
 import type { FieldConfig } from '@db3.ai/app/db/FieldType';
-import type { QueueDriver, QueueJob } from '@db3.ai/app/queue';
-import { registerHttpErrorHandler, publicServerErrorMessage, type AppOptions, type HttpErrorHandlerOptions, type HttpServerErrorContext } from '@db3.ai/app/server';
+import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueSelection } from '@db3.ai/app/queue';
+const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'] };
+declare const consumingQueue: Queue;
+const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsPerTick: 1 });
+const boundedWorker = new QueueWorker(consumingQueue, { queues: ['default', 'articles'] });
+const boundedResult = boundedWorker.workOnce();
+void [selectedWorker, boundedResult];
+import { registerBrowserJsonFormatting, registerHttpErrorHandler, publicServerErrorMessage, type AppOptions, type HttpErrorHandlerOptions, type HttpServerErrorContext } from '@db3.ai/app/server';
 import Fastify from 'fastify';
 const httpErrorOptions: HttpErrorHandlerOptions = {
 	mapError: () => ({ statusCode: 422, body: { error: 'invalid_request', message: 'Check the request.' } }),
 	onServerError: (error: unknown, context: HttpServerErrorContext) => { const reference: string = context.reference; void [error, reference]; },
 };
 registerHttpErrorHandler(Fastify(), httpErrorOptions);
+registerBrowserJsonFormatting(Fastify());
 const safeErrorMessage: string = publicServerErrorMessage(new Error('secret'), 'production');
 void safeErrorMessage;
 import type { TextResponsePayload } from '@db3.ai/pure/ai';
-import { Ai, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput } from '@db3.ai/app/ai';
+import { Ai, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput } from '@db3.ai/app/ai';
 import { chunkEmbeddingText, type EmbeddingTextChunk, type GenerateTextResult } from '@db3.ai/app/ai';
 const preparedChunks: EmbeddingTextChunk[] = chunkEmbeddingText('A document', { context: 'Title', maxTokens: 8000 });
 void preparedChunks;
+const trackingFailure: AIRequestTrackingError = new AIRequestTrackingError({ code: 'ER_LOCK_WAIT_TIMEOUT' });
+void trackingFailure;
 import type { MailMessage } from '@db3.ai/app/mail';
 import { InApp, type InAppAcceptance, type InAppMessage, type InAppInboxPage } from '@db3.ai/app/in-app';
 import type { InAppScope } from '@db3.ai/app/in-app/contracts';

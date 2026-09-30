@@ -3,6 +3,7 @@ import { errorCodeForStatus, isDevelopmentEnvironment, isSqlError } from '@db3.a
 import { ulid } from '@db3.ai/pure/ulid';
 import { RecordNotFoundError } from '../db';
 import { publicServerErrorMessage } from './publicServerErrorMessage';
+import { registerBrowserJsonFormatting } from './registerBrowserJsonFormatting';
 import type * as server from './contracts';
 
 /**
@@ -11,7 +12,9 @@ import type * as server from './contracts';
  * Call immediately after constructing Fastify, before registering any routes or
  * plugins. The inherited send hook also sanitizes explicit 5xx responses and
  * child-plugin error handlers. Only deliberate mapped client errors and Fastify
- * request errors retain public messages. Never send internal errors as 2xx data.
+ * request errors retain public messages. Browser JSON formatting is installed
+ * after this boundary so it only sees the safe serialized response. Never send
+ * internal errors as 2xx data.
  *
  * @param fastify - HTTP host, still owned and closed by the caller.
  * @param options - Application error classification and support-record observer.
@@ -75,6 +78,7 @@ export function registerHttpErrorHandler(fastify: FastifyInstance, options: serv
 		reply.type('application/json').header('cache-control', 'no-store');
 		return done(null, JSON.stringify({ error: 'server_error', message: publicServerErrorMessage(failure?.error), reference }));
 	});
+	registerBrowserJsonFormatting(fastify);
 }
 
 /** Classifies framework client errors without trusting third-party status codes. */

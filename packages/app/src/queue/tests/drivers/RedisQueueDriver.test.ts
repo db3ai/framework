@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { createClient, type RedisClientOptions } from '@redis/client';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../../../db';
 import { Queue, RedisQueueDriver, type JobEnvelope, type QueueJob } from '../../index';
 import type * as queue from '../../index';
+import { queueSelectionContract } from '../support/queueSelectionContract';
 
 const redisOptions = redisTestOptions();
 const redisAvailable = await canConnect(redisOptions.host, redisOptions.port);
@@ -19,6 +20,13 @@ if (redisRequired && !redisAvailable) {
 const describeRedis = redisAvailable ? describe : describe.skip;
 
 describeRedis('RedisQueueDriver', () => {
+	describe('worker selection conformance', () => {
+		let prefix: string;
+		let driver: RedisQueueDriver;
+		beforeEach(() => { prefix = `${testKeyPrefix()}[literal]`; driver = testDriver(prefix); });
+		afterEach(async () => { await driver?.close(); await clearRedisPrefix(prefix); });
+		queueSelectionContract(() => new Queue({} as Database, { driver, queueMonitor: false }));
+	});
 	it('finds owned work in delayed, reserved and nested chained payloads without matching application data', async () => {
 		const keyPrefix = testKeyPrefix(); const driver = testDriver(keyPrefix);
 		try {
@@ -353,7 +361,7 @@ async function clearRedisPrefix(keyPrefix: string): Promise<void> {
 				'SCAN',
 				cursor,
 				'MATCH',
-				`${keyPrefix}:*`,
+				`${keyPrefix.replace(/[\\*?\[\]]/g, '\\$&')}:*`,
 				'COUNT',
 				'100',
 			]);

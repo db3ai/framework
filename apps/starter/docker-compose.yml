@@ -1,6 +1,6 @@
 services:
   db:
-    image: mariadb:11.4
+    image: mariadb:11.8
     ports:
       - "127.0.0.1:${DB_PORT:-33067}:3306"
     environment:

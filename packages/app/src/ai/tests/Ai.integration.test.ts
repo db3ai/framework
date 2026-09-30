@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
@@ -67,6 +67,20 @@ afterAll(async () => {
 });
 
 describe('AI inside an application', () => {
+	it('keeps a failed pending embedding write and its SQL bindings out of the thrown error', async () => {
+		const error: unknown = await application.ai.generateEmbedding('PRIVATE customer passage', undefined, {
+			parentAiRequest: '01M00000000000000000000000',
+		}).then(() => null, cause => cause);
+		expect(error).toBeInstanceOf(AIRequestTrackingError);
+		if (!(error instanceof AIRequestTrackingError)) throw error;
+		expect(error).toMatchObject({ stage: 'tracking:pending-request', code: null });
+		expect(error.message).not.toContain('PRIVATE customer passage');
+		expect(error.stack).not.toContain('PRIVATE customer passage');
+		expect(fetch).not.toHaveBeenCalled();
+		expect(await AiRequest.query().count()).toBe(0);
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+	});
+
 	it('runs the contextual passage example through the real tracked provider service', async () => {
 		fetch.mockResolvedValueOnce(Response.json({ data: [{ embedding: [0.1, 0.2, 0.3] }], model: 'text-embedding-3-small', usage: { prompt_tokens: 12, total_tokens: 12 } }));
 		const result = await prepareDocumentEmbeddings(application.ai, 'Untreated panels need annual care.', 'Timber maintenance');

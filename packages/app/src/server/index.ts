@@ -1,5 +1,6 @@
 export * from './contracts';
 export { publicServerErrorMessage } from './publicServerErrorMessage';
+export { registerBrowserJsonFormatting } from './registerBrowserJsonFormatting';
 export { registerHttpErrorHandler } from './registerHttpErrorHandler';
 export {
 	App,

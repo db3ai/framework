@@ -17,6 +17,14 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	 */
 	constructor(private readonly db: Database) {}
 
+	/** Discovers queue names from the queue index, including delayed and reserved work. */
+	async queueNames(): Promise<string[]> {
+		return withQueueQueryCategory(() => ActiveRecord.withDb(this.db.knex, async () => {
+			const rows = await QueuedJob.query().toKnex().distinct('queue').orderBy('queue');
+			return rows.map(row => String(row.queue));
+		}));
+	}
+
 	/** Scans active work in bounded pages during quiesced maintenance, including delayed and chained payloads. */
 	async hasPendingJobs(jobPrefix: string): Promise<boolean> {
 		if (!(await this.db.knex.schema.hasTable(QueuedJob.table))) return false;

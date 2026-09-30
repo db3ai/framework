@@ -106,6 +106,12 @@ may contain private information. Apply your app's access and retention policy.
 `saveAiResponse: false` opts direct service calls out of record persistence.
 OpenAI text requests set `store: false`; that does not disable local tracking or
 all provider retention. Never expose provider credentials in client code.
+If a pending embedding request cannot be saved, `generateEmbedding()` throws
+`AIRequestTrackingError` before contacting the provider. Its `stage` identifies
+the pending write and its `code` includes only recognized database lock codes;
+the error deliberately omits the SQL exception because bindings may contain the
+input text. This is separate from a provider rejection or a terminal usage-save
+failure after provider execution.
 
 ## Models and cost estimates
 

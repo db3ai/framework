@@ -62,6 +62,6 @@ It is not included in this initial source export.
 non-publishing candidate gate. The checked-in workflow has read-only repository
 permissions and creates inspected tarball evidence only; it cannot publish to npm.
 
-Version: `0.1.0`  
+Version: `0.1.0-beta.3`  
 License: `MIT`  
 Repository: <https://github.com/db3ai/framework>

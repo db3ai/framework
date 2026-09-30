@@ -4,11 +4,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ActiveRecord, Database } from '../../../db';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '../../../db/test/db';
 import { DatabaseQueueDriver, FailedJob, type JobEnvelope, type QueueJob, QueuedJob } from '../../index';
+import { Queue } from '@db3.ai/app/queue';
+import { queueSelectionContract } from '../support/queueSelectionContract';
 
 describe('DatabaseQueueDriver attempt fencing', () => {
 	let generatedDatabase: GeneratedTestDatabase;
 	let database: Database;
 	let driver: DatabaseQueueDriver;
+	queueSelectionContract(() => new Queue(database, { driver, queueMonitor: false }));
 
 	beforeAll(async () => {
 		generatedDatabase = await createGeneratedTestDatabase('database_queue_fencing');

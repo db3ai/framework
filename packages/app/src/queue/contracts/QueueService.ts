@@ -9,6 +9,7 @@ import type { QueueableJobClass } from './QueueableJob';
 import type { QueueWorkerLifecycle, QueueWorkerOptions } from './QueueWorkerLifecycle';
 import type { RedisQueueDriverOptions } from './RedisQueueDriver';
 import type { QueueJobRunner } from './QueueJobRunner';
+import type { QueueSelection } from './QueueSelection';
 
 /**
  * Function-style handler registered for a durable queued job name.
@@ -214,11 +215,17 @@ export interface QueueService {
 	workNextJob(queue?: string, options?: QueueWorkOptions): Promise<QueueProcessResult | null>;
 
 	/**
-	 * Starts a polling worker for a named queue.
+	 * Discovers names with pending work in the configured driver namespace.
+	 * @throws When the driver does not implement wildcard discovery.
+	 */
+	queueNames(): Promise<string[]>;
+
+	/**
+	 * Starts a polling worker for a named queue or round-robin selection.
 	 *
-	 * @param queue - Named queue/channel the worker should poll.
+	 * @param queue - Exact queue name or named-queue selection the worker should poll.
 	 * @param options - Worker lifecycle and polling options.
 	 * @returns Worker lifecycle controls, or null when worker startup is disabled.
 	 */
-	startWorker(queue?: string, options?: QueueWorkerOptions): QueueWorkerLifecycle | null;
+	startWorker(queue?: string | QueueSelection, options?: QueueWorkerOptions): QueueWorkerLifecycle | null;
 }

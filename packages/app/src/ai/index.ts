@@ -2,6 +2,7 @@ export * from './Ai';
 export { chunkEmbeddingText } from './chunkEmbeddingText';
 export type { EmbeddingTextChunk, EmbeddingTextChunkOptions } from './contracts/EmbeddingTextChunk';
 export * from './AIErrors';
+export * from './AIRequestTrackingError';
 export * from './contracts/AI';
 export * from './AiConversation';
 export * from './AiMessage';
