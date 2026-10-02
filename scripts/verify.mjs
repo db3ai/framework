@@ -2,11 +2,12 @@ import { spawn } from 'node:child_process';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolve, relative } from 'node:path';
+import { createTestEnvironment } from './createTestEnvironment.mjs';
 
 /**
  * Runs every verification stage even after failures, preserving test arguments
  * as separate process arguments and streaming diagnostics as they arrive.
- * @param {{label: string, command: string, args: string[], cwd: string}[]} stages - Ordered verification commands.
+ * @param {{label: string, command: string, args: string[], cwd: string, env?: Record<string, string | undefined>}[]} stages - Ordered verification commands and optional child environment overrides.
  * @returns {Promise<{label: string, passed: boolean}[]>} Outcomes used by the final exit status.
  */
 export async function runVerification(stages) {
@@ -14,7 +15,7 @@ export async function runVerification(stages) {
 	for (const stage of stages) {
 		console.log(`\n── ${stage.label} ──`);
 		const passed = await new Promise(resolveResult => {
-			const env = { ...process.env };
+			const env = { ...process.env, ...stage.env };
 			// Child tools are independent processes, not Node test-runner workers.
 			delete env.NODE_TEST_CONTEXT;
 			const child = spawn(stage.command, stage.args, { cwd: stage.cwd, env, stdio: ['inherit', 'pipe', 'pipe'] });
@@ -45,7 +46,7 @@ async function main() {
 	const stages = [];
 	if (mode === 'test') {
 		if (!manifest.scripts?.['test:raw']) throw new Error('Missing required test:raw script');
-		stages.push({ label: 'Tests', command: npm, args: ['run', 'test:raw', '--', ...testArguments], cwd });
+		stages.push({ label: 'Tests', command: npm, args: ['run', 'test:raw', '--', ...testArguments], cwd, env: createTestEnvironment(testArguments, { cacheDirectory: resolve(root, 'node_modules/.cache/db3-node-compile') }) });
 		if (cwd === root.replace(/[\\/]$/, '') && manifest.scripts?.['quality:test']) {
 			stages.push({ label: 'Quality-tool tests', command: npm, args: ['run', 'quality:test'], cwd });
 		}

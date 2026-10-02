@@ -147,6 +147,12 @@ In development the adapter uses Vite middleware mode, transforms the HTML shell
 per request, hot-loads `/src/entry-server.ts`, and makes Vite's source, module,
 dependency, filesystem, and HMR URL namespaces available to the browser. Unknown
 page URLs still fall through to the application's ordinary not-found boundary.
+For a site organized into `client/` and feature folders, set
+`developmentEntry: '/client/entry-server.ts'` and
+`developmentAssetRoutes: ['/client/*', '/apps/*']`. These explicit source routes
+extend Vite's built-in development namespaces. They do not change page routing
+or expose those source directories in production. Keep API routes with the host;
+do not include them in `developmentAssetRoutes`.
 In production it reads `dist/client/index.html`, imports
 `dist/server/entry-server.js`, serves the configured asset directory, and maps
 `context.modules` through Vite's SSR manifest. Set `preloadJavaScript: false`

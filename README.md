@@ -4,8 +4,8 @@ Typed TypeScript application framework packaged as `@db3.ai/app` and
 `@db3.ai/pure`, with the `@db3.ai/create` application starter. This repository
 contains their public source, the runnable starter, service documentation, examples and behaviour tests.
 
-This is the development branch, not a stable npm release. Packages are not yet
-published. Run [apps/starter](./apps/starter/README.md) directly from this checkout
+This is the development branch, ahead of the published npm prerelease.
+Run [apps/starter](./apps/starter/README.md) directly from this checkout
 to develop and try framework features. Its local environment file is ignored by
 Git. AI is optional. The [independent consumer checks](./packages/create/README.md#test-the-unpublished-preview)
 verify the same app against packaged framework releases.
@@ -55,13 +55,28 @@ npm run framework:package:test
 
 `main` contains upcoming work. Maintained version branches and immutable release
 tags will identify supported releases; there is no stable release tag yet.
-The documentation website will join this repository after its build is portable.
-It is not included in this initial source export.
+The public documentation website lives at
+[`sites/framework.db3.ai`](./sites/framework.db3.ai/README.md). It is a separate
+deployment root with its own `index.ts`; the framework packages are build inputs.
+Run `npm run docs:dev` or `npm run docs:build` from this repository root.
 
-[The framework release policy](./docs/framework-release.md) defines the reviewed,
+## Working across applications
+
+Keep this checkout alongside application repositories, rather than nesting it
+inside a private product. npm workspaces connect the packages, starter and docs
+inside this repository. Consumers use explicit package versions or reviewed
+packed artifacts, never implicit imports from a sibling checkout.
+
+In Codex, add this directory as its own project. For a cross-repository change,
+implement and test the shared behavior here, verify packed imports and types,
+then update and test each affected consumer. Record the framework revision and
+consumer dependency change together in the handoff. Independent app changes
+need only that app's project context.
+
+[The framework release policy](./packages/app/RELEASING.md) defines the reviewed,
 non-publishing candidate gate. The checked-in workflow has read-only repository
 permissions and creates inspected tarball evidence only; it cannot publish to npm.
 
-Version: `0.1.0-beta.3`  
+Version: `0.1.0`
 License: `MIT`  
 Repository: <https://github.com/db3ai/framework>

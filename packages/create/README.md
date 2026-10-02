@@ -120,12 +120,6 @@ Release TODO: npm publishing for Create, existing framework
 release gates, DOM Studio redistribution terms, and a documented production
 deployment. This package does not publish or deploy any app automatically.
 
-## Planned guided database setup
-
-The agreed Studio setup has two paths: a local MariaDB 11.8+ database managed
-through Docker, or a db3.ai Cloud development database provisioned after account
-creation/sign-in. Both keep the application running locally during development.
-Local setup does not require a db3.ai account. Cloud account integration,
-provisioning and the setup UI are not implemented by this creator yet; the CLI
-behaviour above remains current. See the repository's
-`docs/db3-cloud-product-plan.md` for the proposed workflow and delivery checks.
+Generated apps include `AGENTS.md` for human and agent collaboration and
+`plans/README.md` for disposable ideas. Only the planning policy is copied;
+workspace drafts are excluded from generated apps and public source exports.

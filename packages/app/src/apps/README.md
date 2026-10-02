@@ -330,6 +330,15 @@ compatible copy recovers retained data. Npm lifecycle scripts never migrate SQL.
 
 ## Verification and boundaries
 
+Keep a feature app's behaviour tests with its own code and import the smallest
+feature entry that exercises the contract. Add those test paths to the host's
+Vitest configuration so a focused `npm test -- <test path>` runs them without
+selecting every other feature. Use real framework services and install only the
+models required by that fixture. Reserve complete host bootstrap and all-app
+schemas for tests that verify composition, discovery or cross-app workflows.
+This keeps adding an unrelated app from expanding each existing test's import
+graph and schema setup. Full host and package checks remain the release boundary.
+
 `npm run framework:apps:test` builds actual tarballs, installs them into a clean
 temporary consumer, generates service types, compiles TypeScript, builds discovered
 browser entries, migrates a disposable database, runs real npm uninstall and

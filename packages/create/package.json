@@ -1,7 +1,7 @@
 {
 	"name": "@db3.ai/create",
 	"private": true,
-	"version": "0.1.0-beta.3",
+	"version": "0.1.0",
 	"description": "Create a DB3 app with authentication, private notes and optional AI.",
 	"type": "module",
 	"license": "MIT",

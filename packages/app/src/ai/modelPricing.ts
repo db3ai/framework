@@ -10,6 +10,12 @@ export type { AIModelPricing, AIImageModelPricing, AIRequestCostUsage, AIRequest
  * @see https://developers.openai.com/api/docs/pricing
  */
 export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
+	// Default lightweight agent model; Standard rates verified on 2026-10-01.
+	'gpt-4.1-mini': {
+		inputUSDPer1M: 0.40,
+		cachedInputUSDPer1M: 0.10,
+		outputUSDPer1M: 1.60,
+	},
 	'gpt-6-astra': {
 		inputUSDPer1M: 10.00,
 		cachedInputUSDPer1M: 1.00,

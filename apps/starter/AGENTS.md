@@ -26,4 +26,17 @@ in the class body. Do not add duplicate `declare` properties. Preserve inferred
 nullability and use field generics for JSON shapes. `create()` is unsaved;
 call `save()` to persist. Host models belong in `server/database/models.ts`;
 feature-app models belong in their app's registry and migration workflow.
+
+## Human and agent collaboration
+
+Read `README.md` for current setup, then the focused source and tests. Use
+`client/` for browser code, `server/` for backend code, `server/database/` for
+migrations and `tests/` for behavior checks. Verify using the commands in the
+application's `package.json`; report what ran and what remains unverified.
+
+Keep optional proposals in `plans/`, marked Draft, Exploring or Parked. A plan
+is discussion material, not a current API contract or authorization to implement
+it. Plans may be checked in, revised or deleted freely. After implementation,
+keep only necessary verified usage guidance in the owning README and remove
+completed planning sections. Do not make runtime or verification depend on drafts.
 <!-- @db3.ai/app:end -->

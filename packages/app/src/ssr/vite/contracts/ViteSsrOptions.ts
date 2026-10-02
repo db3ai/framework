@@ -31,6 +31,8 @@ export interface FastifyViteSsrOptions<TState extends object = SsrState> {
 	template?: string;
 	/** Vite development server-entry module id. */
 	developmentEntry?: string;
+	/** Additional development-only Vite source routes, for example ['/client/*', '/apps/*']. */
+	developmentAssetRoutes?: readonly string[];
 	/** Production client build directory containing the transformed template. */
 	clientOutDir?: string;
 	/** Production server bundle exporting the application renderer. */

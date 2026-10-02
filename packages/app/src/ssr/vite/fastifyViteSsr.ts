@@ -59,7 +59,7 @@ export function fastifyViteSsr<TState extends object = SsrState>(
 
 			await server.register((await import('@fastify/middie')).default);
 			server.use(runtime.vite.middlewares);
-			registerDevelopmentAssetRoutes(server);
+			registerDevelopmentAssetRoutes(server, options.developmentAssetRoutes);
 			server.addHook('onClose', async () => {
 				await runtime.vite.close();
 			});
@@ -100,9 +100,10 @@ export function fastifyViteSsr<TState extends object = SsrState>(
  * application's ordinary not-found boundary remains authoritative.
  *
  * @param server - Encapsulated Fastify instance hosting the Vite middleware.
+ * @param additionalRoutes - Explicit browser source namespaces owned by this application.
  */
-function registerDevelopmentAssetRoutes(server: Parameters<FastifyPluginAsync>[0]): void {
-	for (const route of DEVELOPMENT_ASSET_ROUTES) {
+function registerDevelopmentAssetRoutes(server: Parameters<FastifyPluginAsync>[0], additionalRoutes: readonly string[] = []): void {
+	for (const route of new Set([...DEVELOPMENT_ASSET_ROUTES, ...additionalRoutes])) {
 		server.get(route, (_request, reply) => reply.callNotFound());
 	}
 }

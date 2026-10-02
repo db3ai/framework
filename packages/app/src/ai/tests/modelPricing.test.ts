@@ -11,6 +11,11 @@ import {
 } from '@db3.ai/app/ai';
 
 describe('AI model pricing', () => {
+	it('prices the default GPT-4.1 mini model and dated snapshots with cached input discounts', () => {
+		for (const model of ['gpt-4.1-mini', 'gpt-4.1-mini-2025-04-14']) {
+			expect(calculateAIRequestCostUSD(model, { inputTokens: 200, cachedTokens: 60, outputTokens: 30 })).toBe(0.00011);
+		}
+	});
 	it('defines hardcoded OpenAI model pricing per 1M tokens', () => {
 		expect(AI_MODEL_PRICING['gpt-5.6-sol']).toEqual({
 			inputUSDPer1M: 4.00,

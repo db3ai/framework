@@ -2,6 +2,8 @@
 
 This repository contains public framework source, tests, examples, and package
 release tooling, plus apps/starter as the runnable example and feature playground.
+The public documentation deploys from `sites/framework.db3.ai/index.ts`; read its
+README before changing documentation or the site's deployment boundary.
 
 ## Orientation
 
@@ -9,7 +11,7 @@ release tooling, plus apps/starter as the runnable example and feature playgroun
   service README and public barrel before changing App.
 - Read `packages/pure/README.md` and the focused utility module before changing Pure.
 - Read `packages/create/README.md`, apps/starter and the creator safety tests before changing Create.
-- Follow `docs/framework-conventions.md` for service ownership, contracts,
+- Follow `packages/app/CONVENTIONS.md` for service ownership, contracts,
   examples, exports, and documentation.
 - Keep service behaviour tests under `packages/app/src/{service}/tests`.
 - Use `client/` for browser code and `server/` for backend code in new apps,
@@ -32,4 +34,5 @@ npm run check
 npm test
 npm run test:release
 npm run framework:package:test
+npm run docs:build
 ```

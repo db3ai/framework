@@ -1,0 +1,458 @@
+@reference "./dom-studio.css";
+
+.landing-header {
+	@apply sticky top-0 z-30 grid h-20 grid-cols-[auto_minmax(360px,1fr)_minmax(360px,auto)] items-center gap-8 border-b border-border bg-canvas/95 px-8 text-canvas-fg backdrop-blur-xl;
+}
+
+.landing-wordmark {
+	@apply flex items-baseline gap-1.5 whitespace-nowrap text-xl tracking-[-0.035em];
+}
+
+.landing-wordmark span {
+	@apply font-extrabold text-primary;
+}
+
+.landing-wordmark strong {
+	@apply font-bold;
+}
+
+.landing-navigation {
+	@apply flex items-center gap-1;
+}
+
+.landing-navigation-trigger,
+.landing-navigation-link {
+	@apply inline-flex h-10 items-center gap-1.5 rounded-lg border-0 bg-transparent px-3 text-sm font-medium text-canvas-fg transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.landing-navigation-link {
+	@apply cursor-pointer;
+}
+
+.landing-header-actions {
+	@apply flex min-w-0 items-center justify-end gap-2;
+}
+
+.landing-search-trigger {
+	@apply flex h-10 w-[min(25vw,360px)] min-w-56 items-center gap-2 rounded-lg border border-input bg-canvas px-3 text-left text-sm text-muted-fg shadow-xs transition hover:border-ring hover:text-canvas-fg focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 focus-visible:outline-none;
+}
+
+.landing-search-trigger span {
+	@apply flex-1;
+}
+
+.landing-search-trigger kbd {
+	@apply rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-[11px] font-semibold;
+}
+
+.landing-github-link {
+	@apply inline-flex h-10 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-canvas-fg transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.landing-action-divider {
+	@apply mx-1 h-7 w-px bg-border;
+}
+
+.landing-mobile-navigation,
+.landing-mobile-search {
+	@apply hidden;
+}
+
+.landing-icon-button,
+.landing-mobile-search {
+	@apply size-10 items-center justify-center rounded-lg border border-border bg-canvas text-muted-fg transition hover:bg-muted hover:text-canvas-fg focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.landing-page {
+	@apply bg-canvas text-canvas-fg;
+}
+
+.landing-hero {
+	@apply mx-auto grid min-h-[584px] max-w-[1536px] grid-cols-[minmax(460px,0.84fr)_minmax(650px,1.16fr)] items-center gap-8 px-8 py-12;
+}
+
+.landing-hero-copy {
+	@apply max-w-[610px] self-start pt-10 pl-5;
+}
+
+.landing-eyebrow,
+.landing-section-label {
+	@apply text-[11px] font-bold tracking-[0.12em] text-primary uppercase;
+}
+
+.landing-hero h1 {
+	@apply text-[58px] leading-[1.12] font-semibold tracking-[-0.052em] text-canvas-fg;
+}
+
+.landing-hero-summary {
+	@apply mt-5 max-w-[520px] text-xl leading-8 text-muted-fg;
+}
+
+.landing-hero-actions {
+	@apply mt-8 flex flex-wrap gap-3;
+}
+
+.landing-primary-action,
+.landing-secondary-action {
+	@apply inline-flex min-h-12 cursor-pointer items-center justify-center gap-2 rounded-lg px-6 text-base font-medium transition focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:ring-offset-2 focus-visible:ring-offset-canvas focus-visible:outline-none active:translate-y-px;
+}
+
+.landing-primary-action {
+	@apply bg-primary text-primary-fg shadow-sm hover:brightness-95;
+}
+
+.landing-secondary-action {
+	@apply border border-border bg-canvas text-canvas-fg shadow-xs hover:border-ring hover:bg-muted;
+}
+
+.framework-diagram {
+	@apply h-[490px] min-w-0;
+}
+
+.framework-diagram .vue-flow {
+	@apply bg-transparent;
+}
+
+.framework-diagram .vue-flow__node {
+	@apply border-0 bg-transparent p-0 shadow-none;
+}
+
+.framework-diagram .vue-flow__handle {
+	@apply pointer-events-none size-2 border-2 border-canvas bg-primary;
+}
+
+.framework-node-shell {
+	@apply relative;
+}
+
+.framework-service-node {
+	@apply flex w-44 cursor-pointer items-center gap-3 rounded-lg border border-input bg-canvas px-4 py-3 text-left text-primary shadow-xs transition hover:-translate-y-0.5 hover:border-ring hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none;
+}
+
+.framework-service-node span,
+.framework-mobile-service span,
+.framework-mobile-application span {
+	@apply min-w-0;
+}
+
+.framework-service-node strong,
+.framework-service-node small,
+.framework-mobile-service strong,
+.framework-mobile-service small,
+.framework-mobile-application strong,
+.framework-mobile-application small {
+	@apply block;
+}
+
+.framework-service-node strong {
+	@apply text-sm font-bold text-canvas-fg;
+}
+
+.framework-service-node small {
+	@apply mt-0.5 text-[11px] text-muted-fg;
+}
+
+.framework-application-node {
+	@apply relative flex size-40 cursor-pointer flex-col items-center justify-center rounded-xl border border-primary/60 bg-canvas text-center text-primary shadow-xl transition hover:-translate-y-1 hover:shadow-2xl focus-visible:ring-2 focus-visible:ring-ring/45 focus-visible:outline-none;
+}
+
+.framework-application-cube {
+	@apply mb-3 grid size-11 place-items-center rounded-xl border border-primary/25 bg-accent;
+}
+
+.framework-application-node strong {
+	@apply max-w-28 text-sm font-bold;
+}
+
+.framework-application-node small {
+	@apply mt-1 text-[10px] text-muted-fg;
+}
+
+.framework-diagram-mobile {
+	@apply hidden;
+}
+
+.landing-capabilities {
+	@apply mx-auto grid max-w-[1536px] grid-cols-[340px_minmax(0,1fr)] border-y border-border px-8;
+}
+
+.landing-capabilities-intro {
+	@apply border-r border-border px-5 py-9;
+}
+
+.landing-capabilities-intro h2 {
+	@apply max-w-56 text-[34px] leading-[1.08] font-semibold tracking-[-0.04em];
+}
+
+.landing-capability-row {
+	@apply grid min-h-24 w-full cursor-pointer grid-cols-[48px_200px_minmax(0,1fr)_110px] items-center gap-3 border-b border-border px-8 text-left text-primary transition last:border-b-0 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.landing-capability-row strong {
+	@apply text-sm font-bold text-canvas-fg;
+}
+
+.landing-capability-row > span {
+	@apply max-w-[620px] text-sm leading-6 text-muted-fg;
+}
+
+.landing-capability-row small {
+	@apply inline-flex items-center justify-end gap-2 text-xs font-semibold;
+}
+
+.landing-use-cases {
+	@apply mx-auto max-w-[1536px] px-12 py-24;
+}
+
+.landing-use-cases-header {
+	@apply max-w-2xl;
+}
+
+.landing-use-cases-header h2,
+.landing-final-cta h2 {
+	@apply mt-3 text-[44px] leading-[1.08] font-semibold tracking-[-0.045em];
+}
+
+.landing-use-cases-header > p:last-child,
+.landing-final-cta > p:not(.landing-section-label) {
+	@apply mt-4 max-w-[62ch] text-base leading-7 text-muted-fg;
+}
+
+.landing-use-case-grid {
+	@apply mt-12 grid grid-cols-4 border-y border-border;
+}
+
+.landing-use-case {
+	@apply flex min-h-72 cursor-pointer flex-col items-start border-r border-border px-7 py-8 text-left text-primary transition last:border-r-0 hover:bg-muted focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.landing-use-case strong {
+	@apply mt-8 text-lg font-bold text-canvas-fg;
+}
+
+.landing-use-case > span {
+	@apply mt-3 text-sm leading-6 text-muted-fg;
+}
+
+.landing-use-case small {
+	@apply mt-auto inline-flex items-center gap-2 pt-8 text-xs font-semibold;
+}
+
+.landing-final-cta {
+	@apply mx-auto mb-16 max-w-[1472px] rounded-2xl border border-border bg-muted px-12 py-16;
+}
+
+@media (max-width: 1279px) {
+	.landing-header {
+		@apply grid-cols-[auto_1fr_auto] gap-4 px-5;
+	}
+
+	.landing-navigation {
+		@apply hidden;
+	}
+
+	.landing-mobile-navigation {
+		@apply block;
+	}
+
+	.landing-hero {
+		@apply grid-cols-[minmax(380px,0.82fr)_minmax(560px,1.18fr)] px-5;
+	}
+
+	.landing-hero-copy {
+		@apply pl-0;
+	}
+
+	.landing-hero h1 {
+		@apply text-[50px];
+	}
+
+	.landing-capabilities {
+		@apply grid-cols-[290px_minmax(0,1fr)] px-5;
+	}
+
+	.landing-capability-row {
+		@apply grid-cols-[44px_170px_minmax(0,1fr)] px-6;
+	}
+
+	.landing-capability-row small {
+		@apply hidden;
+	}
+}
+
+@media (max-width: 1023px) {
+	.landing-search-trigger {
+		@apply hidden;
+	}
+
+	.landing-mobile-search {
+		@apply inline-flex;
+	}
+
+	.landing-hero {
+		@apply grid-cols-1 gap-4 px-6 pt-16 pb-10;
+	}
+
+	.landing-hero-copy {
+		@apply mx-auto max-w-3xl self-center pt-0 text-center;
+	}
+
+	.landing-hero-summary {
+		@apply mx-auto;
+	}
+
+	.landing-hero-actions {
+		@apply justify-center;
+	}
+
+	.framework-diagram {
+		@apply mx-auto h-[500px] w-full max-w-[760px];
+	}
+
+	.landing-capabilities {
+		@apply grid-cols-1 px-6;
+	}
+
+	.landing-capabilities-intro {
+		@apply border-r-0 border-b border-border px-0;
+	}
+
+	.landing-capabilities-intro h2 {
+		@apply max-w-lg;
+	}
+
+	.landing-use-case-grid {
+		@apply grid-cols-2;
+	}
+
+	.landing-use-case {
+		@apply border-b border-border odd:border-r last:border-b-0 even:border-r-0;
+	}
+
+	.landing-use-case:nth-last-child(2) {
+		border-bottom-width: 0;
+	}
+}
+
+@media (max-width: 639px) {
+	.landing-header {
+		@apply h-[68px] grid-cols-[auto_minmax(0,1fr)_auto] px-3;
+	}
+
+	.landing-wordmark {
+		@apply text-lg;
+	}
+
+	.landing-github-link span,
+	.landing-action-divider {
+		@apply hidden;
+	}
+
+	.landing-github-link {
+		@apply px-2;
+	}
+
+	.landing-header-actions {
+		@apply gap-1;
+	}
+
+	.landing-hero {
+		@apply min-h-0 px-4 pt-12 pb-8;
+	}
+
+	.landing-hero h1 {
+		@apply text-[43px] leading-[1.06];
+	}
+
+	.landing-hero-summary {
+		@apply text-lg leading-7;
+	}
+
+	.landing-primary-action,
+	.landing-secondary-action {
+		@apply w-full;
+	}
+
+	.framework-diagram {
+		@apply h-auto pt-8;
+	}
+
+	.framework-diagram .vue-flow {
+		@apply hidden;
+	}
+
+	.framework-diagram-mobile {
+		@apply block;
+	}
+
+	.framework-mobile-application {
+		@apply mx-auto flex w-full max-w-72 cursor-pointer items-center justify-center gap-3 rounded-xl border border-primary/50 bg-accent px-4 py-4 text-left text-primary focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none;
+	}
+
+	.framework-mobile-application strong,
+	.framework-mobile-service strong {
+		@apply text-sm text-canvas-fg;
+	}
+
+	.framework-mobile-application small,
+	.framework-mobile-service small {
+		@apply mt-0.5 text-[10px] text-muted-fg;
+	}
+
+	.framework-mobile-services {
+		@apply mt-3 grid grid-cols-2 gap-2;
+	}
+
+	.framework-mobile-service {
+		@apply flex min-h-16 cursor-pointer items-center gap-2 rounded-lg border border-border bg-canvas px-3 py-2 text-left text-primary focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none;
+	}
+
+	.landing-capabilities {
+		@apply px-4;
+	}
+
+	.landing-capabilities-intro {
+		@apply py-8;
+	}
+
+	.landing-capabilities-intro h2 {
+		@apply text-[31px];
+	}
+
+	.landing-capability-row {
+		@apply grid-cols-[36px_minmax(0,1fr)] gap-x-3 px-0 py-5;
+	}
+
+	.landing-capability-row > span {
+		@apply col-start-2 mt-1;
+	}
+
+	.landing-use-cases {
+		@apply px-4 py-16;
+	}
+
+	.landing-use-cases-header h2,
+	.landing-final-cta h2 {
+		@apply text-[35px];
+	}
+
+	.landing-use-case-grid {
+		@apply grid-cols-1;
+	}
+
+	.landing-use-case {
+		@apply min-h-0 border-r-0! border-b border-border px-3 py-7 last:border-b-0;
+	}
+
+	.landing-use-case strong {
+		@apply mt-5;
+	}
+
+	.landing-use-case small {
+		@apply mt-7 pt-0;
+	}
+
+	.landing-final-cta {
+		@apply mx-4 mb-8 px-6 py-10;
+	}
+}

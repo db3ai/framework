@@ -51,6 +51,31 @@ at boot in both web and worker processes before using `agent.queue(message)`.
 Its constructor context must be serializable. Queued agents require the normal
 queue models and a worker listening on the selected queue.
 
+## Browser computer tools
+
+`computerTool` and the `Computer` type are exported from `@db3.ai/app/ai`.
+Implement the SDK `Computer` contract in an application-owned browser adapter:
+return PNG base64 from `screenshot()`, expose the matching viewport dimensions,
+and delegate mouse, keyboard, scroll and drag actions to that isolated browser.
+Add `computerTool({ name: 'computer', computer: adapter })` to the agent's tools
+with its normal title/description metadata. The existing Agents SDK runs the
+native computer-call/screenshot loop; do not create a second provider loop.
+A compatible model such as `gpt-6-luna` can combine this tool with ordinary
+function tools in the same run.
+
+The application owns allocation, navigation restrictions, deadlines, recordings,
+cleanup and evidence semantics. Provider-requested safety checks need explicit
+handling: returning `false` only omits acknowledgement and does not stop the SDK
+from executing input. Throw from `onSafetyCheck` when unattended execution must
+stop for review. Native tool-action errors may return an empty screenshot through
+the SDK; never treat the final model message alone as evidence of success.
+Screenshot inputs and tool outputs can be retained in local AI request records;
+apply the same access and retention rules as other private prompts. Resuming an
+AI conversation does not restore its browser session. The consuming application
+must create and release its own browser adapter for each run.
+[OpenAI's computer-use guide](https://developers.openai.com/api/docs/guides/tools-computer-use)
+defines the provider contract; browser lifecycle and evidence remain application policy.
+
 ## Images, embeddings and structured output
 
 - `generateImage(input, { store })` returns image bytes and an optional app-owned
@@ -150,6 +175,12 @@ Direct OpenAI text and agent requests select Standard processing. Estimates
 exclude regional processing surcharges and other tiers. OpenRouter and xAI
 use their provider-reported billed costs. Updates affect new estimates and
 new request records; they do not rewrite stored costs or change app model defaults.
+
+The default `gpt-4.1-mini` model and its dated snapshots also have a rate card:
+$0.40 input, $0.10 cached input and $1.60 output per million tokens, verified
+against [the model documentation](https://developers.openai.com/api/docs/models/gpt-4.1-mini)
+on 2026-10-01. This estimate supports small browser agents such as Cloud's
+AI Test Engineer; interrupted requests with missing usage remain unpriced.
 
 Image pricing includes `gpt-image-2.5-flare` and `gpt-image-2`: $5 text input,
 $1.25 cached text input, $8 image input, $2 cached image input and $30 image

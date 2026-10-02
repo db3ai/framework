@@ -1,4 +1,5 @@
 import { defineConfig } from 'vitest/config';
+import { createVitestCacheOptions } from '../../scripts/createVitestCacheOptions.mjs';
 
 export default defineConfig({
 	test: {
@@ -7,6 +8,8 @@ export default defineConfig({
 			'src/**/tests/**/*.test.ts',
 		],
 		fileParallelism: false,
+		// Share compiled source across reruns without sharing application or database state.
+		experimental: createVitestCacheOptions(new URL('./', import.meta.url), new URL('../../package-lock.json', import.meta.url)),
 		coverage: {
 			provider: 'v8',
 			reporter: ['text', 'html', 'lcov'],

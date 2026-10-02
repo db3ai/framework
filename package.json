@@ -1,11 +1,11 @@
 {
 	"name": "db3-framework",
-	"version": "0.1.0-beta.3",
+	"version": "0.1.0",
 	"private": true,
 	"type": "module",
 	"description": "Public source workspace for the db3.ai TypeScript application framework.",
 	"license": "MIT",
-	"homepage": "https://db3.ai/",
+	"homepage": "https://framework.db3.ai",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/db3ai/framework.git"
@@ -18,7 +18,8 @@
 	},
 	"workspaces": [
 		"packages/*",
-		"apps/starter"
+		"apps/starter",
+		"sites/*"
 	],
 	"overrides": {
 		"@tiptap/extension-code-block": "^3.31.3",
@@ -37,6 +38,10 @@
 		"framework:release:test": "node --test scripts/tests/framework-release-policy.test.mjs",
 		"framework:release:prepare": "node scripts/prepare-framework-release.mjs",
 		"framework:publish": "node scripts/publish-framework.mjs",
-		"framework:publish:test": "node --test scripts/tests/framework-publish.test.mjs"
+		"framework:publish:test": "node --test scripts/tests/framework-publish.test.mjs",
+		"docs:generate": "npm run generate --workspace @db3.ai/docs",
+		"docs:test": "npm test --workspace @db3.ai/docs",
+		"docs:build": "npm run build --workspace @db3.ai/docs",
+		"docs:dev": "npm run dev --workspace @db3.ai/docs"
 	}
 }

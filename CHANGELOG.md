@@ -58,4 +58,4 @@ Pure, App and Create use one lockstep version and one release entry.
   so clean framework checkouts do not rely on a parent workspace's installation.
 
 This is a preview release with evolving APIs. Follow the release verification
-and publication requirements in `docs/framework-release.md`.
+and publication requirements in `packages/app/RELEASING.md`.

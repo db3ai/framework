@@ -18,6 +18,7 @@ test('keeps generated and installed agent scaffolds aligned', async () => {
 	);
 
 	assert.equal(generatedInstructions, installedTemplate);
+	assert.match(generatedInstructions, /Keep optional proposals in `plans\/`/);
 	assert.match(generatedInstructions, /class-owning TypeScript files and Vue components with PascalCase/);
 });
 
@@ -25,11 +26,11 @@ test('keeps generated and installed agent scaffolds aligned', async () => {
 test('selects source while excluding local credentials, installs and runtime artifacts', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'db3-starter-files-'));
 	try {
-		for (const path of ['package.json', '.env.example', 'AGENTS.md', 'client/App.vue', 'server/config.ts', 'server/storage/disk.ts', 'tests/app.test.ts', '.env', '.env.production', '.npmrc', 'package-lock.json', 'node_modules/private/index.ts', 'dist/index.html', 'coverage/index.html', 'storage/private.json', 'test-results/results.json', 'server/debug.log', 'electron/package.json', 'electron/src/main.ts', 'electron/out/private-profile.json']) {
+		for (const path of ['package.json', '.env.example', 'AGENTS.md', 'client/App.vue', 'server/config.ts', 'server/storage/disk.ts', 'tests/app.test.ts', 'plans/README.md', 'plans/private-idea.md', 'plans/old/draft.md', '.env', '.env.production', '.npmrc', 'package-lock.json', 'node_modules/private/index.ts', 'dist/index.html', 'coverage/index.html', 'storage/private.json', 'test-results/results.json', 'server/debug.log', 'electron/package.json', 'electron/src/main.ts', 'electron/out/private-profile.json']) {
 			await mkdir(join(root, path, '..'), { recursive: true });
 			await writeFile(join(root, path), 'fixture');
 		}
-		assert.deepEqual((await listStarterFiles(root)).sort(), ['.env.example', 'AGENTS.md', 'client/App.vue', 'package.json', 'server/config.ts', 'server/storage/disk.ts', 'tests/app.test.ts']);
+		assert.deepEqual((await listStarterFiles(root)).sort(), ['.env.example', 'AGENTS.md', 'client/App.vue', 'package.json', 'plans/README.md', 'server/config.ts', 'server/storage/disk.ts', 'tests/app.test.ts']);
 		await symlink(join(root, '.env'), join(root, 'server/credentials.ts'));
 		await assert.rejects(listStarterFiles(root), /Symbolic links are forbidden/);
 		await rm(join(root, 'server/credentials.ts'));

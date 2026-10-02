@@ -5,7 +5,7 @@ import { extname, join } from 'node:path';
 export const STARTER_SOURCE_ENTRIES = new Set([
 	'.env.example', '.gitignore', 'AGENTS.md', 'README.md', 'package.json', 'docker-compose.yml',
 	'index.html', 'tsconfig.json', 'vite.config.ts', 'vitest.config.ts',
-	'apps', 'client', 'scripts', 'server', 'tests',
+	'apps', 'client', 'scripts', 'server', 'tests', 'plans',
 ]);
 
 const artifacts = new Set(['node_modules', 'dist', 'coverage', '.git', '.cache', '.db3', '.vite', '.turbo', '.playwright-cli', 'output', 'playwright-report', 'test-results', '.DS_Store', '.npmrc', 'package-lock.json']);
@@ -37,6 +37,8 @@ export async function listStarterFiles(root) {
 		const entries = await readdir(join(root, directory), { withFileTypes: true });
 		for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
 			const path = directory ? `${directory}/${entry.name}` : entry.name;
+			// Ship the planning policy, never a workspace's speculative drafts.
+			if (path.startsWith('plans/') && path !== 'plans/README.md') continue;
 			// The optional desktop experiment is not part of generated web applications.
 			if (path === 'storage' || path === 'electron' || artifacts.has(entry.name) || (entry.name.startsWith('.env') && path !== '.env.example') || /\.(?:log|tsbuildinfo)$/.test(entry.name)) continue;
 			if (!STARTER_SOURCE_ENTRIES.has(path.split('/')[0])) throw new Error(`Starter source path "${path}" is outside the reviewed app roots.`);

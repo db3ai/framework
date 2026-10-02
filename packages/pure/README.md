@@ -36,7 +36,7 @@ under the selected MIT license. The target package name is `@db3.ai/pure` and
 the configured public source target is `github.com/db3ai/framework`. Neither
 metadata nor a successful local package test proves that source and npm versions
 are public. Verify npm access, the public repository and trusted-publisher
-configuration before publishing. Contributors follow `docs/framework-release.md`.
+configuration before publishing. Contributors follow `packages/app/RELEASING.md`.
 
 ## Consumer package artifacts
 

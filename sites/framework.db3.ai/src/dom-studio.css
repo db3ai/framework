@@ -1,0 +1,57 @@
+@import "@getdom/studio/style.css";
+
+@source "./**/*.{vue,ts}";
+
+:root,
+[data-theme="light"] {
+	color-scheme: light;
+	--canvas: #fdfcfb;
+	--canvas-fg: oklch(0.19 0.018 258);
+	--primary: oklch(0.64 0.208 29);
+	--primary-fg: #ffffff;
+	--secondary: oklch(0.968 0.006 65);
+	--secondary-fg: oklch(0.22 0.018 258);
+	--muted: oklch(0.972 0.006 65);
+	--muted-fg: oklch(0.5 0.018 258);
+	--accent: oklch(0.952 0.028 34);
+	--accent-fg: oklch(0.52 0.19 29);
+	--border: oklch(0.91 0.008 65);
+	--input: oklch(0.88 0.01 65);
+	--ring: oklch(0.64 0.208 29);
+	--success: oklch(0.59 0.16 151);
+	--success-fg: #ffffff;
+	--docs-code-surface: oklch(0.16 0.028 247);
+	--docs-code-fg: oklch(0.94 0.014 75);
+	--docs-code-border: oklch(0.3 0.025 247);
+	--docs-code-hover: oklch(0.26 0.03 247);
+}
+
+[data-theme="dark"] {
+	color-scheme: dark;
+	--canvas: oklch(0.155 0.028 247);
+	--canvas-fg: oklch(0.95 0.012 75);
+	--primary: oklch(0.7 0.19 28);
+	--primary-fg: oklch(0.15 0.025 247);
+	--secondary: oklch(0.205 0.033 247);
+	--secondary-fg: oklch(0.94 0.012 75);
+	--muted: oklch(0.205 0.033 247);
+	--muted-fg: oklch(0.72 0.022 238);
+	--accent: oklch(0.25 0.055 25);
+	--accent-fg: oklch(0.78 0.16 29);
+	--border: oklch(0.31 0.032 247);
+	--input: oklch(0.34 0.034 247);
+	--ring: oklch(0.7 0.19 28);
+	--success: oklch(0.72 0.17 151);
+	--success-fg: oklch(0.15 0.025 247);
+	--docs-code-surface: oklch(0.18 0.03 247);
+	--docs-code-fg: oklch(0.94 0.014 75);
+	--docs-code-border: oklch(0.34 0.032 247);
+	--docs-code-hover: oklch(0.27 0.034 247);
+}
+
+@theme inline {
+	--color-code-surface: var(--docs-code-surface);
+	--color-code-fg: var(--docs-code-fg);
+	--color-code-border: var(--docs-code-border);
+	--color-code-hover: var(--docs-code-hover);
+}

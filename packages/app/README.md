@@ -2,13 +2,6 @@
 
 Shared backend framework package for DB3 applications.
 
-The framework is intended to support both code-first and visual application
-development. Framework operations should expose reusable contracts so CLI,
-GUI, programmatic, and collaborative AI clients can share the same behavior
-rather than creating parallel implementations. Source-repository contributors
-can read the product direction in `docs/framework-goals.md`; that repository-only
-document is not part of the installed runtime package.
-
 This package owns reusable runtime services and data-layer mechanics:
 
 - `apps`: local feature apps, optional public services, owned migrations, lifecycle and inspectable navigation metadata. See [Apps](src/apps/README.md) for local folders and npm extraction.
@@ -60,7 +53,7 @@ in `github.com/db3ai/framework`. The published packages are `@db3.ai/app`,
 `@db3.ai/pure` and `@db3.ai/create`. Maintainers can publish a verified beta from
 the repository root with `npm run framework:publish -- --version 0.1.0-beta.1`;
 add `--dry-run` to inspect it without publishing. npm handles packaging, login
-and upload. See `docs/framework-release.md` for release checks and the manual
+and upload. See `packages/app/RELEASING.md` for release checks and the manual
 bootstrap and trusted-publishing workflows.
 
 The [installation guide](https://db3.ai/docs/installation) distinguishes the
@@ -146,6 +139,15 @@ In the source workspace, `npm test --workspace @db3.ai/app -- <optional test pat
 runs the selected behaviour tests, then source/example type checks and available
 workspace naming checks. All stages run after ordinary failures and a combined
 summary reports the final result and the convention findings path.
+The ordinary runner reuses Node's compiled dependencies, and Vitest persists
+source transformations under the workspace's ignored `node_modules` directory.
+Transformation directories are separate for each workspace and npm lockfile
+snapshot, so a dependency update cannot clear another active run's cache.
+Test files still run in separate runtimes and integration tests still own
+disposable databases. Source, test configuration and dependency changes invalidate
+the transformation cache. Coverage arguments disable the Node bytecode cache to
+preserve V8's source-position accuracy. Set `NODE_DISABLE_COMPILE_CACHE=1` to
+opt out; `--experimental.fsModuleCache=false` disables transformation caching.
 `npm run quality --workspace @db3.ai/app` runs the same quality stages without
 tests. The Platform naming gate is not included in the public source export;
 the runner explicitly reports its absence there. The specialised service and
@@ -156,7 +158,6 @@ Framework tests live with the service they exercise under
 framework change finished:
 
 ```sh
-npm run check --workspace packages/app
 npm test --workspace packages/app
 ```
 

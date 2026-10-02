@@ -81,6 +81,31 @@ describe('fastifyViteSsr', () => {
 		expect(styleResponse.statusCode).toBe(200);
 	});
 
+	it('serves explicitly selected client and feature source directories without claiming API routes', async () => {
+		const root = await applicationRoot();
+		await mkdir(join(root, 'client'));
+		await mkdir(join(root, 'apps', 'website', 'client'), { recursive: true });
+		await writeFile(join(root, 'index.html'), documentTemplate());
+		await writeFile(join(root, 'client', 'entry-server.ts'), "export async function render() { return { appHtml: '<main>Website</main>' }; }");
+		await writeFile(join(root, 'client', 'main.ts'), 'export const siteName: string = "Website";');
+		await writeFile(join(root, 'apps', 'website', 'client', 'theme.css'), 'main { color: teal; }');
+		const server = testServer();
+		server.get('/api/config', async () => ({ owner: 'host' }));
+		await server.register(fastifyViteSsr({
+			root, mode: 'development', routes: ['/'], manifest: false,
+			developmentEntry: '/client/entry-server.ts',
+			developmentAssetRoutes: ['/client/*', '/apps/*', '/client/*'],
+		}));
+		const script = await server.inject('/client/main.ts');
+		expect(script.statusCode).toBe(200);
+		expect(script.body).toContain('siteName');
+		expect(script.body).not.toContain(': string');
+		expect((await server.inject('/apps/website/client/theme.css')).statusCode).toBe(200);
+		expect((await server.inject('/api/config')).json()).toEqual({ owner: 'host' });
+		expect((await server.inject('/unclaimed')).statusCode).toBe(404);
+		expect((await server.inject('/client/missing.ts')).statusCode).toBe(404);
+	});
+
 	it('loads immutable production artifacts, manifest styles, and static assets', async () => {
 		const root = await applicationRoot();
 		await mkdir(join(root, 'dist', 'client', '.vite'), { recursive: true });

@@ -1,0 +1,586 @@
+@reference "./dom-studio.css";
+
+:root {
+	font-synthesis: none;
+	text-rendering: optimizeLegibility;
+}
+
+html {
+	scroll-behavior: smooth;
+}
+
+body {
+	min-width: 320px;
+}
+
+button,
+select {
+	font: inherit;
+}
+
+button,
+a,
+select {
+	-webkit-tap-highlight-color: transparent;
+}
+
+.docs-header {
+	@apply sticky top-0 z-20 grid h-[61px] grid-cols-[minmax(0,1fr)_minmax(280px,500px)_minmax(0,1fr)] items-center gap-5 border-b border-border bg-canvas/95 px-7 text-canvas-fg backdrop-blur-xl;
+}
+
+.docs-wordmark {
+	@apply flex min-w-0 items-baseline gap-1.5 whitespace-nowrap text-xl tracking-[-0.035em];
+}
+
+.docs-wordmark span {
+	@apply font-extrabold text-primary;
+}
+
+.docs-wordmark strong {
+	@apply truncate font-bold;
+}
+
+.docs-header-link {
+	@apply inline-flex min-h-9 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-canvas-fg transition hover:bg-accent hover:text-accent-fg focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none;
+}
+
+.docs-search-trigger {
+	@apply flex h-9 w-full items-center gap-2 rounded-lg border border-input bg-canvas px-3 text-left text-sm text-muted-fg shadow-xs transition hover:border-ring hover:text-canvas-fg focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/25 focus-visible:outline-none;
+}
+
+.docs-search-trigger span {
+	@apply flex-1;
+}
+
+.docs-search-trigger kbd {
+	@apply rounded-md border border-border bg-muted px-1.5 py-0.5 font-sans text-[11px] font-semibold text-muted-fg;
+}
+
+.docs-icon-button {
+	@apply inline-flex min-h-9 min-w-9 items-center justify-center rounded-lg border border-border bg-canvas px-2 text-xs font-semibold text-muted-fg transition hover:bg-accent hover:text-accent-fg focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none;
+}
+
+.docs-theme-picker {
+	@apply flex items-center gap-0.5 rounded-full border border-border bg-canvas p-0.5 shadow-xs;
+}
+
+.docs-mobile-menu {
+	display: none;
+}
+
+.docs-mobile-search {
+	display: none;
+}
+
+.docs-select {
+	@apply h-9 rounded-lg border border-input bg-canvas px-3 py-0 text-sm font-medium text-canvas-fg shadow-xs outline-none transition hover:border-ring focus:border-ring focus:ring-2 focus:ring-ring/25;
+}
+
+.docs-workspace {
+	display: grid;
+	grid-template-columns: 94px 274px minmax(0, 1fr) 276px;
+	@apply min-h-[calc(100vh-61px)];
+}
+
+.docs-global-rail {
+	@apply sticky top-[61px] flex h-[calc(100vh-61px)] flex-col border-r border-border bg-canvas;
+}
+
+.docs-rail-link {
+	@apply relative flex min-h-[86px] w-full flex-col items-center justify-center gap-2 border-0 bg-transparent px-2 text-xs font-medium text-muted-fg transition hover:bg-muted hover:text-canvas-fg focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:outline-none;
+}
+
+.docs-rail-link.is-active {
+	@apply bg-accent text-primary;
+}
+
+.docs-rail-link.is-active::before {
+	content: '';
+	@apply absolute inset-y-0 left-0 w-[3px] rounded-r-full bg-primary;
+}
+
+.docs-sidebar {
+	@apply sticky top-[61px] h-[calc(100vh-61px)] overflow-y-auto border-r border-border bg-canvas px-5 py-5;
+}
+
+.docs-sidebar-heading {
+	@apply text-[11px] font-bold tracking-[0.075em] text-muted-fg uppercase;
+}
+
+.docs-sidebar-link {
+	@apply flex w-full items-center justify-between gap-2 rounded-md border-0 bg-transparent px-2.5 py-1.5 text-left text-[13px] leading-5 font-medium text-canvas-fg transition hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none;
+}
+
+.docs-sidebar-link.is-active {
+	@apply bg-accent font-semibold text-primary;
+	box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.docs-article {
+	@apply mx-auto w-full max-w-[850px] px-7 pt-6 pb-0 sm:px-10 lg:px-8 2xl:px-12;
+}
+
+.docs-breadcrumb {
+	@apply mb-5 flex flex-wrap items-center gap-2 text-xs text-muted-fg;
+}
+
+.docs-breadcrumb span:first-child,
+.docs-breadcrumb strong {
+	@apply font-semibold text-primary;
+}
+
+.docs-article-header {
+	@apply border-b border-border pb-5;
+}
+
+.docs-article-header h1 {
+	@apply m-0 text-[34px] leading-[1.15] font-bold tracking-[-0.035em] text-canvas-fg sm:text-[38px];
+}
+
+.docs-article-header p {
+	@apply mt-3 max-w-[68ch] text-lg leading-8 text-muted-fg;
+}
+
+.guide-overview {
+	@apply border-b border-border py-5;
+}
+
+.guide-overview h2 {
+	@apply m-0 text-[17px] leading-6 font-bold tracking-[-0.015em] text-canvas-fg;
+}
+
+.docs-content-section h2 {
+	@apply m-0 border-t border-border pt-7 text-2xl leading-8 font-bold tracking-[-0.025em] text-canvas-fg;
+}
+
+.docs-content-section:first-child h2 {
+	@apply border-t-0 pt-0;
+}
+
+.docs-content-section h3 {
+	@apply m-0 text-xl leading-7 font-bold tracking-[-0.015em] text-canvas-fg;
+}
+
+.guide-overview ol {
+	@apply mt-4 grid list-none grid-cols-3 gap-0 p-0;
+}
+
+.guide-overview li {
+	@apply flex min-w-0 gap-3 border-r border-border px-5 first:pl-0 last:border-r-0 last:pr-0;
+}
+
+.guide-overview li > span {
+	@apply flex size-6 shrink-0 items-center justify-center rounded-full border border-primary text-xs font-bold text-primary;
+}
+
+.guide-overview li strong {
+	@apply block text-[13px] leading-5 text-canvas-fg;
+}
+
+.guide-overview li p {
+	@apply mt-1 text-sm leading-6 text-muted-fg;
+}
+
+.docs-content {
+	@apply space-y-7 pt-5 text-lg leading-8;
+}
+
+.docs-content-section {
+	@apply scroll-mt-24;
+}
+
+.docs-content-section > p {
+	@apply mt-3 max-w-[66ch] text-muted-fg;
+}
+
+.framework-vision {
+	@apply mt-6 rounded-xl border border-border bg-muted/30 p-4 shadow-xs sm:p-5;
+}
+
+.framework-vision figcaption {
+	@apply text-sm font-bold text-canvas-fg;
+}
+
+.framework-vision-audiences,
+.framework-vision-views {
+	@apply mt-4 grid grid-cols-3 gap-2;
+}
+
+.framework-vision-audiences > div,
+.framework-vision-views > div {
+	@apply rounded-lg border border-border bg-canvas p-3;
+}
+
+.framework-vision-audiences strong,
+.framework-vision-audiences span,
+.framework-vision-views strong,
+.framework-vision-views span {
+	@apply block;
+}
+
+.framework-vision-audiences strong,
+.framework-vision-views strong {
+	@apply text-xs font-bold text-canvas-fg;
+}
+
+.framework-vision-audiences span,
+.framework-vision-views span {
+	@apply mt-1 text-[11px] leading-4 text-muted-fg;
+}
+
+.framework-vision-definition {
+	@apply relative mt-7 rounded-xl border border-primary/45 bg-accent px-5 py-5 text-center text-primary shadow-sm;
+}
+
+.framework-vision-definition::before,
+.framework-vision-round-trip::after {
+	content: '';
+	@apply absolute left-1/2 h-7 w-px -translate-x-1/2 bg-primary/45;
+}
+
+.framework-vision-definition::before {
+	@apply bottom-full;
+}
+
+.framework-vision-definition small,
+.framework-vision-definition strong,
+.framework-vision-definition span {
+	@apply block;
+}
+
+.framework-vision-definition small {
+	@apply text-[10px] font-bold tracking-[0.1em] uppercase;
+}
+
+.framework-vision-definition strong {
+	@apply mt-1 text-base text-canvas-fg;
+}
+
+.framework-vision-definition span {
+	@apply mt-1 text-[11px] leading-4 text-muted-fg;
+}
+
+.framework-vision-round-trip {
+	@apply relative mx-auto mt-3 flex w-fit items-center gap-2 rounded-full border border-primary/25 bg-canvas px-3 py-1.5 text-[10px] font-bold text-primary;
+}
+
+.framework-vision-round-trip strong {
+	@apply text-sm;
+}
+
+.framework-vision-round-trip::after {
+	@apply top-full;
+}
+
+.framework-vision-views {
+	@apply mt-10;
+}
+
+.docs-code-wrap {
+	@apply mt-3 overflow-hidden rounded-lg border border-code-border bg-code-surface shadow-sm;
+}
+
+.docs-code-toolbar {
+	@apply flex h-8 items-center justify-between border-b border-code-border px-3 text-[11px] font-semibold text-code-fg/75;
+}
+
+.docs-copy-button {
+	@apply inline-flex items-center gap-1.5 rounded-md border-0 bg-transparent px-2 py-1 text-[11px] font-semibold text-code-fg/75 transition hover:bg-code-hover hover:text-code-fg focus-visible:ring-2 focus-visible:ring-code-fg/35 focus-visible:outline-none;
+}
+
+.docs-code-wrap .dom-code {
+	@apply max-h-[196px] overflow-y-auto rounded-none bg-transparent;
+}
+
+.docs-code-wrap .dom-shiki .shiki,
+.docs-code-wrap .dom-code pre {
+	@apply max-h-[330px] bg-transparent! px-4! py-3! text-sm! leading-6!;
+}
+
+.docs-code-wrap .dom-code > span {
+	@apply hidden;
+}
+
+.docs-live-example {
+	@apply mt-4 overflow-hidden rounded-xl border border-border bg-muted/35 shadow-sm;
+}
+
+.docs-live-example > .docs-code-wrap {
+	@apply mt-0 rounded-none border-0 shadow-none;
+}
+
+.docs-live-example > .docs-code-wrap .dom-code {
+	@apply max-h-[360px];
+}
+
+.docs-example-output {
+	@apply border-t border-code-border bg-code-surface;
+}
+
+.docs-example-output-toolbar {
+	@apply flex min-h-9 items-center justify-between gap-3 border-b border-code-border px-3 text-[11px] font-semibold text-code-fg/75;
+}
+
+.docs-example-output-toolbar > span,
+.docs-example-output-copy {
+	@apply inline-flex items-center gap-1.5;
+}
+
+.docs-example-output-toolbar > span {
+	@apply text-success;
+}
+
+.docs-example-output-copy {
+	@apply rounded-md border-0 bg-transparent px-2 py-1 text-[11px] font-semibold text-code-fg/75 transition hover:bg-code-hover hover:text-code-fg focus-visible:ring-2 focus-visible:ring-code-fg/35 focus-visible:outline-none;
+}
+
+.docs-example-output .dom-code,
+.docs-example-output .dom-code pre {
+	@apply max-h-[260px] rounded-none bg-transparent!;
+}
+
+.docs-example-output .dom-code > span {
+	@apply hidden;
+}
+
+.docs-example-explanation {
+	@apply border-t border-border bg-canvas px-4 py-4;
+}
+
+.docs-example-explanation h3 {
+	@apply flex items-center gap-2 text-xs font-bold tracking-[0.02em] text-canvas-fg;
+}
+
+.docs-example-explanation ol {
+	@apply mt-3 grid list-none gap-2 p-0 md:grid-cols-3;
+}
+
+.docs-example-explanation li {
+	@apply flex min-w-0 items-start gap-2 text-xs leading-5 text-muted-fg;
+}
+
+.docs-example-explanation li > span {
+	@apply mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-accent text-[10px] font-bold text-primary;
+}
+
+.verified-example {
+	@apply mt-4 scroll-mt-24 overflow-hidden rounded-lg border border-success/45 bg-canvas;
+	box-shadow: inset 3px 0 0 var(--success);
+}
+
+.verified-example-header {
+	@apply flex min-h-11 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-2;
+}
+
+.verified-status {
+	@apply inline-flex items-center gap-2 text-xs font-bold text-success;
+}
+
+.verified-example-grid {
+	@apply grid grid-cols-[1.1fr_0.9fr_1fr] divide-x divide-border px-4 py-3;
+}
+
+.verified-example-grid > div {
+	@apply min-w-0 px-4 first:pl-0 last:pr-0;
+}
+
+.verified-example-grid strong {
+	@apply block text-[11px] font-bold text-canvas-fg;
+}
+
+.verified-example-grid p,
+.verified-example-grid code {
+	@apply mt-1 block text-[11px] leading-4 text-muted-fg;
+}
+
+.verified-example-grid code {
+	@apply font-mono text-success;
+}
+
+.docs-page-navigation {
+	@apply mt-5 grid grid-cols-2 border-t border-border;
+}
+
+.docs-page-link {
+	@apply flex min-h-20 items-center gap-3 border-0 bg-transparent px-1 text-left text-canvas-fg transition hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none last:justify-end;
+}
+
+.docs-page-link small,
+.docs-page-link strong {
+	@apply block;
+}
+
+.docs-page-link small {
+	@apply text-[11px] font-medium text-muted-fg;
+}
+
+.docs-page-link strong {
+	@apply mt-0.5 text-sm font-semibold;
+}
+
+.docs-context-rail {
+	@apply sticky top-[61px] h-[calc(100vh-61px)] overflow-y-auto bg-canvas px-7 py-8 text-[12px];
+}
+
+.docs-context-rail > section {
+	@apply border-b border-border py-5 first:pt-0 last:border-b-0;
+}
+
+.docs-context-rail h2 {
+	@apply text-[12px] font-bold text-canvas-fg;
+}
+
+.docs-context-rail nav a {
+	@apply block leading-5 text-muted-fg transition hover:text-primary;
+}
+
+.docs-context-rail nav a.is-subsection {
+	@apply border-l border-border pl-3 text-[11px];
+}
+
+.context-link {
+	@apply mt-3 flex min-w-0 items-start gap-2 leading-5 text-muted-fg transition hover:text-primary;
+}
+
+.context-link span {
+	@apply min-w-0 break-words;
+}
+
+.context-link.is-primary {
+	@apply font-medium text-primary;
+}
+
+.docs-context-rail li {
+	@apply relative pl-3 before:absolute before:top-2 before:left-0 before:size-1 before:rounded-full before:bg-muted-fg;
+}
+
+.docs-context-rail li button {
+	@apply border-0 bg-transparent p-0 text-left leading-5 text-muted-fg transition hover:text-primary focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none;
+}
+
+@media (max-width: 1279px) {
+	.docs-workspace {
+		grid-template-columns: 88px 260px minmax(0, 1fr);
+	}
+
+	.docs-context-rail {
+		@apply hidden;
+	}
+}
+
+@media (max-width: 1023px) {
+	.docs-mobile-menu {
+		display: inline-flex;
+	}
+
+	.docs-mobile-search {
+		display: inline-flex;
+	}
+
+	.docs-header {
+		@apply grid-cols-[minmax(0,1fr)_auto] px-4;
+	}
+
+	.docs-search-trigger {
+		@apply hidden;
+	}
+
+	.docs-workspace {
+		display: block;
+	}
+
+	.docs-global-rail {
+		@apply hidden;
+	}
+
+	.docs-sidebar {
+		@apply fixed inset-y-0 left-0 z-40 h-full w-[300px] -translate-x-full border-r border-border px-5 py-5 shadow-2xl transition-transform duration-200;
+	}
+
+	.docs-sidebar.is-open {
+		@apply translate-x-0;
+	}
+
+	.docs-article {
+		@apply max-w-4xl px-6;
+	}
+}
+
+@media (max-width: 639px) {
+	.docs-header {
+		@apply gap-3 px-3;
+	}
+
+	.docs-theme-picker button[aria-pressed="true"] {
+		display: none;
+	}
+
+	.docs-wordmark {
+		@apply text-lg;
+	}
+
+	.docs-article {
+		@apply px-4 pt-5;
+	}
+
+	.docs-article-header h1 {
+		@apply text-[31px];
+	}
+
+	.guide-overview ol {
+		@apply grid-cols-1 gap-3;
+	}
+
+	.guide-overview li {
+		@apply border-r-0 border-b border-border px-0 pb-3 last:border-b-0 last:pb-0;
+	}
+
+	.framework-vision-audiences,
+	.framework-vision-views {
+		@apply grid-cols-1;
+	}
+
+	.framework-vision-definition {
+		@apply mt-7;
+	}
+
+	.framework-vision-definition::before,
+	.framework-vision-round-trip::after {
+		@apply h-7;
+	}
+
+	.framework-vision-views {
+		@apply mt-10;
+	}
+
+	.verified-example-header {
+		@apply items-start;
+	}
+
+	.verified-example-grid {
+		@apply grid-cols-1 divide-x-0 divide-y divide-border;
+	}
+
+	.verified-example-grid > div {
+		@apply px-0 py-3 first:pt-0 last:pb-0;
+	}
+
+	.docs-page-navigation {
+		@apply gap-3;
+	}
+
+	.docs-page-link {
+		@apply min-w-0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+	}
+}

@@ -1,6 +1,6 @@
 {
 	"name": "@db3.ai/pure",
-	"version": "0.1.0-beta.3",
+	"version": "0.1.0",
 	"description": "Environment-independent TypeScript utilities shared by DB3 framework packages and applications.",
 	"private": true,
 	"license": "MIT",

@@ -53,10 +53,11 @@ test('packed Create generates an independent app that installs, builds and passe
 		assert.equal(manifest.dependencies['@db3.ai/app'], app.version);
 		assert.equal(manifest.scripts.repl, 'db3 repl');
 		assert.equal(manifest.scripts.db3, 'db3');
-		for (const file of ['AGENTS.md', 'client/App.vue', 'client/main.ts', 'index.html', 'server/app.ts', 'apps/social/App.ts', 'apps/social/manifest.json', 'scripts/prepareApps.mjs', 'apps/social/tsconfig.build.json', 'server/cli.config.ts', 'server/database/models.ts', 'server/database/schema.snapshot.json', 'tests/app.test.ts', 'vite.config.ts', 'tsconfig.json']) {
+		for (const file of ['AGENTS.md', 'plans/README.md', 'client/App.vue', 'client/main.ts', 'index.html', 'server/app.ts', 'apps/social/App.ts', 'apps/social/manifest.json', 'scripts/prepareApps.mjs', 'apps/social/tsconfig.build.json', 'server/cli.config.ts', 'server/database/models.ts', 'server/database/schema.snapshot.json', 'tests/app.test.ts', 'vite.config.ts', 'tsconfig.json']) {
 			assert.equal(await readFile(join(target, file), 'utf8'), await readFile(join(repositoryRoot, 'apps/starter', file), 'utf8'));
 		}
 		assert.match(await readFile(join(target, 'AGENTS.md'), 'utf8'), /class-owning TypeScript files and Vue components with PascalCase/);
+		assert.deepEqual(await readdir(join(target, 'plans')), ['README.md']);
 		assert.ok(!(await readdir(target)).includes('src'));
 		assert.ok(!(await readdir(target)).includes('database'));
 		assert.ok(!(await readdir(join(target, 'server/database'))).includes('migrations.ts'));
