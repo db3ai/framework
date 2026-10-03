@@ -218,7 +218,8 @@ test('complete AI context contains every registered article and verified source'
 	// The independent documentation subdomain adds ten characters per canonical URL.
 	const legacyOriginBytes = Buffer.byteLength(llmsFullText({ origin: 'https://db3.ai' }));
 	const domainOverhead = productionBytes - legacyOriginBytes;
-	assert.ok(productionBytes < 1_730_000 + domainOverhead, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.73 MB budget plus ${domainOverhead} bytes of subdomain overhead`);
+	// Durable provider admission and terminal queue contracts add public API evidence.
+	assert.ok(productionBytes < 1_750_000 + domainOverhead, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.75 MB budget plus ${domainOverhead} bytes of subdomain overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 
