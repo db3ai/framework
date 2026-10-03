@@ -1,3 +1,4 @@
+import { QueueTerminalError } from './QueueTerminalError';
 import { randomUUID } from 'node:crypto';
 
 import type { Database } from '../db';
@@ -405,7 +406,7 @@ export class Queue implements queue.QueueService {
 				unixTimestamp(),
 			);
 
-			if (job.attempts >= job.payload.maxTries || retryDeadlineReached) {
+			if (error instanceof QueueTerminalError || job.attempts >= job.payload.maxTries || retryDeadlineReached) {
 				const failed = await this.driver.fail(job, error);
 
 				if (!failed) {

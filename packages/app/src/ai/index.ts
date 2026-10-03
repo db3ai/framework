@@ -28,3 +28,6 @@ export * from './ResponsesProviderCall';
 export { agentConversationTimeline } from './AgentHistory';
 export { tool, computerTool, type Computer, webSearchTool, fileSearchTool, imageGenerationTool } from '@openai/agents';
 export { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCallRecovery';
+
+export * from './AIProviderAdmission';
+export type { AIRequestErrorDiagnostics } from './contracts/AIRequestErrorDiagnostics';

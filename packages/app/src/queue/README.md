@@ -222,6 +222,8 @@ rollout/rollback. Monitor each workload queue independently of general health.
 
 ## Retries and repair
 
+`QueueTerminalError` stops immediately regardless of remaining tries, retaining the failed job and invoking final-failure hooks. Use it when ordinary retries cannot repair the cause.
+
 Ordinary errors consume attempts. Dispatch defaults are three attempts,
 exponential backoff starting at 15 seconds, capped at 3600 seconds, with jitter
 off unless changed in queue options/environment. The supported strategies are
