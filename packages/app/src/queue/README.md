@@ -34,7 +34,7 @@ owns bytes; your application owns authorization, progress and idempotency.
 ## Run a real report
 
 Start with Node.js 24 and an independent ESM app from
-[Installation](https://db3.ai/docs/installation). Before npm publication, install
+[Installation](https://db3.ai/framework/docs/installation). Before npm publication, install
 matching App and Pure tarballs supplied by a maintainer. Add `tsx`,
 `typescript`, `@types/node` and `vitest` as development dependencies.
 
@@ -351,7 +351,7 @@ inspection/replay and define retention. There is no automatic failure pruning.
 
 ## Test the workflow
 
-The [Queue guide](https://db3.ai/docs/queue-overview#testing) renders the exact
+The [Queue guide](https://db3.ai/framework/docs/queue-overview#testing) renders the exact
 service-owned test. Save it as `tests/queue/runQueueReports.test.ts`, retaining
 the example and `outputs/` directory above:
 
@@ -380,7 +380,7 @@ report lab is not proof of Redis operational readiness.
 
 ## Reference, coverage and follow-up
 
-The [Queue API reference](https://db3.ai/docs/queue-api) renders freshly emitted
+The [Queue API reference](https://db3.ai/framework/docs/queue-api) renders freshly emitted
 service, job, payload, retry, worker, driver, Redis and console contracts.
 Use `@db3.ai/app/queue` imports, not internal declaration paths.
 

@@ -19,6 +19,13 @@ verify the same app against packaged framework releases.
 - [`@db3.ai/create`](./packages/create/README.md) generates a Vue/DOM Studio app
   with password login, private notes and optional server-side AI summaries.
 
+Provider packages share this repository: `@db3.ai/notifications-intercom`
+(Messenger in-app messages), `@db3.ai/mail-resend` and `@db3.ai/mail-mailgun`.
+They own provider dependencies and consume public core contracts. Applications
+explicitly register only the providers they need. The package staging command
+builds their runtime and declaration exports alongside App and Pure; no separate
+repository or npm publication is required for local development.
+
 ## Development
 
 Requirements: Node.js 24 or newer, MariaDB for database integration suites, and
@@ -56,9 +63,16 @@ npm run framework:package:test
 `main` contains upcoming work. Maintained version branches and immutable release
 tags will identify supported releases; there is no stable release tag yet.
 The public documentation website lives at
-[`sites/framework.db3.ai`](./sites/framework.db3.ai/README.md). It is a separate
+[`apps/framework`](./apps/framework/README.md). It is a separate
 deployment root with its own `index.ts`; the framework packages are build inputs.
+It serves `https://db3.ai/framework`, with guides under `/framework/docs/...`.
 Run `npm run docs:dev` or `npm run docs:build` from this repository root.
+
+Packaging (`framework:package`), independent consumers (`framework:package:test`
+and `framework:create:test`), and release/publishing commands (`framework:release:*`
+and `framework:publish*`) run from this repository. The old Platform-only
+`framework:export:public*` commands created this public checkout; they are not
+part of its ongoing package release workflow.
 
 ## Working across applications
 

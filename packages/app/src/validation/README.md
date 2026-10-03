@@ -5,7 +5,7 @@ plain request data.
 
 ## Run a note-input boundary
 
-Complete [Installation](https://db3.ai/docs/installation), using the matching tarballs while npm publication is pending. From your independent app:
+Complete [Installation](https://db3.ai/framework/docs/installation), using the matching tarballs while npm publication is pending. From your independent app:
 
 ```sh
 npm install --save-dev tsx typescript @types/node vitest
@@ -16,7 +16,7 @@ npx tsx examples/runNoteValidation.ts
 
 Expect two errors for the first request (blank title and excessive priority). The repaired request returns exactly `{ title: "First note", priority: 2 }`. The example selects writable fields explicitly and never returns submitted secrets, extra properties or an attacker-supplied owner. It does not persist anything or require a database.
 
-[`validateNoteInput.ts`](./examples/validateNoteInput.ts) is the application-owned boundary; [`runNoteValidation.ts`](./examples/runNoteValidation.ts) exercises failure and recovery. The [website walkthrough](https://db3.ai/docs/validation#testing) renders the exact test. Save it as `tests/validation/runNoteValidation.test.ts` and run:
+[`validateNoteInput.ts`](./examples/validateNoteInput.ts) is the application-owned boundary; [`runNoteValidation.ts`](./examples/runNoteValidation.ts) exercises failure and recovery. The [website walkthrough](https://db3.ai/framework/docs/validation#testing) renders the exact test. Save it as `tests/validation/runNoteValidation.test.ts` and run:
 
 ```sh
 npx vitest run tests/validation/runNoteValidation.test.ts
@@ -387,7 +387,7 @@ hydrated.
 
 ## Coverage and limits
 
-The runnable note lab tests rejection/recovery, safe error output, explicit field selection, form-string conversion, optional/nullable values, length versus numeric size, custom messages and throwing validation. The [full API reference](https://db3.ai/docs/validation-api) contains all current exported rules and helper signatures.
+The runnable note lab tests rejection/recovery, safe error output, explicit field selection, form-string conversion, optional/nullable values, length versus numeric size, custom messages and throwing validation. The [full API reference](https://db3.ai/framework/docs/validation-api) contains all current exported rules and helper signatures.
 
 Errors contain the original `value` and optional rule `details`; do not return or log them blindly. The validator does not strip unknown keys, normalize values, traverse nested paths, validate array wildcards, run asynchronous uniqueness checks or enforce ownership. `in` also accepts values with equal string representations. Use explicit nested validation or field-owned structures and keep authorization in the application.
 

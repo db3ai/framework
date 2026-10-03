@@ -5,7 +5,7 @@
 	"type": "module",
 	"description": "Public source workspace for the db3.ai TypeScript application framework.",
 	"license": "MIT",
-	"homepage": "https://framework.db3.ai",
+	"homepage": "https://db3.ai/framework",
 	"repository": {
 		"type": "git",
 		"url": "git+https://github.com/db3ai/framework.git"
@@ -19,7 +19,7 @@
 	"workspaces": [
 		"packages/*",
 		"apps/starter",
-		"sites/*"
+		"apps/framework"
 	],
 	"overrides": {
 		"@tiptap/extension-code-block": "^3.31.3",

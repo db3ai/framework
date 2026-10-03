@@ -254,4 +254,4 @@ The package is also installed and type-checked in an independent consumer.
 
 Installed app developers run their own tests using a disposable database and
 an injected `ai.fetch`. No live key is needed for simulated provider tests.
-See the [AI guides](https://db3.ai/docs/ai) for app-focused examples.
+See the [AI guides](https://db3.ai/framework/docs/ai) for app-focused examples.

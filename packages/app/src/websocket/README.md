@@ -363,7 +363,7 @@ described in the [ws documentation](https://github.com/websockets/ws/blob/master
 
 ## Shared board and durable loading recipe
 
-The [WebSocket guide](https://db3.ai/docs/realtime-kanban) composes seven
+The [WebSocket guide](https://db3.ai/framework/docs/realtime-kanban) composes seven
 copyable application examples with real Auth, SQL, Queue, WebSockets and Pinia:
 
 - [LiveBoard](./examples/board/LiveBoard.ts) saves authorized card moves under a
@@ -421,22 +421,22 @@ The guide explains these design boundaries without advertising a replay API.
 
 ## Task tutorials
 
-Start with the [main WebSocket guide](https://db3.ai/docs/websocket) for shared
+Start with the [main WebSocket guide](https://db3.ai/framework/docs/websocket) for shared
 connection ownership, authorized channels, worker HTTP publishing and recovery.
 Then follow the tutorial for the feature you are building:
 
-- [Document presence](https://db3.ai/docs/realtime-presence)
-- [Saved-action alerts](https://db3.ai/docs/realtime-actions)
-- [Shared Kanban and Pinia](https://db3.ai/docs/realtime-kanban)
-- [Durable background-job loading](https://db3.ai/docs/realtime-jobs)
-- [Chat rooms](https://db3.ai/docs/realtime-chat)
-- [Deployment progress](https://db3.ai/docs/realtime-deployments)
-- [Yjs adapter design](https://db3.ai/docs/realtime-yjs)
-- [Reconnectable AI design](https://db3.ai/docs/realtime-ai)
-- [Approval requests](https://db3.ai/docs/realtime-approvals)
-- [Upload processing](https://db3.ai/docs/realtime-uploads)
-- [Inventory updates](https://db3.ai/docs/realtime-inventory)
-- [Permission changes](https://db3.ai/docs/realtime-permissions)
+- [Document presence](https://db3.ai/framework/docs/realtime-presence)
+- [Saved-action alerts](https://db3.ai/framework/docs/realtime-actions)
+- [Shared Kanban and Pinia](https://db3.ai/framework/docs/realtime-kanban)
+- [Durable background-job loading](https://db3.ai/framework/docs/realtime-jobs)
+- [Chat rooms](https://db3.ai/framework/docs/realtime-chat)
+- [Deployment progress](https://db3.ai/framework/docs/realtime-deployments)
+- [Yjs adapter design](https://db3.ai/framework/docs/realtime-yjs)
+- [Reconnectable AI design](https://db3.ai/framework/docs/realtime-ai)
+- [Approval requests](https://db3.ai/framework/docs/realtime-approvals)
+- [Upload processing](https://db3.ai/framework/docs/realtime-uploads)
+- [Inventory updates](https://db3.ai/framework/docs/realtime-inventory)
+- [Permission changes](https://db3.ai/framework/docs/realtime-permissions)
 
 The deployment tutorial supplies a tested
 [public projection](./examples/deploymentSnapshot.ts) and

@@ -1,0 +1,19 @@
+{
+	"name": "@db3.ai/notifications-intercom",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"license": "MIT",
+	"description": "Server-side Intercom Messenger test and event delivery.",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "node ../../scripts/verify.mjs test",
+		"test:raw": "vitest run",
+		"quality:types": "npm run check",
+		"test:package": "node scripts/testPackedConsumer.mjs"
+	}
+}

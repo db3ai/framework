@@ -56,9 +56,9 @@ add `--dry-run` to inspect it without publishing. npm handles packaging, login
 and upload. See `packages/app/RELEASING.md` for release checks and the manual
 bootstrap and trusted-publishing workflows.
 
-The [installation guide](https://db3.ai/docs/installation) distinguishes the
+The [installation guide](https://db3.ai/framework/docs/installation) distinguishes the
 unpublished preview tarballs from the future npm install command. The
-[first app](https://db3.ai/docs/create-app) uses the shipped
+[first app](https://db3.ai/framework/docs/create-app) uses the shipped
 `src/server/examples` files to run and test an independent Fastify application.
 Auth, Storage, Media and Scheduler also ship their service-owned examples.
 

@@ -110,7 +110,7 @@ large application objects.
 
 Redaction removes configured paths, not arbitrary secret substrings. Error messages, URL query strings and unfamiliar nested properties may still contain sensitive data. Test your application paths and never embed a credential in the log message itself. `redact: false` disables the protection.
 
-`Log.level` changes take effect on subsequent method lookups; avoid capturing a log function and then expecting it to be replaced when the level changes. `App.close()` owns its logger; a manually supplied output stream remains the creator's resource to end. The [full API](https://db3.ai/docs/logging-api) includes all current logger, driver, options and HTTP exchange contracts.
+`Log.level` changes take effect on subsequent method lookups; avoid capturing a log function and then expecting it to be replaced when the level changes. `App.close()` owns its logger; a manually supplied output stream remains the creator's resource to end. The [full API](https://db3.ai/framework/docs/logging-api) includes all current logger, driver, options and HTTP exchange contracts.
 
 ## Framework Boundaries
 

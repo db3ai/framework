@@ -141,7 +141,7 @@ framework's independent attempt table, including readable submitted emails and
 activity timestamps. Records have no automatic deletion; preserve suspended rows
 in any manual cleanup so password recovery stays mandatory. Before accepting real accounts, add a
 recovery email flow using `Auth.createPasswordResetToken` and `Auth.resetPassword`
-as described in the [authentication guide](https://db3.ai/docs/auth); this demo
+as described in the [authentication guide](https://db3.ai/framework/docs/auth); this demo
 does not include a recovery email transport or reset screen. Google sign-in and
 existing sessions remain available during password suspension.
 
@@ -262,7 +262,7 @@ spending cap**. Set provider limits before sharing an AI-enabled app publicly.
 AI requests, responses and usage are saved through `AiRequest`, with
 `AiConversation` and `AiMessage` for history. The committed migrations include
 these models and the shared provider rate-limit tables. See the
-[AI guide](https://db3.ai/docs/ai) to add agents, tools, images or embeddings.
+[AI guide](https://db3.ai/framework/docs/ai) to add agents, tools, images or embeddings.
 
 Missing key: notes still work, and the button explains setup. Wrong key, quota,
 network or model failure: a safe error appears without exposing provider data.
@@ -361,7 +361,7 @@ The field factory infers properties and constructor/`create()` inputs, so no
 matching `declare` properties are needed. Keep methods in the class body and
 options such as `requestFillable` in the definition. Required fields can still
 be null in memory before validation. `Model.create()` returns an unsaved record;
-call `save()` to persist. See the [ActiveRecord guide](https://db3.ai/docs/active-record).
+call `save()` to persist. See the [ActiveRecord guide](https://db3.ai/framework/docs/active-record).
 
 ## Google and other sign-in methods
 
@@ -370,7 +370,7 @@ The shipped browser flow is password registration/login only. Setting
 `GOOGLE_AUTH_CLIENT_ID` alone does **not** add a working Google button. The next
 recipe is wiring Google Identity Services to an origin-checked route that calls
 `application.auth.issueTokenForProvider('google', { credential })` and issues
-the same session cookie. Follow the [Auth guide](https://db3.ai/docs/auth).
+the same session cookie. Follow the [Auth guide](https://db3.ai/framework/docs/auth).
 Other social providers need an explicit provider driver; they are not implied.
 
 ## Test your app

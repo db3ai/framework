@@ -120,7 +120,7 @@ onUnmounted(() => window.removeEventListener('hashchange', readRoute));
 				<p class="mb-6 text-sm font-medium uppercase tracking-widest text-muted-fg">Built with DB3</p>
 				<h1 class="text-5xl font-semibold leading-tight tracking-tight sm:text-7xl">Your app starts here.</h1>
 				<p class="mt-6 max-w-xl text-lg leading-relaxed text-muted-fg">Sign in. Save a note. Put AI to work. A small, working app you can make your own.</p>
-				<div class="mt-9 flex flex-wrap gap-3"><DomButton size="lg" @click="page = 'register'">Create your account</DomButton><DomButton as="a" variant="secondary" href="https://db3.ai/docs" size="lg">Explore the framework</DomButton></div>
+				<div class="mt-9 flex flex-wrap gap-3"><DomButton size="lg" @click="page = 'register'">Create your account</DomButton><DomButton as="a" variant="secondary" href="https://db3.ai/framework" size="lg">Explore the framework</DomButton></div>
 				<div class="mt-16 grid gap-8 border-t border-border pt-8 sm:grid-cols-3"><div><h2 class="font-semibold">Your account</h2><p class="mt-2 text-sm text-muted-fg">Password login and private sessions.</p></div><div><h2 class="font-semibold">Your notes</h2><p class="mt-2 text-sm text-muted-fg">Real records saved in your database.</p></div><div><h2 class="font-semibold">Your AI key</h2><p class="mt-2 text-sm text-muted-fg">Optional AI, configured on your server.</p></div></div>
 			</section>
 			<section v-else-if="!user" class="mx-auto max-w-md py-8">
@@ -134,7 +134,7 @@ onUnmounted(() => window.removeEventListener('hashchange', readRoute));
 				</form>
 			</section>
 			<section v-else id="notebook" class="grid gap-10 lg:grid-cols-[200px_1fr]">
-				<aside><p class="text-xs font-medium uppercase tracking-widest text-muted-fg">Your workspace</p><h1 class="mt-4 text-2xl font-semibold tracking-tight">Notebook</h1><p class="mt-3 text-sm leading-relaxed text-muted-fg">A working example of Auth, ActiveRecord and AI.</p><a class="mt-6 inline-block text-sm underline underline-offset-4" href="https://db3.ai/docs/active-record">Build your next feature</a></aside>
+				<aside><p class="text-xs font-medium uppercase tracking-widest text-muted-fg">Your workspace</p><h1 class="mt-4 text-2xl font-semibold tracking-tight">Notebook</h1><p class="mt-3 text-sm leading-relaxed text-muted-fg">A working example of Auth, ActiveRecord and AI.</p><a class="mt-6 inline-block text-sm underline underline-offset-4" href="https://db3.ai/framework/docs/active-record">Build your next feature</a></aside>
 				<div class="min-w-0">
 					<form class="space-y-4 border-b border-border pb-8" @submit.prevent="saveNote">
 						<h2 class="text-xl font-semibold">Create a note</h2>

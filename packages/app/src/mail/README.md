@@ -11,7 +11,7 @@ immediate; use the Queue service when delivery must be durable or retried.
 
 ## Run a welcome email without sending it
 
-Install the package using the [installation guide](https://db3.ai/docs/installation). During the unpublished preview, use matching App and Pure tarballs. Then copy the installed examples:
+Install the package using the [installation guide](https://db3.ai/framework/docs/installation). During the unpublished preview, use matching App and Pure tarballs. Then copy the installed examples:
 
 ```sh
 npm install --save-dev tsx typescript @types/node vitest
@@ -26,7 +26,7 @@ Expect `transport: "file"`, `files: 1`, `rejectedEmptyRecipients: true` and the 
 
 [`welcomeMessage.ts`](./examples/welcomeMessage.ts) owns application input validation and HTML text escaping. `Mail` does not validate email addresses, sanitize headers, or escape your HTML. Escape values for the context where they are inserted; HTML text escaping is not URL validation or a general HTML sanitizer. Do not expose an unrestricted public send-mail endpoint.
 
-The complete [Mail walkthrough](https://db3.ai/docs/mail) includes both source files and the copyable consumer test. Copy its test into `tests/mail/runMailPreview.test.ts`, then run:
+The complete [Mail walkthrough](https://db3.ai/framework/docs/mail) includes both source files and the copyable consumer test. Copy its test into `tests/mail/runMailPreview.test.ts`, then run:
 
 ```sh
 npx vitest run tests/mail/runMailPreview.test.ts
@@ -181,7 +181,7 @@ Queue retry alone does not prevent duplicate email. A timeout can follow provide
 
 `accepted` means transport/provider acceptance, not inbox delivery. The built-ins have no attachments, CC/BCC, delivery tracking, scheduled sending or explicit request timeout. File and Resend preserve custom `headers`; Mailgun currently does not forward them. `App` has no built-in `mail` getter, and Mail has no close method. Own any resources introduced by your custom transport.
 
-The [full API reference](https://db3.ai/docs/mail-api) is generated from the shipped declarations for Mail and all three transports.
+The [full API reference](https://db3.ai/framework/docs/mail-api) is generated from the shipped declarations for Mail and all three transports.
 
 ## Testing And Verification
 

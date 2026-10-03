@@ -2,7 +2,7 @@
 
 This repository contains public framework source, tests, examples, and package
 release tooling, plus apps/starter as the runnable example and feature playground.
-The public documentation deploys from `sites/framework.db3.ai/index.ts`; read its
+The public documentation deploys from `apps/framework/index.ts`; read its
 README before changing documentation or the site's deployment boundary.
 
 ## Orientation

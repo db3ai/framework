@@ -7,7 +7,7 @@ process-local request coalescing.
 
 ## Run a note-summary cache
 
-From an independent application prepared using [Installation](https://db3.ai/docs/installation):
+From an independent application prepared using [Installation](https://db3.ai/framework/docs/installation):
 
 ```sh
 mkdir -p examples
@@ -17,14 +17,14 @@ npx tsx examples/runNoteCache.ts
 
 The real memory-store lab returns `firstLoads: 1` for two concurrent reads and `refreshed: { count: 2 }` after invalidation. A second owner keeps their own value. A failed factory is retried explicitly, an undefined value is rejected, and the isolated store is cleared and closed. No Redis, SQL or network is needed.
 
-Copy the exact test from the [Cache guide](https://db3.ai/docs/cache#testing) to `tests/cache/runNoteCache.test.ts`, then run:
+Copy the exact test from the [Cache guide](https://db3.ai/framework/docs/cache#testing) to `tests/cache/runNoteCache.test.ts`, then run:
 
 ```sh
 npx vitest run tests/cache/runNoteCache.test.ts
 npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --types node --skipLibCheck examples/*.ts
 ```
 
-Tests exercise the real store and control only the clock for deterministic expiry. The [complete API](https://db3.ai/docs/cache-api) covers service, driver, store and operation contracts.
+Tests exercise the real store and control only the clock for deterministic expiry. The [complete API](https://db3.ai/framework/docs/cache-api) covers service, driver, store and operation contracts.
 
 ## Get Or Set
 
