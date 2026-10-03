@@ -208,3 +208,9 @@ included in the installed runtime package.
 Resend and Mailgun HTTP submissions now reject redirects and have a 15-second
 request timeout. A timeout may follow provider acceptance, so callers must still
 use stable idempotency identities and tolerate at-least-once delivery.
+
+Resend refusals throw the exported `MailDeliveryError`, retaining `provider`,
+HTTP `status`, a bounded machine-readable `code`, and an optional validated
+`retryAt` parsed from `Retry-After` seconds or an HTTP date. Missing, malformed or
+past timing is `null`. `Mail` submits once and leaves retry policy to consumers;
+error messages remain diagnostic content rather than classification signals.

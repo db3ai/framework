@@ -91,8 +91,46 @@ configured email recipient. Omitting it preserves existing alert behaviour.
 
 The application owns incident selection, retention, reconciliation, alert
 thresholds and independent dead-man monitoring. SQL storage cannot report its
-own complete outage. This service does not promise provider-wide grouping or
-exactly-once external delivery.
+own complete outage. External delivery remains at least once; this service does not promise exactly-once acceptance.
 
 The copyable [`reportOperationalFailure`](./examples/reportOperationalFailure.ts)
 example shows the logging/outbox boundary without sending raw errors externally.
+
+### Operator email cooldown and digests
+
+Apply an app migration for the `kind`, `email_group_key`, `email_batch_id` and
+`member_ids` outbox columns before running the updated dispatcher. Existing rows
+are incidents by default. Internal coordinator and digest records use the reserved
+`operational-alerts:` key prefix; applications must not use that prefix.
+
+One SQL coordinator serializes operator email across dispatchers and restarts.
+Resend HTTP 429 with the exact `daily_quota_exceeded` code pauses submission until
+its valid `Retry-After` time. Without that metadata, the conservative fallback is
+24 hours from refusal, not an inferred account reset time. Other delivery failures
+use shared exponential backoff capped at one hour. The next due dispatcher makes
+a recovery probe; another refusal renews the pause. Customer mail continues to
+use `Mail` directly and is unaffected. No account quota, send budget or billing
+setting is inferred or changed. Webhook delivery and acknowledgements continue
+during email cooldown.
+
+An app may set `emailGroupKey` only for a known same cause. Unsent incidents with
+the same key and recipient form immutable persisted cohorts of at most 100,
+the existing maximum batch size. Each digest lists member IDs and detection
+range, and includes one labelled representative diagnostic. All original incident
+rows and diagnostics remain available. Acceptance atomically acknowledges member
+email channels; webhook deliveries remain individual. Newly arriving incidents
+join another cohort; retries preserve the original body and idempotency key.
+Resend's 24-hour idempotency window still limits external deduplication after a
+long outage or lost acknowledgement.
+
+Fresh distinct incidents are selected before digests, newest first. A busy stream
+of distinct errors can delay grouped work; this is priority, not a fairness SLA.
+Only the application can authorize grouping: ordinary failures keep separate
+emails. The email coordinator lease expires after five minutes and renews before
+each request. Custom transports must finish below that duration.
+
+Before rolling back to a dispatcher that predates these columns, stop operational
+alert delivery and reconcile pending digest receipts with individual email
+acknowledgements. The old dispatcher does not understand internal row kinds or
+cohort membership. Retain all evidence and use a forward fix when acceptance is
+uncertain; do not run old and new dispatchers together.
