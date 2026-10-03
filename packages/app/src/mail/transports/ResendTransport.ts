@@ -1,33 +1,22 @@
-import {
-	formatMailAddress,
-	mailAddressEmail,
-	type MailDelivery,
-	type MailTransport,
-	type ResolvedMailMessage,
-} from '../Mail.js';
+import { MailDeliveryError } from '../MailDeliveryError.js';
+import { formatMailAddress, mailAddressEmail, type MailDelivery, type MailTransport, type ResolvedMailMessage } from '../Mail.js';
 
 export interface ResendTransportOptions {
 	apiKey: string;
 	baseUrl?: string;
 }
 
-class ResendTransportError extends Error {
-	constructor(message: string) {
-		super(message);
-		this.name = 'ResendTransportError';
-	}
-}
-
 /**
  * Resend API transport.
  */
 export class ResendTransport implements MailTransport {
-	private readonly apiKey: string;
-	private readonly baseUrl: string;
+	readonly #apiKey: string;
+	readonly #baseUrl: string;
 
+	/** Creates a bounded Resend transport; credentials remain private to this instance. */
 	constructor(options: ResendTransportOptions) {
-		this.apiKey = options.apiKey;
-		this.baseUrl = (options.baseUrl || 'https://api.resend.com').replace(/\/+$/, '');
+		this.#apiKey = options.apiKey;
+		this.#baseUrl = (options.baseUrl || 'https://api.resend.com').replace(/\/+$/, '');
 	}
 
 	/** Sends one message, forwarding a stable retry identity as an API header rather than an email header. */
@@ -50,12 +39,12 @@ export class ResendTransport implements MailTransport {
 			payload.headers = message.headers;
 		}
 
-		const response = await fetch(`${this.baseUrl}/emails`, {
+		const response = await fetch(`${this.#baseUrl}/emails`, {
 			method: 'POST',
 			signal: AbortSignal.timeout(15000),
 			redirect: 'error',
 			headers: {
-				authorization: `Bearer ${this.apiKey}`,
+				authorization: `Bearer ${this.#apiKey}`,
 				'content-type': 'application/json',
 				...(message.idempotencyKey ? { 'Idempotency-Key': message.idempotencyKey } : {}),
 			},
@@ -64,6 +53,7 @@ export class ResendTransport implements MailTransport {
 		const result = await response.json().catch(() => null) as {
 			id?: unknown;
 			message?: unknown;
+			name?: unknown;
 		} | null;
 
 		if (!response.ok) {
@@ -71,7 +61,8 @@ export class ResendTransport implements MailTransport {
 				? result.message
 				: response.statusText;
 
-			throw new ResendTransportError(`Resend rejected the message: ${detail}`);
+			const code = typeof result?.name === 'string' && /^[a-z_]{1,100}$/.test(result.name) ? result.name : null;
+			throw new MailDeliveryError(`Resend rejected the message: ${detail}`, 'resend', response.status, code, retryTime(response.headers.get('retry-after')));
 		}
 
 		return {
@@ -81,4 +72,11 @@ export class ResendTransport implements MailTransport {
 			rejected: [],
 		};
 	}
+}
+
+/** Parses standard Retry-After seconds or HTTP dates, ignoring malformed, overflowing and past values. */
+function retryTime(value: string | null): Date | null {
+	if (!value) return null;
+	const milliseconds = /^\d+$/.test(value) ? Date.now() + Number(value) * 1000 : Date.parse(value);
+	return Number.isFinite(milliseconds) && milliseconds > Date.now() && milliseconds <= 8640000000000000 ? new Date(milliseconds) : null;
 }

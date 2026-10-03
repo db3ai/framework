@@ -3,8 +3,8 @@ import { ActiveRecord } from '../db';
 import type { Logger } from '../logging';
 import type { Mail } from '../mail';
 import type { OperationalAlert, OperationalAlertDestinations } from './contracts';
+import { OperationalAlertEmails } from './OperationalAlertEmails';
 import { OperationalAlertRecord } from './OperationalAlertRecord';
-import { formatOperationalAlertEmail } from './formatOperationalAlertEmail';
 
 /** Durable, at-least-once operator email/webhook delivery independent of application queue workers. */
 export class OperationalAlerts {
@@ -30,18 +30,20 @@ export class OperationalAlerts {
 
 	/** Records an incident once; callers log the raw error separately using the same key. */
 	async record(alert: OperationalAlert): Promise<void> {
-		if (!alert.key || alert.key.length > 255 || !alert.summary || alert.summary.length > 500) {
+		if (alert.key?.startsWith('operational-alerts:') || !alert.key || alert.key.length > 255 || !alert.summary || alert.summary.length > 500) {
 			throw new Error('Operational alerts require a bounded key and summary.');
 		}
 		if (alert.emailDiagnostics !== undefined && (typeof alert.emailDiagnostics !== 'string' || alert.emailDiagnostics.length > 128000)) {
 			throw new Error('Email diagnostics must be text of at most 128,000 characters.');
 		}
+		if (alert.emailGroupKey !== undefined && (typeof alert.emailGroupKey !== 'string' || !alert.emailGroupKey || alert.emailGroupKey.length > 255)) throw new Error('Email group keys must contain 1–255 characters.');
 		const existing = await OperationalAlertRecord.where('key', alert.key).first();
 		if (existing) return;
 		try {
 			await OperationalAlertRecord.create({
 				key: alert.key,
 				alert,
+				emailGroupKey: alert.emailGroupKey ?? null,
 				email: this.#destinations.email ?? null,
 				webhookUrl: this.#destinations.webhookUrl ?? null,
 				nextAttemptAt: new Date(),
@@ -55,8 +57,12 @@ export class OperationalAlerts {
 	/** Delivers a bounded batch with channel acknowledgements, expiring claims and exponential retry. */
 	async deliverDue(limit = 20): Promise<number> {
 		if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Alert batch limit must be 1–100.');
-		const candidates = await OperationalAlertRecord.query().whereNull('completedAt')
-			.where('nextAttemptAt', '<=', new Date()).orderBy('nextAttemptAt').limit(limit).all();
+		await new OperationalAlertEmails(this.#mail, this.#log).deliverDue(limit);
+		// An active email owner must finish its selection before another dispatcher claims those incidents.
+		const dispatch = await OperationalAlertRecord.where('kind', 'email-dispatch').first();
+		if (dispatch?.claim && dispatch.nextAttemptAt > new Date()) return 0;
+		const candidates = await OperationalAlertRecord.where('kind', 'incident').whereNull('completedAt')
+			.where('nextAttemptAt', '<=', new Date()).orderBy('createdAt', 'desc').orderBy('id', 'desc').limit(limit).all();
 		let delivered = 0;
 		for (const candidate of candidates) {
 			const record = await this.#claim(candidate.id);
@@ -65,12 +71,7 @@ export class OperationalAlerts {
 			let failed = false;
 			for (const channel of ['email', 'webhook'] as const) {
 				try {
-					if (channel === 'email' && record.email && !record.emailSentAt) {
-						const delivery = await this.#mail.send({ to: record.email, subject: `[Operations] ${record.alert.summary}`, ...formatOperationalAlertEmail(record), idempotencyKey: `alert:${record.id}` });
-						if (delivery.rejected.length > 0 || delivery.accepted.length === 0) throw new Error('Alert email was not accepted.');
-						record.emailSentAt = new Date();
-						await OperationalAlertRecord.where('id', record.id).where('claim', record.claim).patch({ emailSentAt: record.emailSentAt });
-					}
+					if (channel === 'email' && record.email && !record.emailSentAt) failed = true;
 					if (channel === 'webhook' && record.webhookUrl && !record.webhookSentAt) {
 						if (record.webhookUrl !== this.#destinations.webhookUrl || !this.#destinations.webhookSecret) throw new Error('Pending alert webhook configuration changed.');
 						const timestamp = String(Math.floor(Date.now() / 1000));

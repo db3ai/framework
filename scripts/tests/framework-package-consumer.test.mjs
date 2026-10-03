@@ -481,7 +481,8 @@ import knex from 'knex';
 import { Cli, listDb3Commands } from '@db3.ai/app/cli';
 import { validate } from '@db3.ai/app/validation';
 import { Log, PinoLoggerDriver } from '@db3.ai/app/logging';
-import { Mail, ResendTransport } from '@db3.ai/app/mail';
+import { Mail, MailDeliveryError, ResendTransport } from '@db3.ai/app/mail';
+if (new MailDeliveryError('quota', 'resend', 429, 'daily_quota_exceeded').code !== 'daily_quota_exceeded') throw new Error('Typed mail refusal export failed.');
 import { createSsrRenderContext, renderSsrDocument, SSR_APP_MARKER, SSR_STATE_MARKER } from '@db3.ai/app/ssr';
 
 import { ActiveRecord, mariaDbDialect, rememberDatabaseDialect } from '@db3.ai/app/db';
@@ -640,6 +641,9 @@ const preparedChunks: EmbeddingTextChunk[] = chunkEmbeddingText('A document', { 
 void preparedChunks;
 const trackingFailure: AIRequestTrackingError = new AIRequestTrackingError({ code: 'ER_LOCK_WAIT_TIMEOUT' });
 void trackingFailure;
+import { MailDeliveryError } from '@db3.ai/app/mail';
+const refusal: MailDeliveryError = new MailDeliveryError('quota', 'resend', 429, 'daily_quota_exceeded', new Date());
+void refusal.retryAt;
 import type { MailMessage } from '@db3.ai/app/mail';
 import { InApp, type InAppAcceptance, type InAppMessage, type InAppInboxPage } from '@db3.ai/app/in-app';
 import type { InAppScope } from '@db3.ai/app/in-app/contracts';
@@ -672,7 +676,7 @@ const page: Promise<InAppInboxPage> = inApp.inbox({ scope });
 void [acceptances, page];
 const notification: Notification = { type: 'report.ready', via: () => ['inApp', 'mail'], toInApp: () => inAppMessage, toMail: () => ({ to: 'owner@example.test', subject: 'Ready', text: 'Ready' }) };
 import { OperationalAlerts, type OperationalAlert, type OperationalAlertDestinations } from '@db3.ai/app/notifications';
-const operatorAlert: OperationalAlert = { key: 'job:1', summary: 'Job failed', context: { jobId: 1 }, emailDiagnostics: 'Error: example failure' };
+const operatorAlert: OperationalAlert = { key: 'job:1', summary: 'Job failed', context: { jobId: 1 }, emailDiagnostics: 'Error: example failure', emailGroupKey: 'provider:known-quota' };
 const operatorDestinations: OperationalAlertDestinations = { email: 'operator@example.test' };
 const alertLoggerOptions: import('@db3.ai/app/logging').LoggingOptions = { file: '/tmp/consumer.log', console: false, consoleFormat: 'pretty' };
 import { ScheduledCall, type ScheduleFrequency, SchedulerWorker, type SchedulerCheckpoint, type SchedulerConsoleOptions } from '@db3.ai/app/scheduler';

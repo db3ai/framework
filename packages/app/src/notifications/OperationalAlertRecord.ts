@@ -11,6 +11,10 @@ export class OperationalAlertRecord extends ActiveRecord {
 		return {
 			id: field.ulid(),
 			key: field.string({ required: true, length: 255, unique: true }),
+			kind: field.string({ required: true, default: 'incident', length: 20, index: true }),
+			emailGroupKey: field.string({ column: 'email_group_key', length: 255, index: true }),
+			emailBatchId: field.string({ column: 'email_batch_id', length: 26, index: true }),
+			memberIds: field.json<string[]>({ column: 'member_ids' }),
 			alert: field.json<OperationalAlert>({ required: true }),
 			email: field.string({ length: 255 }),
 			webhookUrl: field.text({ column: 'webhook_url' }),
@@ -26,6 +30,11 @@ export class OperationalAlertRecord extends ActiveRecord {
 
 	declare id: string;
 	declare key: string;
+	/** Internal state rows share the existing outbox but never become application incidents. */
+	declare kind: 'incident' | 'email-dispatch' | 'email-digest';
+	declare emailGroupKey: string | null;
+	declare emailBatchId: string | null;
+	declare memberIds: string[] | null;
 	declare alert: OperationalAlert;
 	declare email: string | null;
 	declare webhookUrl: string | null;
