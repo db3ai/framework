@@ -19,9 +19,8 @@ verify the same app against packaged framework releases.
 - [`@db3.ai/create`](./packages/create/README.md) generates a Vue/DOM Studio app
   with password login, private notes and optional server-side AI summaries.
 
-Provider packages share this repository: `@db3.ai/notifications-intercom`
-(Messenger in-app messages), `@db3.ai/mail-resend` and `@db3.ai/mail-mailgun`.
-They own provider dependencies and consume public core contracts. Applications
+The provider package `@db3.ai/notifications-intercom` lives here
+(Messenger in-app messages). Provider packages own their dependencies and consume public core contracts. Applications
 explicitly register only the providers they need. The package staging command
 builds their runtime and declaration exports alongside App and Pure; no separate
 repository or npm publication is required for local development.
@@ -79,7 +78,11 @@ part of its ongoing package release workflow.
 Keep this checkout alongside application repositories, rather than nesting it
 inside a private product. npm workspaces connect the packages, starter and docs
 inside this repository. Consumers use explicit package versions or reviewed
-packed artifacts, never implicit imports from a sibling checkout.
+packed artifacts for deployment. Explicit consumer development links may select
+this checkout locally; restore and verify the pinned dependency before deployment.
+This repository is the editable master for framework packages, starter and docs.
+Consumer source snapshots and package archives are generated deployment inputs,
+not additional development sources.
 
 In Codex, add this directory as its own project. For a cross-repository change,
 implement and test the shared behavior here, verify packed imports and types,

@@ -12,7 +12,7 @@ and WordPress application passwords must be decrypted later and therefore use
 
 ## Run a disposable secret round trip
 
-Complete [Installation](https://db3.ai/framework/docs/installation), then run in your independent app:
+Complete [Installation](https://db3.ai/docs/installation), then run in your independent app:
 
 ```sh
 mkdir -p examples
@@ -24,7 +24,7 @@ Expect `roundTrip`, `randomized`, `contextRejected`, `tamperingRejected` and `no
 
 The key is generated for the lab only. A persistent application must generate a key once during provisioning and retain it; copying the per-run lab key pattern into production would make stored secrets unreadable after restart.
 
-Copy the exact test from the [Security guide](https://db3.ai/framework/docs/security#testing) into `tests/security/runSecretRoundTrip.test.ts` and run:
+Copy the exact test from the [Security guide](https://db3.ai/docs/security#testing) into `tests/security/runSecretRoundTrip.test.ts` and run:
 
 ```sh
 npx vitest run tests/security/runSecretRoundTrip.test.ts
@@ -127,4 +127,4 @@ const website = await Website
 	.firstOrFail();
 ```
 
-See [all current Security contracts](https://db3.ai/framework/docs/security-api) for key, cipher, payload and error options. Automatic key rotation, KMS integration and searchable encryption are not implemented. Keep a re-encryption/backup plan separate from this local happy path.
+See [all current Security contracts](https://db3.ai/docs/security-api) for key, cipher, payload and error options. Automatic key rotation, KMS integration and searchable encryption are not implemented. Keep a re-encryption/backup plan separate from this local happy path.

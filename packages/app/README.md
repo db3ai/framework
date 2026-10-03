@@ -56,9 +56,9 @@ add `--dry-run` to inspect it without publishing. npm handles packaging, login
 and upload. See `packages/app/RELEASING.md` for release checks and the manual
 bootstrap and trusted-publishing workflows.
 
-The [installation guide](https://db3.ai/framework/docs/installation) distinguishes the
+The [installation guide](https://db3.ai/docs/installation) distinguishes the
 unpublished preview tarballs from the future npm install command. The
-[first app](https://db3.ai/framework/docs/create-app) uses the shipped
+[first app](https://db3.ai/docs/create-app) uses the shipped
 `src/server/examples` files to run and test an independent Fastify application.
 Auth, Storage, Media and Scheduler also ship their service-owned examples.
 
@@ -286,3 +286,15 @@ responsibilities, and complete password and Google setup instructions.
 See [src/in-app/README.md](./src/in-app/README.md) for `app().inApp`, storage setup, authenticated inbox operations and the current delivery boundary.
 
 See [src/notifications/README.md](./src/notifications/README.md) for notification classes, multi-channel sends and durable-job retry responsibilities.
+
+## Canonical provider admission source dependency
+
+This legacy workspace consumes the reviewed provider admission integration from
+[`db3ai/framework@0bb30f3`](https://github.com/db3ai/framework/commit/0bb30f30ddffb5f78ae91f398ec5a9835d9fe49e).
+`package.json.db3FrameworkSource` pins that source dependency. The integration
+updates AI transport/admission, its option contract and terminal queue handling
+in place; other deployed framework code and app policy remain owned by this
+workspace until its consumer packaging migration. No sibling checkout imports
+or npm publication are used. The canonical commit separately preserves deployed
+bookkeeping/diagnostic fixes #77/#85 before adding admission. See the AI README
+for policy, recovery and result retention.

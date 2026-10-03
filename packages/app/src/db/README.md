@@ -97,7 +97,7 @@ authorized by the host application; a fillable list is not authentication.
 
 ## Run fields and migration changes
 
-After [Installation](https://db3.ai/framework/docs/installation) and local MariaDB test-account setup, copy the shipped SQL labs into your app:
+After [Installation](https://db3.ai/docs/installation) and local MariaDB test-account setup, copy the shipped SQL labs into your app:
 
 ```sh
 mkdir -p examples
@@ -108,9 +108,9 @@ npx tsx examples/runNoteMigrations.ts
 
 Use Node.js 24, MariaDB and credentials allowed to create/drop generated `db3_app_test_*` databases. `DATABASE_URL` takes precedence over individual `DB_*` values; unset it when targeting a different test server. Each lab owns and cleans up a new database. The migration lab also owns a temporary source directory. Neither modifies your existing app schema or key.
 
-The [Fields walkthrough](https://db3.ai/framework/docs/fields) demonstrates a reusable uppercase code field, normalized tags, nested JSON, ownership protection and hidden encrypted storage. Expect `BRIEF-1`, `["SEO", "Agency"]` and true protection flags. JSON generics describe types but do not validate nested shapes.
+The [Fields walkthrough](https://db3.ai/docs/fields) demonstrates a reusable uppercase code field, normalized tags, nested JSON, ownership protection and hidden encrypted storage. Expect `BRIEF-1`, `["SEO", "Agency"]` and true protection flags. JSON generics describe types but do not validate nested shapes.
 
-The [Migrations walkthrough](https://db3.ai/framework/docs/migrations) creates a note, refuses an unsafe required column without changing source, then applies a nullable replacement and checks the original data remains. This is the tested foundation for a real app's make/review/migrate/check workflow, not boot-time schema synchronization.
+The [Migrations walkthrough](https://db3.ai/docs/migrations) creates a note, refuses an unsafe required column without changing source, then applies a nullable replacement and checks the original data remains. This is the tested foundation for a real app's make/review/migrate/check workflow, not boot-time schema synchronization.
 
 `databaseCommands` from `@db3.ai/app/db/commands` registers `db:migrate`,
 `db:check` and `db:make-migration` through the shared [framework CLI](../cli/README.md).
@@ -142,7 +142,7 @@ npx vitest run tests/db/runFieldNotes.test.ts tests/db/runNoteMigrations.test.ts
 npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --types node --skipLibCheck examples/*.ts
 ```
 
-Full references: [Fields](https://db3.ai/framework/docs/fields-api), [record/query APIs](https://db3.ai/framework/docs/active-record-api), and [migration contracts](https://db3.ai/framework/docs/migrations-api). [Transactions](https://db3.ai/framework/docs/cookbook-transactions) and [encrypted model values](https://db3.ai/framework/docs/cookbook-secrets) reuse these same models and tests.
+Full references: [Fields](https://db3.ai/docs/fields-api), [record/query APIs](https://db3.ai/docs/active-record-api), and [migration contracts](https://db3.ai/docs/migrations-api). [Transactions](https://db3.ai/docs/cookbook-transactions) and [encrypted model values](https://db3.ai/docs/cookbook-secrets) reuse these same models and tests.
 
 ## Database Connections
 

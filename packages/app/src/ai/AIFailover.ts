@@ -1,3 +1,4 @@
+import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
 import { AIRateLimitDeferredError } from './AIRateLimiter.js';
 import { openAIProviderError, isOpenAIQuotaError } from './OpenAIProviderError.js';
 
@@ -68,7 +69,7 @@ export function isFailoverableResponse(status: number, payload: unknown): boolea
  * @returns True when the next provider in the chain should be attempted.
  */
 export function isFailoverableFailure(error: unknown): boolean {
-	if (error instanceof AIRateLimitDeferredError) return true;
+	if (error instanceof AIRateLimitDeferredError || error instanceof AIProviderDeferredError || error instanceof AIProviderStoppedError) return true;
 	if (isNetworkFailure(error)) return true;
 
 	const details = openAIProviderError(error);
@@ -88,7 +89,7 @@ export function isFailoverableFailure(error: unknown): boolean {
  * @param error - Unknown thrown value.
  * @returns True when the failure happened before a provider response arrived.
  */
-function isNetworkFailure(error: unknown, depth = 0): boolean {
+export function isNetworkFailure(error: unknown, depth = 0): boolean {
 	if ((!(error instanceof Error) && !(error instanceof DOMException)) || depth > 4) return false;
 	if (NETWORK_ERROR_NAMES.has(error.name)) return true;
 	if (error instanceof TypeError && error.message.includes('fetch failed')) return true;

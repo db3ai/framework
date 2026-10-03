@@ -7,3 +7,4 @@ export * from './Providers';
 export * from './RateLimits';
 export * from './ResponsesProviderCall';
 export * from './QuotaRetry';
+export type { AIRequestErrorDiagnostics } from './AIRequestErrorDiagnostics';

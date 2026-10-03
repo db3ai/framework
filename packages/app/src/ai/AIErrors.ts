@@ -1,3 +1,5 @@
+import type { AIRequestErrorDiagnostics } from './contracts/AIRequestErrorDiagnostics.js';
+
 /**
  * Raised when an AI operation needs provider credentials but none are configured.
  */
@@ -13,18 +15,26 @@ export class AIConfigurationError extends Error {
  * Raised when the provider rejects a request or returns a payload without text.
  */
 export class AIRequestError extends Error {
+	/** HTTP response status; null when no provider response was received. */
+	readonly status: number | null;
+	/** Provider request identifier for support correlation, when supplied. */
+	readonly requestId: string | null;
 	/**
 	 * Creates a provider request failure.
 	 *
 	 * @param message - Human-readable provider failure message.
 	 * @param code - Stable provider error code, when supplied.
+	 * @param diagnostics - Response status and support identifier without the payload.
 	 */
 	constructor(
 		message = 'The AI provider did not return a valid response.',
 		readonly code: string | null = null,
+		diagnostics: AIRequestErrorDiagnostics = {},
 	) {
 		super(message);
 		this.name = 'AIRequestError';
+		this.status = diagnostics.status ?? null;
+		this.requestId = diagnostics.requestId ?? null;
 	}
 }
 

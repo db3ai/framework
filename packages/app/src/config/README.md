@@ -7,7 +7,7 @@ It does not discover configuration files or load `.env` for you.
 
 ## Run the notes configuration example
 
-Complete the [installation guide](https://db3.ai/framework/docs/installation), including
+Complete the [installation guide](https://db3.ai/docs/installation), including
 `tsx`, TypeScript and Vitest. From that independent app directory:
 
 ```sh
@@ -73,7 +73,7 @@ const present = application.config.has('notes.webhook');
 ```
 
 The generic in `get<number>()` is a TypeScript assertion, not runtime validation
-or checked path autocomplete. See the [App/config guide](https://db3.ai/framework/docs/app-config)
+or checked path autocomplete. See the [App/config guide](https://db3.ai/docs/app-config)
 for the distinction between configuration data, service construction and process
 startup.
 
@@ -113,7 +113,7 @@ Restart the process after changing settings.
 
 ## Testing and cleanup
 
-The website's [Config guide](https://db3.ai/framework/docs/config#testing) supplies the exact
+The website's [Config guide](https://db3.ai/docs/config#testing) supplies the exact
 three-test file. Save it as `tests/config/runConfig.test.ts`, keeping the copied
 examples in `examples/`, then run:
 
@@ -137,6 +137,6 @@ Config reuse, safe output and the common parsers. Existing service tests cover
 the remaining malformed parser inputs. There is no automatic hot reload,
 schema validation, config discovery or secret manager.
 
-The [Config API reference](https://db3.ai/framework/docs/config-api) renders the exact
+The [Config API reference](https://db3.ai/docs/config-api) renders the exact
 emitted repository methods and environment-reader overloads from the staged
 package. Application types and permissions remain in your app.

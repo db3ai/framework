@@ -28,8 +28,8 @@
 	"publishConfig": {
 		"access": "public"
 	},
-	"homepage": "https://db3.ai/",
 	"bugs": {
 		"url": "https://github.com/db3ai/framework/issues"
-	}
+	},
+	"homepage": "https://db3.ai/"
 }

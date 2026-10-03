@@ -6,7 +6,7 @@ cross-cutting reactions without coupling the producer to each listener.
 
 ## Run a note event
 
-Complete [Installation](https://db3.ai/framework/docs/installation), then run this from your independent application:
+Complete [Installation](https://db3.ai/docs/installation), then run this from your independent application:
 
 ```sh
 mkdir -p examples
@@ -16,14 +16,14 @@ npx tsx examples/runNoteEvents.ts
 
 Expect the trace `index:one`, `first:one`, `index:two`, `after:four`, with `rejected: true` and `hasListeners: false`. The third dispatch fails before its later listener. The example removes the failing listener and dispatches a new event. It has no database, side-effecting indexer or durable worker.
 
-Copy the exact test from [Events](https://db3.ai/framework/docs/events#testing) into `tests/events/runNoteEvents.test.ts` and run:
+Copy the exact test from [Events](https://db3.ai/docs/events#testing) into `tests/events/runNoteEvents.test.ts` and run:
 
 ```sh
 npx vitest run tests/events/runNoteEvents.test.ts
 npx tsc --noEmit --target ES2022 --module ESNext --moduleResolution Bundler --types node --skipLibCheck examples/*.ts
 ```
 
-The tests use the real dispatcher and cover every service method, exact-class identity, async ordering, failure propagation and cleanup. See the [complete contract reference](https://db3.ai/framework/docs/events-api) for listener and constructor types.
+The tests use the real dispatcher and cover every service method, exact-class identity, async ordering, failure propagation and cleanup. See the [complete contract reference](https://db3.ai/docs/events-api) for listener and constructor types.
 
 ## Defining And Dispatching Events
 

@@ -5,6 +5,11 @@ release tooling, plus apps/starter as the runnable example and feature playgroun
 The public documentation deploys from `apps/framework/index.ts`; read its
 README before changing documentation or the site's deployment boundary.
 
+This checkout is the editable master for public packages, the starter and docs.
+Private consumers may link this source for development; their deployment snapshots
+and packed artifacts must be refreshed explicitly and verified in each consumer.
+Do not develop framework changes in a consumer snapshot.
+
 ## Orientation
 
 - Read `packages/app/package.json`, `packages/app/README.md`, and the relevant

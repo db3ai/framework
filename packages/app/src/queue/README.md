@@ -34,7 +34,7 @@ owns bytes; your application owns authorization, progress and idempotency.
 ## Run a real report
 
 Start with Node.js 24 and an independent ESM app from
-[Installation](https://db3.ai/framework/docs/installation). Before npm publication, install
+[Installation](https://db3.ai/docs/installation). Before npm publication, install
 matching App and Pure tarballs supplied by a maintainer. Add `tsx`,
 `typescript`, `@types/node` and `vitest` as development dependencies.
 
@@ -222,6 +222,8 @@ rollout/rollback. Monitor each workload queue independently of general health.
 
 ## Retries and repair
 
+`QueueTerminalError` stops immediately regardless of remaining tries, retaining the failed job and invoking final-failure hooks. Use it when ordinary retries cannot repair the cause.
+
 Ordinary errors consume attempts. Dispatch defaults are three attempts,
 exponential backoff starting at 15 seconds, capped at 3600 seconds, with jitter
 off unless changed in queue options/environment. The supported strategies are
@@ -351,7 +353,7 @@ inspection/replay and define retention. There is no automatic failure pruning.
 
 ## Test the workflow
 
-The [Queue guide](https://db3.ai/framework/docs/queue-overview#testing) renders the exact
+The [Queue guide](https://db3.ai/docs/queue-overview#testing) renders the exact
 service-owned test. Save it as `tests/queue/runQueueReports.test.ts`, retaining
 the example and `outputs/` directory above:
 
@@ -380,7 +382,7 @@ report lab is not proof of Redis operational readiness.
 
 ## Reference, coverage and follow-up
 
-The [Queue API reference](https://db3.ai/framework/docs/queue-api) renders freshly emitted
+The [Queue API reference](https://db3.ai/docs/queue-api) renders freshly emitted
 service, job, payload, retry, worker, driver, Redis and console contracts.
 Use `@db3.ai/app/queue` imports, not internal declaration paths.
 

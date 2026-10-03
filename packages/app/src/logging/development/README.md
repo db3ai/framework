@@ -68,7 +68,7 @@ tests only enable network delivery when explicitly configured.
 
 ## Structured logging lab
 
-From your independent app after [Installation](https://db3.ai/framework/docs/installation):
+From your independent app after [Installation](https://db3.ai/docs/installation):
 
 ```sh
 mkdir -p examples
@@ -78,7 +78,7 @@ npx tsx examples/runNoteLogs.ts
 
 This captures the real Pino driver's output in a writable stream, with devtools HTTP delivery disabled. Expect three records: `Note saved`, `Summary failed`, and `Diagnostics enabled`. The first debug message is filtered, then changing `log.level` enables debug output. Changing it to silent suppresses later errors. The output omits unstable metadata and stack text only for readability.
 
-The [Logging guide](https://db3.ai/framework/docs/logging#testing) contains the exact consumer test. Save it as `tests/logging/runNoteLogs.test.ts` and run:
+The [Logging guide](https://db3.ai/docs/logging#testing) contains the exact consumer test. Save it as `tests/logging/runNoteLogs.test.ts` and run:
 
 ```sh
 npx vitest run tests/logging/runNoteLogs.test.ts
