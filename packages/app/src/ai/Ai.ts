@@ -386,7 +386,7 @@ export class Ai {
 				if (!result.ok || admissionFailure) {
 					const message = responseErrorMessage(payload) || `AI provider ${attempt.provider} request failed with HTTP ${result.status}.`;
 
-					if (hasFallback && isFailoverableResponse(result.status, payload)) {
+					if (hasFallback && (isFailoverableFailure(admissionFailure) || isFailoverableResponse(result.status, payload))) {
 						const failure = providerAttemptFailure(attempt, attemptStartMs, message, result.status, responseErrorCode(payload));
 
 						attemptFailures.push(failure);

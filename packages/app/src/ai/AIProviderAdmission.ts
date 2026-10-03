@@ -6,6 +6,7 @@ import { app } from '../server/appContext';
 import { AiRateLimitBucket } from './AiRateLimitBucket';
 import type { AIProviderAttempt } from './contracts/Providers';
 import { isNetworkFailure } from './AIFailover';
+import { ProviderSseObserver } from './ProviderSseObserver';
 import { isOpenAIQuotaError, openAIProviderError } from './OpenAIProviderError';
 
 /** Account outage policy, independent of model capacity and application billing. */
@@ -113,7 +114,7 @@ export class AIProviderAdmission {
 	async failure(attempt: AIProviderAttempt, lease: AIProviderAdmissionLease, error: unknown, now = Date.now()): Promise<Error | null> {
 		const details = openAIProviderError(error);
 		const quota = isOpenAIQuotaError(error);
-		const transient = !quota && (isNetworkFailure(error) || details.status === 408 || (details.status !== null && details.status >= 500) || ['server_error', 'service_unavailable', 'overloaded', 'overloaded_error'].includes(details.code ?? ''));
+		const transient = !quota && isTransientProviderFailure(error);
 		if (!quota && !transient) {
 			await this.success(attempt, lease, now);
 			return null;
@@ -184,32 +185,48 @@ export class AIProviderAdmission {
 				} else if (payload !== null) await this.success(attempt, lease);
 				return response;
 			}
-			if (!response.body) { await this.success(attempt, lease); return response; }
+			if (!response.body) return response;
 			const reader = response.body.getReader();
 			const decoder = new TextDecoder();
-			let pending = '';
 			const guard = this;
+			let completed = false;
+			/** Classifies completed events without changing the SDK stream or clearing failed probes. */
+			const observer = new ProviderSseObserver(async data => {
+				if (data === '[DONE]') { completed = true; return; }
+				let event;
+				try { event = JSON.parse(data); } catch { observer.invalidate(); return; }
+				if (!event || typeof event !== 'object' || Array.isArray(event)) { observer.invalidate(); return; }
+				const error = event.error ?? event.response?.error ?? (event.type === 'error' ? event : null);
+				if (error) {
+					observer.invalidate();
+					if (isOpenAIQuotaError({ error }) || isTransientProviderFailure({ error })) {
+						const decision = await guard.failure(attempt, lease, { error });
+						if (decision) guard.#requestFailures.set(attempt, decision);
+					}
+				} else if (event.type === 'response.completed') {
+					if (event.response?.status === 'completed') completed = true;
+					else observer.invalidate();
+				}
+				else if (event.type === 'response.failed' || event.type === 'response.incomplete') observer.invalidate();
+			});
+			/** Treats undecodable UTF-8 conservatively while still observing subsequent data. */
+			const observe = async (text: string): Promise<void> => {
+				if (text.includes('\uFFFD')) observer.invalidate();
+				await observer.push(text);
+			};
 			const body = new ReadableStream<Uint8Array>({
-				/** Observes bounded SSE lines without buffering the response or tool output. */
+				/** Observes bounded complete SSE events while forwarding each original chunk. */
 				async pull(controller) {
 					try {
 						const item = await reader.read();
-						if (item.done) { await guard.success(attempt, lease); controller.close(); return; }
-						pending += decoder.decode(item.value, { stream: true });
-						const lines = pending.split('\n');
-						pending = lines.pop() ?? '';
-						if (pending.length > 1_048_576) pending = '';
-						for (const line of lines) {
-							if (!line.startsWith('data:')) continue;
-							let event;
-							try { event = JSON.parse(line.slice(5)); } catch { continue; }
-							const error = event.error ?? event.response?.error ?? (event.type === 'error' ? event : null);
-							if (error) {
-								const decision = await guard.failure(attempt, lease, { error });
-								// Preserve earlier SDK events in this chunk; the SDK receives its original failure event.
-								if (decision) guard.#requestFailures.set(attempt, decision);
-							}
+						if (item.done) {
+							await observe(decoder.decode());
+							if (response.ok && completed && observer.complete) await guard.success(attempt, lease);
+							controller.close();
+							return;
 						}
+						// Bound temporary decoded fragments independently of upstream chunk size.
+						for (let offset = 0; offset < item.value.length; offset += 16_384) await observe(decoder.decode(item.value.subarray(offset, offset + 16_384), { stream: true }));
 						controller.enqueue(item.value);
 					} catch (error) {
 						await reader.cancel().catch(() => {});
@@ -249,4 +266,10 @@ export class AIProviderAdmission {
 function accountKey(attempt: AIProviderAttempt): string {
 	const digest = createHash('sha256').update(`${attempt.provider}\n${new URL(attempt.baseUrl).href.replace(/\/+$/g, '')}\n${attempt.apiKey}`).digest('hex');
 	return `${attempt.provider}:account:${digest}`;
+}
+
+/** Classifies only transport availability failures, without clearing recovery state. */
+function isTransientProviderFailure(error: unknown): boolean {
+	const details = openAIProviderError(error);
+	return isNetworkFailure(error) || details.status === 408 || (details.status !== null && details.status >= 500) || ['server_error', 'service_unavailable', 'overloaded', 'overloaded_error'].includes(details.code ?? '');
 }

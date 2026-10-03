@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, AIRequestError, AIProviderStoppedError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, AIRequestError, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
@@ -514,6 +514,18 @@ describe('AI inside an application', () => {
 		expect(embedding.vector).toEqual([0.2, 0.4]);
 		expect((await AiRequest.findByPk(embedding.aiRequestId!))?.status).toBe('completed');
 	});
+	it.each(['insufficient_quota', 'server_error'])('fails over a nested HTTP-200 %s admission rejection and retains both outcomes', async code => {
+		fetch.mockResolvedValueOnce(Response.json({ response: { error: { code, message: 'Synthetic nested provider rejection' } }, usage: { input_tokens: 5, output_tokens: 0, total_tokens: 5 } }))
+			.mockResolvedValueOnce(Response.json({ output_text: 'Fallback saved result.', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
+		const result = await application.ai.generateTextWithResponse({ instructions: 'Reply.', input: 'Hello.', provider: { openai: 'test-model', openrouter: 'test-model' } });
+		expect(result.text).toBe('Fallback saved result.');
+		expect(fetch).toHaveBeenCalledTimes(2);
+		const requests = await AiRequest.query().all();
+		expect(requests.some(request => request.status === 'failed' && request.provider === 'openai' && request.totalTokens === 5)).toBe(true);
+		expect(requests.some(request => request.status === 'completed' && request.provider === 'openrouter')).toBe(true);
+		await expect(application.ai.providerAdmission.acquire({ provider: 'openai', apiKey: 'synthetic-test-key', baseUrl: 'https://api.openai.com/v1', model: 'another-model', supportsResponsesApi: true })).rejects.toBeInstanceOf(code === 'insufficient_quota' ? AIProviderStoppedError : AIProviderDeferredError);
+	});
+
 });
 
 /** Exercises natural completion across many real SDK turns using the saved help guide. */

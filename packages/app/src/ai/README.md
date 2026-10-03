@@ -303,3 +303,12 @@ The package is also installed and type-checked in an independent consumer.
 Installed app developers run their own tests using a disposable database and
 an injected `ai.fetch`. No live key is needed for simulated provider tests.
 See the [AI guides](https://db3.ai/docs/ai) for app-focused examples.
+
+SSE recovery requires an explicit `response.completed` event or compatible
+`[DONE]` marker, a complete event boundary and clean body EOF. The observer joins
+multiline `data` fields and supports LF, CR and CRLF across arbitrary UTF-8 byte
+fragments; it forwards original bytes unchanged. Malformed JSON, uncertain UTF-8,
+oversized events, incomplete EOF and cancellation retain the bounded recovery
+lease rather than asserting success. Retained lines/events are limited to one
+MiB of decoded characters; oversized events are discarded only by the observer
+until their blank boundary, and later valid quota events still stop the account.
