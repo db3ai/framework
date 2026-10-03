@@ -1,0 +1,252 @@
+import { ulid } from '@db3.ai/pure/ulid';
+import { createHash, randomUUID } from 'node:crypto';
+import { ActiveRecord } from '@db3.ai/app/db';
+import { QueueTerminalError, QueueRetryLaterError } from '@db3.ai/app/queue';
+import { app } from '../server/appContext';
+import { AiRateLimitBucket } from './AiRateLimitBucket';
+import type { AIProviderAttempt } from './contracts/Providers';
+import { isNetworkFailure } from './AIFailover';
+import { isOpenAIQuotaError, openAIProviderError } from './OpenAIProviderError';
+
+/** Account outage policy, independent of model capacity and application billing. */
+export interface AIProviderAdmissionOptions {
+	/** First transient cooldown; defaults to 30 seconds. */
+	initialSeconds?: number;
+	/** Maximum transient cooldown; defaults to five minutes. */
+	maxSeconds?: number;
+	/** Continuous failure episode deadline; defaults to fifteen minutes. */
+	failureWindowSeconds?: number;
+	/** Recovery ownership lifetime; must exceed the request timeout. Defaults to 90 seconds. */
+	recoveryLeaseSeconds?: number;
+}
+
+/** Durable episode metadata stored only on the account's dedicated bucket row. */
+interface AdmissionState {
+	generation: string;
+	failures: number;
+	deadline: number;
+	retryAt: number;
+	stopped: boolean;
+	reason: 'quota' | 'outage';
+	probe: string | null;
+	probeUntil: number;
+}
+
+/** Token fences a recovery completion against newer failures and expired leases. */
+export interface AIProviderAdmissionLease {
+	bucketKey: string;
+	generation: string | null;
+	probe: string | null;
+}
+
+/** Queue backpressure that releases the job's reservation without spending a try. */
+export class AIProviderDeferredError extends QueueRetryLaterError {
+	/** True only for the request that observed the provider failure. */
+	providerStarted = false;
+	/** Creates an account cooldown without retaining provider payloads. */
+	constructor(readonly retryAt: Date, readonly retryUntil: Date) {
+		super(Math.max(1, Math.ceil((retryAt.getTime() - Date.now()) / 1000)), 'AI provider temporarily unavailable; waiting for controlled recovery.');
+		this.name = 'AIProviderDeferredError';
+	}
+}
+
+/** Terminal admission failure; exhausted accounts require explicit operator recovery. */
+export class AIProviderStoppedError extends QueueTerminalError {
+	/** Stable admission code; original provider code stays separate. */
+	readonly code = 'ai_provider_stopped';
+	/** Actual rejection status and provider support identifier; absent for blocked work. */
+	readonly status: number | null;
+	readonly requestId: string | null;
+	/** True only for the request that observed the provider failure. */
+	providerStarted = false;
+	/** Creates a terminal failure without provider credentials or raw error messages. */
+	constructor(readonly reason: 'quota' | 'outage', readonly providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null } = {}) {
+		super(reason === 'quota' ? 'AI provider credits exhausted; work stopped until operator recovery.' : 'AI provider failure deadline reached; work stopped until operator recovery.');
+		this.status = diagnostics.status ?? null;
+		this.requestId = diagnostics.requestId ?? null;
+		this.name = 'AIProviderStoppedError';
+	}
+}
+
+/**
+ * Coordinates account-wide outages using existing SQL bucket metadata.
+ * Closed accounts admit normally. Failed accounts admit one leased real request
+ * after cooldown. Exhaustion and expired episodes remain stopped across restarts;
+ * reset() is an explicit operator action and never executes or replays work.
+ */
+export class AIProviderAdmission {
+	/** Carries typed HTTP/SSE failures through SDKs that discard provider error codes. */
+	readonly #requestFailures = new WeakMap<AIProviderAttempt, Error>();
+	readonly #options: Required<AIProviderAdmissionOptions>;
+	/** Validates bounded outage policy; invalid values fail at boot. */
+	constructor(options: AIProviderAdmissionOptions = {}) {
+		this.#options = { initialSeconds: 30, maxSeconds: 300, failureWindowSeconds: 900, recoveryLeaseSeconds: 90, ...options };
+		if (Object.values(this.#options).some(value => !Number.isFinite(value) || value <= 0) || this.#options.initialSeconds > this.#options.maxSeconds) throw new Error('Invalid AI provider admission policy.');
+	}
+
+	/**
+	 * Admits normal work or exclusively leases a recovery request under a SQL lock.
+	 * Account identity includes provider, origin and a one-way credential digest,
+	 * never endpoint/model or website. Other accounts remain independent.
+	 */
+	async acquire(attempt: AIProviderAttempt, now = Date.now()): Promise<AIProviderAdmissionLease> {
+		const bucketKey = accountKey(attempt);
+		return this.#locked(attempt, async bucket => {
+			const state = bucket.metadata?.admission as AdmissionState | undefined;
+			if (!state) return { bucketKey, generation: null, probe: null };
+			if (state.stopped || now >= state.deadline) throw new AIProviderStoppedError(state.reason);
+			const retryAt = Math.max(state.retryAt, state.probe ? state.probeUntil : 0);
+			if (now < retryAt) throw new AIProviderDeferredError(new Date(Math.min(retryAt, state.deadline)), new Date(state.deadline));
+			state.probe = randomUUID();
+			state.probeUntil = now + this.#options.recoveryLeaseSeconds * 1000;
+			bucket.metadata = { admission: state };
+			await bucket.save();
+			return { bucketKey, generation: state.generation, probe: state.probe };
+		});
+	}
+
+	/**
+	 * Records an actual provider failure before releasing external admission.
+	 * Ordinary 429 capacity never trips an account outage. Late failures extend
+	 * the same deadline; they cannot reopen quota or start a fresh episode.
+	 */
+	async failure(attempt: AIProviderAttempt, lease: AIProviderAdmissionLease, error: unknown, now = Date.now()): Promise<Error | null> {
+		const details = openAIProviderError(error);
+		const quota = isOpenAIQuotaError(error);
+		const transient = !quota && (isNetworkFailure(error) || details.status === 408 || (details.status !== null && details.status >= 500) || ['server_error', 'service_unavailable', 'overloaded', 'overloaded_error'].includes(details.code ?? ''));
+		if (!quota && !transient) {
+			await this.success(attempt, lease, now);
+			return null;
+		}
+		return this.#locked(attempt, async bucket => {
+			const previous = bucket.metadata?.admission as AdmissionState | undefined;
+			// A stale recovery completion cannot overwrite a newer episode/probe.
+			if (!quota && lease.probe && previous && (previous.generation !== lease.generation || previous.probe !== lease.probe)) return previous.stopped || now >= previous.deadline ? new AIProviderStoppedError(previous.reason) : new AIProviderDeferredError(new Date(Math.min(Math.max(previous.retryAt, previous.probeUntil), previous.deadline)), new Date(previous.deadline));
+			const failures = (previous?.failures ?? 0) + 1;
+			const deadline = previous?.deadline ?? now + this.#options.failureWindowSeconds * 1000;
+			const state: AdmissionState = {
+				generation: randomUUID(), failures, deadline,
+				retryAt: Math.min(deadline, now + Math.min(this.#options.maxSeconds, this.#options.initialSeconds * 2 ** Math.min(failures - 1, 20)) * 1000),
+				stopped: quota || Boolean(previous?.stopped) || now >= deadline,
+				reason: quota || previous?.reason === 'quota' ? 'quota' : 'outage', probe: null, probeUntil: 0,
+			};
+			bucket.metadata = { admission: state };
+			await bucket.save();
+			const decision = state.stopped ? new AIProviderStoppedError(state.reason, details.code, { status: details.status, requestId: details.requestId }) : new AIProviderDeferredError(new Date(state.retryAt), new Date(deadline));
+			decision.providerStarted = true;
+			return decision;
+		});
+	}
+
+	/** Clears an episode only for its still-owned recovery request before deadline. */
+	async success(attempt: AIProviderAttempt, lease: AIProviderAdmissionLease, now = Date.now()): Promise<void> {
+		if (!lease.probe) return;
+		try {
+			await this.#locked(attempt, async bucket => {
+				const state = bucket.metadata?.admission as AdmissionState | undefined;
+				if (!state || state.stopped || state.generation !== lease.generation || state.probe !== lease.probe || now >= Math.min(state.deadline, state.probeUntil)) return;
+				bucket.metadata = null;
+				await bucket.save();
+			});
+		} catch {
+			// A successful paid response must survive recovery bookkeeping failure.
+			try { app().log.warn({ stage: 'provider-admission:recovery' }, 'AI recovery bookkeeping failed; recovery lease remains bounded.'); } catch { /* Logging cannot replace a paid result. */ }
+		}
+	}
+
+	/** Explicit operator reset after repair; does not dispatch, probe or replay jobs. */
+	async reset(attempt: AIProviderAttempt): Promise<void> {
+		await this.#locked(attempt, async bucket => { bucket.metadata = null; await bucket.save(); });
+	}
+
+	/**
+	 * Wraps each real HTTP request, including SDK model turns and nested tools.
+	 * JSON failures and streaming failures trip the same account state. Recovery
+	 * is cleared only after body consumption, so header arrival is not recovery.
+	 */
+	transport(attempt: AIProviderAttempt, fetcher: typeof fetch): typeof fetch {
+		return async (url, init) => {
+			const lease = await this.acquire(attempt);
+			let response: Response;
+			try { response = await fetcher(url, init); }
+			catch (error) { throw await this.failure(attempt, lease, error) ?? error; }
+			if (!response.headers.get('content-type')?.includes('text/event-stream')) {
+				let payload: { error?: unknown; response?: { error?: unknown } } | null;
+				try { payload = await response.clone().json() as typeof payload; }
+				catch (error) {
+					if (!(error instanceof SyntaxError)) throw await this.failure(attempt, lease, error) ?? error;
+					payload = null;
+				}
+				const error = payload?.error ?? payload?.response?.error;
+				if (!response.ok || error) {
+					const decision = await this.failure(attempt, lease, { error, status: response.status, requestId: response.headers.get('x-request-id') });
+					if (decision) this.#requestFailures.set(attempt, decision);
+				} else if (payload !== null) await this.success(attempt, lease);
+				return response;
+			}
+			if (!response.body) { await this.success(attempt, lease); return response; }
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let pending = '';
+			const guard = this;
+			const body = new ReadableStream<Uint8Array>({
+				/** Observes bounded SSE lines without buffering the response or tool output. */
+				async pull(controller) {
+					try {
+						const item = await reader.read();
+						if (item.done) { await guard.success(attempt, lease); controller.close(); return; }
+						pending += decoder.decode(item.value, { stream: true });
+						const lines = pending.split('\n');
+						pending = lines.pop() ?? '';
+						if (pending.length > 1_048_576) pending = '';
+						for (const line of lines) {
+							if (!line.startsWith('data:')) continue;
+							let event;
+							try { event = JSON.parse(line.slice(5)); } catch { continue; }
+							const error = event.error ?? event.response?.error ?? (event.type === 'error' ? event : null);
+							if (error) {
+								const decision = await guard.failure(attempt, lease, { error });
+								// Preserve earlier SDK events in this chunk; the SDK receives its original failure event.
+								if (decision) guard.#requestFailures.set(attempt, decision);
+							}
+						}
+						controller.enqueue(item.value);
+					} catch (error) {
+						await reader.cancel().catch(() => {});
+						controller.error(error instanceof AIProviderDeferredError || error instanceof AIProviderStoppedError ? error : await guard.failure(attempt, lease, error) ?? error);
+					}
+				},
+				/** Cancellation retains the bounded recovery lease rather than asserting success. */
+				async cancel(reason) { await reader.cancel(reason); },
+			});
+			return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+		};
+	}
+
+	/** Restores a typed HTTP/SSE admission failure after the SDK consumes its original event. */
+	requestFailure(attempt: AIProviderAttempt, fallback: unknown): unknown {
+		const failure = this.#requestFailures.get(attempt);
+		this.#requestFailures.delete(attempt);
+		return failure ?? fallback;
+	}
+
+	/** Creates and locks the dedicated account row in an autocommit transaction. */
+	async #locked<T>(attempt: AIProviderAttempt, operation: (bucket: AiRateLimitBucket) => Promise<T>): Promise<T> {
+		const bucketKey = accountKey(attempt);
+		const db = app().db.knex;
+		// Use the service connection: caller transactions must not hide the trip from workers.
+		await db(AiRateLimitBucket.table).insert({ id: ulid(), bucket_key: bucketKey, provider: attempt.provider, endpoint: 'responses', limit_key: 'account-admission', created_at: new Date(), updated_at: new Date() }).onConflict('bucket_key').ignore();
+		return db.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+			const bucket = await AiRateLimitBucket.where('bucketKey', bucketKey).toKnex().forUpdate().first();
+			if (!bucket) throw new Error('AI provider admission row unavailable.');
+			const model = await AiRateLimitBucket.findOrFail(bucket.id);
+			return operation(model);
+		}));
+	}
+}
+
+/** Opaque credential identity; never persisted or logged in reversible form. */
+function accountKey(attempt: AIProviderAttempt): string {
+	const digest = createHash('sha256').update(`${attempt.provider}\n${new URL(attempt.baseUrl).href.replace(/\/+$/g, '')}\n${attempt.apiKey}`).digest('hex');
+	return `${attempt.provider}:account:${digest}`;
+}

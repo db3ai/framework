@@ -140,6 +140,8 @@ export interface AIOptions {
 	fetch?: typeof fetch;
 	/** Rate limiter used before provider requests. Pass false only in isolated tests. */
 	rateLimiter?: AIRateLimiter | false;
+	/** Durable account admission policy; capacity limiter disabling never bypasses it. */
+	providerAdmission?: import('../AIProviderAdmission').AIProviderAdmissionOptions;
 	/** Optional customer allowance hook. Defaults to no-op until billing limits exist. */
 	allowance?: AIAllowanceChecker | false;
 }
@@ -377,4 +379,10 @@ export interface AIModels {
 	conversation: typeof AiConversation;
 	request: typeof AiRequest;
 	message: typeof import('../AiMessage').AiMessage;
+}
+
+/** Embedding persistence policy for workflows that must resume partial provider work. */
+export interface GenerateEmbeddingOptions extends RequestLogOptions {
+	/** Persist the completed vector in the existing request response for authorized resume. Defaults to false. */
+	retainResult?: boolean;
 }

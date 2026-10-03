@@ -219,6 +219,54 @@ Quota and capacity deferrals integrate with queue retries. The `allowance` hook
 checks application budgets separately. Override `usageCharge()` and
 `settleUsage()` in an agent when your app needs an idempotent commercial ledger.
 
+## Provider account admission and recovery
+
+`AIProviderAdmission` shares account availability through a dedicated existing
+`ai_rate_limit_buckets` row. Its metadata is keyed by provider, normalized base
+URL and a one-way key digest, across models/endpoints and workers. Separate API keys are separate identities even if the provider funds them from the same billing account; the framework cannot infer that relationship. Raw keys,
+provider messages and prompts are never stored in this account state. Capacity
+limiting can be disabled without disabling account admission.
+
+Explicit `insufficient_quota`, `billing_hard_limit_reached` or “no credits
+remaining” responses immediately stop the account. Ordinary 429 capacity stays
+with the existing limiter. Network/timeouts/408/5xx and explicit overload/server
+errors start one continuous outage episode. `ai.providerAdmission` configures
+`initialSeconds` (30), `maxSeconds` (300), `failureWindowSeconds` (900) and
+`recoveryLeaseSeconds` (request timeout plus 30). Values must be positive; the
+recovery lease must exceed the request timeout. These conservative defaults
+limit a fifteen-minute outage to a few real recovery attempts, without assuming
+that credits will return automatically or using paid background probes.
+
+After cooldown only one real waiting request owns recovery. A crash leaves a
+bounded lease; generations and lease tokens prevent stale successes from
+clearing a newer outage or credit stop. The fixed episode deadline also stops
+newly dispatched jobs. Expired episodes and exhausted accounts remain stopped
+across restarts. `AIProviderDeferredError` releases queue reservations without
+spending a try; `AIProviderStoppedError` terminates immediately with a failed-job
+record and normal final-failure hooks, even when more tries were configured.
+An agent that has already emitted SDK output stops instead of deferring a whole
+turn and replaying completed model/tool work. Saved attempts and results remain.
+
+After independently repairing availability or credits, an authorized server
+operator can select the configured account and reset its admission state:
+
+```ts
+const attempt = app().ai.resolveProviders()[0];
+if (!attempt) throw new Error('No configured provider account.');
+await app().ai.providerAdmission.reset(attempt);
+```
+
+This executes no HTTP, changes no key/model/billing setting and dispatches or
+replays no job. Failed jobs require a separately authorized retry. The reset
+must run on the deployed app/database with trusted server-side configuration;
+never expose credentials or this operation to an unscoped client.
+
+`generateEmbedding(..., { retainResult: true })` opts into retaining the completed
+vector in the existing request response. Applications may use this for partial
+workflow resume after authorizing scope and matching the exact full input/model.
+Default audits still keep dimensions only. Retention/access remain app policy.
+No new tables or migrations are required by this change.
+
 ## Verification
 
 ### Maintenance map

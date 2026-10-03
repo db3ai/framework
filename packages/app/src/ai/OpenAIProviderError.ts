@@ -58,7 +58,7 @@ export function openAIProviderError(value: unknown): OpenAIProviderErrorDetails 
 export function isOpenAIQuotaError(value: unknown): boolean {
 	const code = openAIProviderError(value).code;
 
-	return code !== null && OPENAI_QUOTA_ERROR_CODES.has(code);
+	return (code !== null && OPENAI_QUOTA_ERROR_CODES.has(code)) || /\b(?:you have )?no credits remaining\b/i.test(openAIProviderError(value).message);
 }
 
 /**

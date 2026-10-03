@@ -1,3 +1,4 @@
+import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
 import { aiExecutionContext } from './AiExecutionContext';
 import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type FunctionCallItem, type FunctionCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
 import { isQueueRetryLaterError } from '@db3.ai/app/queue';
@@ -14,7 +15,7 @@ import type { AIUsageCharge } from './contracts/AI';
 import { estimateTokensFromText } from './Estimates.js';
 import { calculateAIHostedToolCost, calculateAIRequestCostUSD, calculateAIRequestEntriesCostUSD, combineAIRequestCostUSD, type AIRequestCostUsageEntry } from './modelPricing.js';
 import { AgentRunJob } from './AgentRunJob.js';
-import { openAIQuotaRetryDecision, withOpenAIQuotaRetryMetadata, withoutOpenAIQuotaRetryMetadata, type OpenAIQuotaRetryDecision } from './OpenAIQuotaRetry.js';
+import { withoutOpenAIQuotaRetryMetadata } from './OpenAIQuotaRetry.js';
 import { agentCitationFromStreamRecord, agentCitationsFromFinalModelResponse, rememberAgentCitation } from './agentCitations.js';
 import { serializeQueuedAgent } from './registry.js';
 import { agentToolResultFromStructuredOutput } from './toolHelpers.js';
@@ -367,30 +368,12 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 			return await this.executePreparedRun(prepared, async () => {});
 		} catch (error) {
+			if (error instanceof AIProviderDeferredError) {
+				await this.deferTrackedRun(prepared.state, error);
+				throw error;
+			}
 			if (isQueueRetryLaterError(error)) throw error;
-
-			const quotaRetry = openAIQuotaRetryDecision(error, prepared.state.aiRequest);
-
-			if (quotaRetry && !quotaRetry.expired) {
-				await this.deferTrackedRun(prepared.state, quotaRetry);
-
-				throw new AIQuotaDeferredError(
-					quotaRetry.delaySeconds,
-					quotaRetry.retryAt,
-					quotaRetry.retryUntil,
-					quotaRetry.deferralCount,
-					quotaRetry.message,
-				);
-			}
-
 			const providerError = openAIProviderError(error);
-
-			if (quotaRetry) {
-				prepared.state.aiRequest.metadata = withOpenAIQuotaRetryMetadata(
-					prepared.state.aiRequest.metadata,
-					quotaRetry.metadata,
-				);
-			}
 
 			await this.failTrackedRun(
 				prepared.state,
@@ -1038,6 +1021,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					}
 
 					await stream.completed;
+					const streamFailure = app().ai.providerAdmission?.requestFailure(attempt, null);
+					if (streamFailure) throw streamFailure;
 					const rawFinalOutput = this.finalOutputText(stream.finalOutput, assistantText);
 					const finalResponseCitations = agentCitationsFromFinalModelResponse(stream.rawResponses);
 					const citations = finalResponseCitations ?? normalizedAgentCitations(executionState.citations);
@@ -1103,7 +1088,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					};
 				});
 			} catch (caught) {
-				const error = agentRateLimitError(caught);
+				const restored = agentRateLimitError(caught);
+				const failure = app().ai.providerAdmission?.requestFailure(attempt, restored) ?? restored;
+				// Restarting a turn after streamed output/tools can repeat completed work.
+				const error = failure instanceof AIProviderDeferredError && sawStreamEvent ? new AIProviderStoppedError('outage') : failure;
 				if (attemptState && !attemptSettled) {
 					await this.failTrackedAttempt(
 						attemptState,
@@ -1911,36 +1899,13 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		};
 	}
 
-	/**
-	 * Keeps a quota-blocked queued run pending and records its next retry.
-	 *
-	 * @param state - Active run persistence state.
-	 * @param quotaRetry - Bounded exponential quota retry decision.
-	 */
-	private async deferTrackedRun(
-		state: agent.AgentPersistenceState,
-		quotaRetry: OpenAIQuotaRetryDecision,
-	): Promise<void> {
-		state.aiRequest.assign({
-			status: AI_REQUEST_STATUS.pending,
-			completedAt: null,
-			durationMs: null,
-			errorCode: quotaRetry.code,
-			errorMessage: quotaRetry.message,
-			metadata: withOpenAIQuotaRetryMetadata(
-				state.aiRequest.metadata,
-				quotaRetry.metadata,
-			),
+	/** Keeps unstarted queued work visibly pending on the shared account deadline. */
+	private async deferTrackedRun(state: agent.AgentPersistenceState, error: AIProviderDeferredError): Promise<void> {
+		state.rootAiRequest.assign({ status: AI_REQUEST_STATUS.pending, completedAt: null, errorCode: 'ai_provider_deferred', errorMessage: error.message,
+			metadata: { ...(state.rootAiRequest.metadata ?? {}), providerAdmission: { retryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() } },
 		});
-
-		await state.aiRequest.save();
-		await this.touchConversation(state, {
-			lastTraceId: state.traceId,
-			lastStatus: AI_REQUEST_STATUS.pending,
-			lastError: quotaRetry.message,
-			nextRetryAt: quotaRetry.retryAt.toISOString(),
-			retryUntil: quotaRetry.retryUntil.toISOString(),
-		});
+		await state.rootAiRequest.save();
+		await this.touchConversation(state, { lastTraceId: state.traceId, lastStatus: AI_REQUEST_STATUS.pending, lastError: error.message, nextRetryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() });
 	}
 
 	/**
@@ -2109,7 +2074,7 @@ function agentRateLimitError(error: unknown): unknown {
 	const seen = new Set<unknown>();
 	let current = error;
 	while (current instanceof Error && !seen.has(current)) {
-		if (current instanceof AIRateLimitDeferredError) return current;
+		if (isQueueRetryLaterError(current) || current instanceof AIProviderStoppedError) return current;
 		seen.add(current);
 		current = current.cause;
 	}
