@@ -417,7 +417,7 @@ export class Ai {
 
 					if (deferred) throw deferred;
 
-					throw new AIRequestError(message, responseErrorCode(payload));
+					throw new AIRequestError(message, responseErrorCode(payload), { status: result.status, requestId: metadata.providerRequestId });
 				}
 
 				const text = payload?.status !== undefined && payload.status !== 'completed' ? null : responseOutputText(payload);
@@ -1411,7 +1411,7 @@ export class Ai {
 
 				if (deferred) throw deferred;
 
-				throw new AIRequestError(message, responseErrorCode(payload));
+				throw new AIRequestError(message, responseErrorCode(payload), { status: response.status, requestId: metadata.providerRequestId });
 			}
 
 			const b64Json = imageBase64(payload);
@@ -1589,7 +1589,7 @@ export class Ai {
 
 				if (deferred) throw deferred;
 
-				throw new AIRequestError(message, responseErrorCode(payload));
+				throw new AIRequestError(message, responseErrorCode(payload), { status: response.status, requestId: metadata.providerRequestId });
 			}
 
 			const vector = payload?.data?.[0]?.embedding;
@@ -1846,7 +1846,9 @@ function attachProviderAttempts(aiRequest: AiRequest, failures: AIProviderAttemp
  * @returns True when the provider indicates a rate-limit failure.
  */
 function isRateLimitFailure(status: number, payload: unknown): boolean {
-	if (isOpenAIQuotaError(payload)) return false;
+	// Some credit-exhaustion responses omit a stable code. Do not turn their
+	// explicit billing failure into an unlimited queue capacity deferral.
+	if (isOpenAIQuotaError(payload) || /\b(?:you have )?no credits remaining\b/i.test(openAIProviderError(payload).message)) return false;
 
 	const code = responseErrorCode(payload);
 

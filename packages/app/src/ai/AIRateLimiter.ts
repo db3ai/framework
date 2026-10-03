@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type { AIRateLimitAcquireInput, AIRateLimitLease, AIRateLimitSnapshot, AIProviderResponseMetadata } from './contracts/RateLimits';
 export type { AIRateLimitAcquireInput, AIRateLimitLease, AIRateLimitSnapshot, AIProviderResponseMetadata } from './contracts/RateLimits';
 import { QueueRetryLaterError } from '@db3.ai/app/queue';
@@ -9,6 +10,8 @@ import { AiRateLimitReservation } from './AiRateLimitReservation';
 import { AI_PROVIDER, type AIProvider } from './contracts/AI.js';
 
 const DEFAULT_RESERVATION_TTL_MS = 10 * 60 * 1000;
+const BOOKKEEPING_WRITE_ATTEMPTS = 3;
+const BOOKKEEPING_RETRY_DELAY_MS = 25;
 const UNKNOWN_ACTIVE_BUCKET_DELAY_SECONDS = 1;
 const UNKNOWN_RESET_DELAY_SECONDS = 60;
 const ONE_MINUTE_MS = 60 * 1000;
@@ -58,6 +61,8 @@ interface ProviderDefaultRateLimit {
  * Coordinates OpenAI provider calls against the latest observed rate-limit state.
  */
 export class AIRateLimiter {
+	/** Failed caller transactions must surface their first error without follow-up writes. */
+	#transactionFailures = new WeakMap<object, unknown>();
 	/**
 	 * Reserves capacity for one provider request.
 	 *
@@ -120,7 +125,11 @@ export class AIRateLimiter {
 	}
 
 	/**
-	 * Updates bucket state from provider response headers and releases the lease.
+	 * Observes provider headers and releases a lease after provider execution.
+	 *
+	 * Autocommit bookkeeping failures preserve the provider outcome without replaying
+	 * paid work. Caller-owned transaction failures propagate so their owner can
+	 * handle rollback; this limiter never writes again in that failed transaction.
 	 *
 	 * @param lease - Reservation returned from acquire().
 	 * @param metadata - Parsed response header metadata.
@@ -130,6 +139,7 @@ export class AIRateLimiter {
 		metadata: AIProviderResponseMetadata,
 	): Promise<void> {
 		if (!lease?.bucket) return;
+		const bucket = lease.bucket;
 
 		try {
 			const defaultRateLimit = providerDefaultRateLimit(
@@ -154,7 +164,7 @@ export class AIRateLimiter {
 				: false;
 
 			if (shouldConsumeDefault || shouldStoreMetadata) {
-				await lease.bucket.save();
+				await this.#persistBookkeeping(lease, 'bucket:observe', () => bucket.save());
 			}
 		} finally {
 			await this.release(lease);
@@ -162,25 +172,124 @@ export class AIRateLimiter {
 	}
 
 	/**
-	 * Releases a lease without changing bucket state.
+	 * Releases a lease with best-effort autocommit persistence after provider work.
+	 *
+	 * The conditional write is authoritative: an already released or deleted
+	 * row is settled too. In-memory release state changes only after success,
+	 * so a failed write remains retryable even when the same lease is reused.
 	 *
 	 * @param lease - Reservation returned from acquire().
 	 */
 	async release(lease: AIRateLimitLease | null): Promise<void> {
 		if (!lease?.reservation?.id) return;
+		const reservation = lease.reservation;
+		const reservationId = reservation.id;
 
-		if (!lease.reservation.releasedAt) {
-			lease.reservation.assign({
-				releasedAt: new Date(),
-			});
+		const releasedAt = reservation.releasedAt ?? new Date();
+		const persisted = await this.#persistBookkeeping(lease, 'reservation:release', () => AiRateLimitReservation
+			.where('id', reservationId)
+			.whereNull('releasedAt')
+			.patch({ releasedAt }));
 
-			await lease.reservation.save();
-		}
+		if (!persisted) return;
+		reservation.assign({ releasedAt });
 
 		try {
 			await AiRateLimitReservation.cleanupReleasedAndExpired();
+		} catch (error) {
+			this.#logBookkeepingFailure(lease, 'reservation:cleanup', error, 1, false);
+			this.#propagateTransactionFailure(error);
+		}
+	}
+
+	/**
+	 * Retries only recognized lock failures in idempotent bookkeeping writes.
+	 *
+	 * An ambient transaction may already have been rolled back by a deadlock,
+	 * so failures propagate to its owner after one attempt. Only autocommit writes
+	 * are retried here; the attempt budget does not shorten SQL lock timeouts,
+	 * and no provider execution is included in the retry scope.
+	 *
+	 * @param lease - Safe identities associated with this bookkeeping step.
+	 * @param stage - Bucket observation or reservation release.
+	 * @param write - The exact idempotent database write to repeat.
+	 * @returns Whether the write succeeded within its bounded attempt budget.
+	 */
+	async #persistBookkeeping(
+		lease: AIRateLimitLease,
+		stage: 'bucket:observe' | 'reservation:release',
+		write: () => Promise<unknown>,
+	): Promise<boolean> {
+		const database = ActiveRecord.getDb();
+		if (this.#transactionFailures.has(database)) throw this.#transactionFailures.get(database);
+		const maxAttempts = database.isTransaction ? 1 : BOOKKEEPING_WRITE_ATTEMPTS;
+		let lastError: unknown;
+
+		for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+			try {
+				await write();
+				if (attempt > 1) this.#logBookkeepingFailure(lease, stage, lastError, attempt, true);
+				return true;
+			} catch (error) {
+				lastError = error;
+				if (!bookkeepingLockCode(error) || attempt === maxAttempts) {
+					this.#logBookkeepingFailure(lease, stage, error, attempt, false);
+					this.#propagateTransactionFailure(error);
+					return false;
+				}
+				await delay(BOOKKEEPING_RETRY_DELAY_MS * attempt);
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Notifies a caller transaction's owner and blocks subsequent limiter writes.
+	 *
+	 * InnoDB deadlocks roll back the entire transaction before Knex knows it has
+	 * ended. Even statement-only failures belong to the transaction owner; no
+	 * implicit continuation or paid provider retry is safe at this boundary.
+	 *
+	 * @param error - Original persistence failure to propagate unchanged.
+	 */
+	#propagateTransactionFailure(error: unknown): void {
+		const database = ActiveRecord.getDb();
+		if (!database.isTransaction) return;
+		this.#transactionFailures.set(database, error);
+		throw error;
+	}
+
+	/**
+	 * Emits bounded identifiers and allowlisted lock codes without SQL payloads.
+	 *
+	 * @param lease - Coordination identities; prompts and responses are excluded.
+	 * @param stage - The failed bookkeeping step.
+	 * @param error - SQL failure whose message and bindings must be discarded.
+	 * @param attempts - Number of database writes attempted.
+	 * @param recovered - Whether a later write succeeded.
+	 */
+	#logBookkeepingFailure(
+		lease: AIRateLimitLease,
+		stage: 'bucket:observe' | 'reservation:release' | 'reservation:cleanup',
+		error: unknown,
+		attempts: number,
+		recovered: boolean,
+	): void {
+		try {
+			app().log.warn({
+				stage,
+				code: bookkeepingLockCode(error),
+				attempts,
+				recovered,
+				transactionFailed: Boolean(ActiveRecord.getDb().isTransaction),
+				bucketId: lease.bucket?.id ?? null,
+				reservationId: lease.reservation?.id ?? null,
+				aiRequestId: lease.reservation?.aiRequest?.id ?? null,
+				expiresAt: lease.reservation?.expiresAt?.toISOString() ?? null,
+			}, 'AI rate-limit bookkeeping write failed.');
 		} catch {
-			// The row is already released, so cleanup should not fail completed AI calls.
+			// Logging transport failures must not replace a completed provider outcome.
 		}
 	}
 
@@ -881,4 +990,15 @@ function numberOrZero(value: string | number | null | undefined): number {
 	}
 
 	return 0;
+}
+
+/**
+ * Extracts only database lock codes that are safe to publish in operator logs.
+ *
+ * @param error - Database exception whose message and SQL are never exposed.
+ * @returns Recognized deadlock or lock-timeout code, otherwise null.
+ */
+function bookkeepingLockCode(error: unknown): 'ER_LOCK_DEADLOCK' | 'ER_LOCK_WAIT_TIMEOUT' | null {
+	if (!error || typeof error !== 'object' || !('code' in error)) return null;
+	return error.code === 'ER_LOCK_DEADLOCK' || error.code === 'ER_LOCK_WAIT_TIMEOUT' ? error.code : null;
 }

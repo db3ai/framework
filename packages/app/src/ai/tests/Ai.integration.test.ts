@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, AIRequestError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
-import { QueuedJob, FailedJob } from '@db3.ai/app/queue';
+import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
 import { Conversation } from '../examples/Conversation';
 import { createHelpImage } from '../examples/createHelpImage';
@@ -67,6 +67,57 @@ afterAll(async () => {
 });
 
 describe('AI inside an application', () => {
+	it.each([
+		['insufficient_quota', 'Quota exhausted', false],
+		['billing_hard_limit_reached', 'Billing limit reached', false],
+		[null, 'You have no credits remaining. Please go to OpenAI API billing.', false],
+		['rate_limit_exceeded', 'Too many requests', true],
+		[null, 'Too many requests', true],
+	] as const)('keeps embedding quota separate from throttling (%s: %s)', async (code, message, deferred) => {
+		fetch.mockResolvedValueOnce(Response.json({ error: { code, message } }, { status: 429, headers: { 'x-request-id': 'req_embedding_failure' } }));
+		const error = await application.ai.generateEmbedding('PRIVATE customer passage').then(() => null, cause => cause);
+		expect(error).toBeInstanceOf(deferred ? AIRateLimitDeferredError : AIRequestError);
+		if (!deferred) expect(error).toMatchObject({ code, status: 429, requestId: 'req_embedding_failure', message });
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await AiRequest.query().count()).toBe(1);
+		expect(await AiRequest.query().first()).toMatchObject({ status: 'failed', errorCode: code, providerRequestId: 'req_embedding_failure' });
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+		expect(await QueuedJob.query().count()).toBe(0);
+		expect(JSON.stringify(error)).not.toContain('PRIVATE customer passage');
+	});
+
+	it.each(['text', 'image'] as const)('retains provider response diagnostics for %s rejection', async operation => {
+		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'insufficient_quota', message: 'Quota exhausted' } }, { status: 429, headers: { 'x-request-id': 'req_direct_failure' } }));
+		const result = operation === 'text'
+			? application.ai.generateText({ instructions: 'Summarise.', input: 'PRIVATE customer passage' })
+			: application.ai.generateImage({ prompt: 'PRIVATE customer passage' });
+		await expect(result).rejects.toMatchObject({ name: 'AIRequestError', code: 'insufficient_quota', status: 429, requestId: 'req_direct_failure' });
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+	});
+
+
+	it('fails a queued code-less credit rejection once rather than deferring it indefinitely', async () => {
+		/** Exercises direct embeddings through the real queue worker and SQL lifecycle. */
+		class QuotaEmbeddingJob extends QueueableJob {
+			/** Runs one tracked provider request using the application's real AI service. */
+			async handle(): Promise<void> {
+				await application.ai.generateEmbedding('PRIVATE customer passage');
+			}
+		}
+		application.queue.registerJob(QuotaEmbeddingJob);
+		fetch.mockResolvedValueOnce(Response.json({ error: { message: 'You have no credits remaining. Please go to OpenAI API billing.' } }, { status: 429 }));
+		await application.queue.dispatch(new QuotaEmbeddingJob({}), { queue: 'embedding-quota', maxTries: 1 });
+		const result = await application.queue.workNextJob('embedding-quota');
+		expect(result?.status).toBe('failed');
+		expect(result?.error).toBeInstanceOf(AIRequestError);
+		expect(await QueuedJob.query().count()).toBe(0);
+		expect(await FailedJob.query().count()).toBe(1);
+		expect(await application.queue.workNextJob('embedding-quota')).toBeNull();
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+	});
+
 	it('keeps a failed pending embedding write and its SQL bindings out of the thrown error', async () => {
 		const error: unknown = await application.ai.generateEmbedding('PRIVATE customer passage', undefined, {
 			parentAiRequest: '01M00000000000000000000000',
