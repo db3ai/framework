@@ -1,3 +1,5 @@
+import { RunnableJob } from './RunnableJob';
+import type { QueueableJobContract as QueueableJob } from './contracts/QueueableJobContract';
 import { QueueTerminalError } from './QueueTerminalError';
 import { randomUUID } from 'node:crypto';
 
@@ -8,7 +10,7 @@ import { enableDefaultQueueMonitor, type QueueMonitor } from './queueMonitor';
 import { QueueEvents } from './QueueEvents';
 import { queueRetryDeadlineReached, queueRetryDelaySeconds, queueRetryUntil, resolveQueueRetryBackoff, type QueueRetryBackoffDefaults } from './RetryPolicy';
 import { QueueWorker } from './QueueWorker';
-import { isQueueableJob, isQueueableJobClass, queueableJobFromJSON, queueableJobName, type QueueableJob } from './QueueableJob';
+import { isQueueableJob, isQueueableJobClass, queueableJobFromJSON, queueableJobName } from './QueueableJob';
 import { isQueueRetryLaterError } from './QueueRetryLaterError';
 import type * as queue from './contracts';
 
@@ -21,6 +23,10 @@ interface QueueJobExecution {
 	handle(): Promise<void>;
 	onRetry?(error: unknown, delaySeconds: number): Promise<void>;
 	onFinalFailure?(error: unknown): Promise<void>;
+	/** Runnable records retain their own terminal history. */
+	retainsFailure?: boolean;
+	/** Reuses the jitter sample used to persist a retained run outcome. */
+	retryDelaySeconds?: number;
 }
 
 /**
@@ -37,6 +43,7 @@ type QueueJobExecutionFactory = (
  * callers can either process one job at a time or start a worker loop over the same API.
  */
 export class Queue implements queue.QueueService {
+	#jobClasses = new Map<string, queue.QueueableJobClass>();
 	private readonly handlers = new Map<string, QueueJobExecutionFactory>();
 	readonly #ownedJobs = new Map<string, { Job: queue.QueueableJobClass; run: queue.QueueJobRunner }>();
 	private readonly driver: queue.QueueDriver;
@@ -61,8 +68,16 @@ export class Queue implements queue.QueueService {
 	}
 
 	/**
-	 * Returns the queue lifecycle monitor attached to this queue, when enabled.
+	 * Returns the configured transport name for atomic database dispatch.
 	 */
+	get driverName(): string { return this.driver.name; }
+
+	/** Reports worker presence through the application-owned sink without changing delivery semantics. */
+	async reportWorker(snapshot: queue.QueueWorkerSnapshot): Promise<void> {
+		await this.options.onWorkerHeartbeat?.(snapshot);
+	}
+
+	/** Returns the optional queue lifecycle monitor. */
 	get queueMonitor(): QueueMonitor | null {
 		return this.monitor;
 	}
@@ -81,7 +96,7 @@ export class Queue implements queue.QueueService {
 		return () => {
 			if (closed) return;
 			closed = true;
-			for (const name of names) { this.handlers.delete(name); this.#ownedJobs.delete(name); }
+			for (const name of names) { this.handlers.delete(name); this.#jobClasses.delete(name); this.#ownedJobs.delete(name); }
 		};
 	}
 
@@ -180,12 +195,24 @@ export class Queue implements queue.QueueService {
 			if (owned.Job !== Job) throw new Error(`Job "${queueableJobName(Job)}" belongs to another registration.`);
 			return;
 		}
-		this.handlers.set(queueableJobName(Job), job => {
-			const instance = queueableJobFromJSON(Job, job.payload.data);
+		this.#jobClasses.set(queueableJobName(Job), Job);
+		this.handlers.set(queueableJobName(Job), async job => {
+			const instance = await queueableJobFromJSON(Job, job.payload.data);
 			const context = this.createQueueableJobContext(job);
+			let retryDelay: number | undefined;
+			context.willRetry = error => {
+				retryDelay ??= queueRetryDelaySeconds(job.payload.backoff ?? this.resolveRetryBackoff(), job.attempts);
+				return isQueueRetryLaterError(error) || !(error instanceof QueueTerminalError) && job.attempts < job.payload.maxTries && !queueRetryDeadlineReached(job.payload.retryUntil, retryDelay, unixTimestamp());
+			};
+			context.assertOwnership = async () => {
+				const error = await this.confirmLease(job, this.retryAfterSeconds(), 'checkpoint');
+				if (error) throw error;
+			};
 
 			return {
-				handle: () => instance.handle(context),
+				retainsFailure: instance instanceof RunnableJob,
+				get retryDelaySeconds() { return retryDelay; },
+				handle: () => instance instanceof RunnableJob ? instance.execute(context) : instance.handle(context),
 				onRetry: (error, delaySeconds) => instance.onRetry({
 					...context,
 					error,
@@ -218,6 +245,18 @@ export class Queue implements queue.QueueService {
 		dataOrOptions: Record<string, unknown> | queue.DispatchOptions = {},
 		maybeOptions: queue.DispatchOptions = {},
 	): Promise<queue.QueueJobId> {
+		const dispatchedName = typeof job === 'string' ? job : queueableJobName(job.constructor as queue.QueueableJobClass);
+		const Registered = this.#jobClasses.get(dispatchedName);
+		// Applications can register a retained implementation of a framework job.
+		if (Registered?.prototype instanceof RunnableJob && !(job instanceof RunnableJob)) {
+			const input = typeof job === 'string' ? dataOrOptions : job.serialize().data;
+			return this.dispatch(new Registered(input), typeof job === 'string' ? maybeOptions : dataOrOptions as queue.DispatchOptions);
+		}
+		if (job instanceof RunnableJob && !job.publishingDelivery) {
+			const parent = RunnableJob.current();
+			if (parent) { await parent.assertActive(); job.parentRunId ??= parent.id; }
+			return job.enqueue(this, dataOrOptions as queue.DispatchOptions);
+		}
 		const serialized = isQueueableJob(job) ? job.serialize() : null;
 		const name = resolveDispatchedJobName(job, serialized?.job);
 		const options = serialized ? dataOrOptions as queue.DispatchOptions : maybeOptions;
@@ -396,7 +435,7 @@ export class Queue implements queue.QueueService {
 				};
 			}
 
-			const delaySeconds = queueRetryDelaySeconds(
+			const delaySeconds = execution?.retryDelaySeconds ?? queueRetryDelaySeconds(
 				job.payload.backoff ?? this.resolveRetryBackoff(),
 				job.attempts,
 			);
@@ -407,7 +446,9 @@ export class Queue implements queue.QueueService {
 			);
 
 			if (error instanceof QueueTerminalError || job.attempts >= job.payload.maxTries || retryDeadlineReached) {
-				const failed = await this.driver.fail(job, error);
+				const failed = execution?.retainsFailure
+					? await this.driver.delete(job)
+					: await this.driver.fail(job, error);
 
 				if (!failed) {
 					return await this.recordLostLease(

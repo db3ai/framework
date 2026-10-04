@@ -131,7 +131,7 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	 * @returns True when the current attempt still owns the job.
 	 */
 	async touch(job: queue.QueueJob, _retryAfterSeconds: number): Promise<boolean> {
-		return withQueueQueryCategory(() => ActiveRecord.withDb(this.db.knex, async () => {
+		return withQueueQueryCategory(() => ActiveRecord.withDb(ActiveRecord.getScopedDb() ?? this.db.knex, async () => {
 			const updated = await QueuedJob
 				.where('id', job.id)
 				.where('attempts', job.attempts)

@@ -13,3 +13,8 @@ export * from './contracts';
 export * from './createJob';
 
 export * from './QueueTerminalError';
+
+export * from './RunnableJob';
+export * from './JobRunAttempt';
+export * from './JobRunEvent';
+export * from './JobRunStoppedError';

@@ -1,3 +1,4 @@
+import { QueueWorkerReporter } from './QueueWorkerReporter';
 import { unknownErrorMessage } from '@db3.ai/pure';
 
 import type { Queue } from './Queue';
@@ -17,6 +18,7 @@ const MIN_MAX_JOBS_PER_TICK = 1;
  * handler execution, retries, and failure recording back to Queue.
  */
 export class QueueWorker implements queue.QueueWorkerLifecycle {
+	readonly #presence: QueueWorkerReporter;
 	#activeTick: Promise<void> | null = null;
 	#activeJob: Promise<queue.QueueProcessResult | null> | null = null;
 	#lastQueue: string | null = null;
@@ -46,6 +48,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			+ (this.#excludeQueues.size ? ` excluding ${[...this.#excludeQueues].join(', ')}` : '');
 		this.intervalMs = normalizeWorkerIntervalMs(intervalMs);
 		this.maxJobsPerTick = normalizeMaxJobsPerTick(maxJobsPerTick);
+		this.#presence = new QueueWorkerReporter({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, snapshot => this.queueManager.reportWorker(snapshot), this.logger);
 	}
 
 	/**
@@ -58,10 +61,11 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		this.logger?.info(this.verbose
 			? `[queue] Worker started for "${this.queue}" (interval ${this.intervalMs}ms, max ${this.maxJobsPerTick} jobs/tick).`
 			: `[queue] Worker started for "${this.queue}".`);
-		this.startTick();
+		this.#presence.start();
 		this.timer = setInterval(() => {
 			this.startTick();
 		}, this.intervalMs);
+		this.startTick();
 	}
 
 	/**
@@ -69,6 +73,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	stop(): void {
 		this.#stopping = true;
+		if (this.#activeJob) this.#presence.update('stopping'); else void this.#presence.stop();
 		if (!this.timer) return;
 
 		clearInterval(this.timer);
@@ -86,6 +91,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			await this.#activeTick;
 		}
 		await this.#activeJob;
+		await this.#presence.stop();
 	}
 
 	/**
@@ -96,12 +102,15 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	async workOnce(options: queue.QueueWorkOptions = {}): Promise<queue.QueueProcessResult | null> {
 		if (this.#activeJob) throw new Error('This queue worker is already processing a job.');
 		if (this.#stopping) return null;
+		this.#presence.start();
 		const pending = this.#workOnce(options);
 		this.#activeJob = pending;
 		try {
 			return await pending;
 		} finally {
 			this.#activeJob = null;
+			if (this.#stopping || !this.timer) await this.#presence.stop();
+			else this.#presence.update('idle');
 		}
 	}
 
@@ -121,6 +130,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 				...options,
 				onClaimed: job => {
 					this.#lastQueue = name;
+					this.#presence.update('busy', job.queue, String(job.id));
 					options.onClaimed?.(job);
 				},
 			});

@@ -1,6 +1,6 @@
 import type { QueueMonitor, QueueMonitorOptions } from '../queueMonitor';
 import type { QueueEvents } from '../QueueEvents';
-import type { QueueableJob } from '../QueueableJob';
+import type { QueueableJobContract as QueueableJob } from './QueueableJobContract';
 import type { QueueLifecycleErrorHandler } from './QueueEvents';
 import type { DispatchOptions, QueueDriverName, QueueJob, QueueJobId, QueueProcessResult } from './QueuePayload';
 import type { QueueRetryBackoffStrategy } from './QueueRetry';
@@ -9,6 +9,7 @@ import type { QueueableJobClass } from './QueueableJob';
 import type { QueueWorkerLifecycle, QueueWorkerOptions } from './QueueWorkerLifecycle';
 import type { RedisQueueDriverOptions } from './RedisQueueDriver';
 import type { QueueJobRunner } from './QueueJobRunner';
+import type { QueueWorkerSnapshot } from './QueueWorkerSnapshot';
 import type { QueueSelection } from './QueueSelection';
 
 /**
@@ -35,6 +36,8 @@ export type QueueJobResolver = (
  * Queue service configuration shared by dispatching, processing, and worker startup.
  */
 export interface QueueOptions {
+	/** Receives serialized worker presence every ten seconds and on state changes; errors are isolated from job execution. */
+	onWorkerHeartbeat?: (snapshot: QueueWorkerSnapshot) => void | Promise<void>;
 	/**
 	 * Default queue name used when dispatching or processing jobs without an explicit queue.
 	 */

@@ -1,4 +1,4 @@
-import type { QueueableJob } from '../../queue';
+import type { QueueableJobContract as QueueableJob } from '../../queue';
 
 /**
  * Supported scheduled task kinds.
@@ -76,7 +76,7 @@ export interface ScheduledJobClass {
 	 * @param data - JSON-safe queue payload.
 	 * @returns Rehydrated job instance.
 	 */
-	fromJSON(data: Record<string, unknown>): QueueableJob;
+	fromJSON(data: Record<string, unknown>): QueueableJob | Promise<QueueableJob>;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { isQueueableJob, isQueueableJobClass, queueableJobName, type QueueableJob } from '../queue';
+import { isQueueableJob, isQueueableJobClass, queueableJobName, type QueueableJobContract as QueueableJob } from '../queue';
 import type * as scheduler from './contracts';
 import { ScheduledEvent } from './ScheduledEvent';
 

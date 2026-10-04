@@ -420,3 +420,86 @@ and queued jobs can therefore commit or roll back together. Outside a scope it
 uses its configured database. Redis dispatch is not transactional with SQL.
 Dispatch lifecycle events may run before the surrounding transaction commits;
 observers must not perform irreversible external work on those events.
+
+## Retained runnable records
+
+Use `RunnableJob` when an operation needs durable progress and history. It is an
+ActiveRecord implementing the queue contract; concrete subclasses share
+`job_runs`. Register `RunnableJob`, `JobRunAttempt` and `JobRunEvent` with the
+application's migration registry, alongside `QueuedJob` and `FailedJob`.
+
+```ts
+import { RunnableJob, type QueueableJobContext } from '@db3.ai/app/queue';
+
+/** Retains one organization's progress between delivery attempts. */
+class CountItemsJob extends RunnableJob {
+	/** Saves a checkpoint after each bounded unit of work. */
+	override async handle(_context: QueueableJobContext): Promise<void> {
+		this.total = 10;
+		for (let index = this.completed ?? 0; index < 10; index++) {
+			await this.assertActive();
+			await this.checkpoint(run => {
+				run.completed = index + 1;
+				run.state = { lastItem: index };
+			});
+		}
+		await this.log('All items processed');
+	}
+}
+
+const run = CountItemsJob.create({ tenantId: organizationId, input: {} });
+await app.queue.dispatch(run); // persists before execution, then queues its ID
+```
+
+`prepare()` can resolve tenant/input scope before initial persistence. `save()`
+during `handle()` saves application state under the current execution fence.
+Use `checkpoint(callback)` when concurrent requests merge counters or JSON.
+The application authorizes launching/reading runs; a tenant ID alone is not an
+access-control policy. `input`, tenant and subject are immutable during execution.
+
+The runtime records waiting/running/completed/failed/blocked/cancelled outcomes,
+start/end/heartbeat timestamps, and separate attempts. Queue retries reconstruct
+the same run, retaining its checkpoint. A recovered expired reservation marks
+the preceding attempt interrupted. The queue still delivers at least once:
+external effects must be idempotent and jobs must check ownership before
+publishing them. `assertActive()` also detects an operator-set
+`cancelRequestedAt`; `signal` allows requests to cooperate with cancellation.
+`block(reason)` retains a stopped outcome without retrying a known bad condition.
+
+Run-specific concurrency, request budgets, exception thresholds and cost
+accounting belong to the concrete job. Keep JSON checkpoints bounded (1 MB) and
+use `log(message, data, level)` for bounded events (16 KB each). Omit secrets and
+provider bodies. Historical evidence needs an application retention policy.
+
+With the database queue, reserving the dispatch generation and inserting its
+reference are atomic. The run is saved first, so a failed enqueue remains
+inspectable. An external broker cannot share that SQL transaction; adopting one
+requires a transactional outbox/reconciler for the publish gap. Tracked terminal
+failures remain in `job_runs` instead of adding failed queue-delivery rows.
+Ordinary `QueueableJob` classes and their existing failure behavior are unchanged.
+
+### Active run context
+
+`RunnableJob.current()` returns the run executing in the current asynchronous
+context. Dispatching a retained child automatically records its parent ID and
+checks that the parent still owns its execution. Cancellation is checked through
+the parent ancestry before further checkpoints and work. Applications own which
+job types support operator cancellation and any external-effect cleanup.
+
+A registered retained implementation also handles named dispatches and ordinary
+queue producers registered under the same job name. Producers must register the
+retained implementation before dispatch. The scheduler accepts either retained
+or lightweight queue contracts; it does not poll retained history.
+
+### Live worker presence
+
+Set `QueueOptions.onWorkerHeartbeat` to persist or publish `QueueWorkerSnapshot`
+records in the application's own monitoring store. Every worker has a unique ID,
+host/PID, exact queue selection and exclusions, current job identity, start time
+and heartbeat. Polling workers report idle/busy/stopping/stopped transitions and
+a heartbeat every ten seconds, including during long jobs. One-shot workers
+report a final stopped state. Sink failures do not fail jobs; stale heartbeats
+must be treated as unavailable rather than counted as idle capacity.
+The sink is optional, coalesces pending updates, and never receives job payloads.
+Applications own access control, expiry and retention. Counts across overlapping
+queue selections are shared capacity, not additional worker processes.

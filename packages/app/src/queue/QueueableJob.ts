@@ -118,7 +118,7 @@ export abstract class QueueableJob<TData extends Record<string, unknown> = Recor
  * @param value - Unknown value to inspect.
  * @returns True when the value is a queueable job instance.
  */
-export function isQueueableJob(value: unknown): value is QueueableJob {
+export function isQueueableJob(value: unknown): value is queue.QueueableJobContract {
 	return Boolean(
 		value
 		&& typeof value === 'object'
@@ -162,6 +162,6 @@ export function queueableJobName(Job: queue.QueueableJobClass | { name: string; 
  * @param data - JSON payload data stored in the queue envelope.
  * @returns Rehydrated queueable job instance.
  */
-export function queueableJobFromJSON(Job: queue.QueueableJobClass, data: Record<string, unknown>): QueueableJob {
+export function queueableJobFromJSON(Job: queue.QueueableJobClass, data: Record<string, unknown>): queue.QueueableJobContract | Promise<queue.QueueableJobContract> {
 	return Job.fromJSON(data);
 }

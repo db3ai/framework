@@ -1,5 +1,5 @@
 import type { Queue } from '../Queue';
-import type { QueueableJob } from '../QueueableJob';
+import type { QueueableJobContract } from './QueueableJobContract';
 import type { QueueJob, SerializedQueuedJob } from './QueuePayload';
 
 /**
@@ -15,6 +15,10 @@ export interface QueueableJobContext {
 	job: QueueJob;
 	/** Queue service that is processing this job. */
 	queue: Queue;
+	/** Confirms this delivery still belongs to the current worker before publishing effects. */
+	assertOwnership?(): Promise<void>;
+	/** Uses the queue retry policy, including deadline and backoff, for a failed attempt. */
+	willRetry?(error: unknown): boolean;
 }
 
 /**
@@ -38,7 +42,7 @@ export interface QueueableJobFailureContext extends QueueableJobContext {
 /**
  * Constructor contract for serializable queueable job classes.
  */
-export interface QueueableJobClass<TJob extends QueueableJob = QueueableJob> {
+export interface QueueableJobClass<TJob extends QueueableJobContract = QueueableJobContract> {
 	/** Runtime class name used as the default durable job name. */
 	readonly name: string;
 	/** Optional durable job name override. */
@@ -52,5 +56,5 @@ export interface QueueableJobClass<TJob extends QueueableJob = QueueableJob> {
 	 * @param data - JSON-safe data stored in the queue payload.
 	 * @returns Queueable job instance ready to handle.
 	 */
-	fromJSON(data: Record<string, unknown>): TJob;
+	fromJSON(data: Record<string, unknown>): TJob | Promise<TJob>;
 }
