@@ -26,6 +26,30 @@ beforeEach(async () => {
 afterAll(async () => { try { await application?.close(); } finally { await database?.destroy(); vi.unstubAllEnvs(); } });
 
 describe('SQL provider account admission', () => {
+	it.each(['deadline', 'quota', 'cancel'])('does not let a cached HTTP deferral replace the next %s decision', async decision => {
+		const guard = new AIProviderAdmission(policy);
+		const transport = guard.transport(attempt, vi.fn(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 })));
+		await transport('https://synthetic.invalid/v1/responses');
+		const current = decision === 'cancel' ? new DOMException('Cancelled', 'AbortError') : new AIProviderStoppedError(decision === 'quota' ? 'quota' : 'outage');
+		expect(guard.requestRetryDelay(attempt, new Error('SDK wrapper'))).not.toBeNull();
+		expect(guard.requestFailure(attempt, current)).toBe(current);
+	});
+
+	it('expires admission before retry transport without retaining the earlier HTTP deferral', async () => {
+		const guard = new AIProviderAdmission(policy);
+		const fetcher = vi.fn(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+		const transport = guard.transport(attempt, fetcher);
+		await transport('https://synthetic.invalid/v1/responses');
+		const bucket = (await AiRateLimitBucket.query().all())[0]!;
+		const metadata = bucket.metadata!;
+		(metadata.admission as { deadline: number }).deadline = Date.now() - 1;
+		await bucket.assign({ metadata }).save();
+		const failure = await transport('https://synthetic.invalid/v1/responses').catch(error => error);
+		expect(failure).toBeInstanceOf(AIProviderStoppedError);
+		expect(guard.requestFailure(attempt, failure)).toBe(failure);
+		expect(fetcher).toHaveBeenCalledTimes(1);
+	});
+
 	it('stops both workers across endpoints and restart after quota, isolating other identities', async () => {
 		const guard = new AIProviderAdmission(policy);
 		const [first, late] = await Promise.all([guard.acquire(attempt), guard.acquire(attempt)]);
@@ -54,6 +78,26 @@ describe('SQL provider account admission', () => {
 		expect(await guard.failure(attempt, probe, wrapped, now + 1002)).toBeNull();
 		await expect(guard.acquire(attempt, now + 1003)).rejects.toBeInstanceOf(AIProviderDeferredError);
 		await expect(guard.acquire(attempt, now + 3002)).resolves.toBeDefined();
+	});
+
+	it('bounds rejection diagnostics and never retains provider messages in cooldown errors', async () => {
+		const guard = new AIProviderAdmission(policy);
+		const lease = await guard.acquire(attempt);
+		const error = await guard.failure(attempt, lease, { status: 503, requestId: 'Bearer PRIVATE secret', error: { code: 'PRIVATE customer text', message: 'PRIVATE article content' } });
+		expect(error).toMatchObject({ providerCode: null, diagnostics: { status: 503, requestId: null }, providerStarted: true });
+		expect(JSON.stringify(error)).not.toMatch(/PRIVATE|Bearer|secret|article/);
+	});
+
+	it('retains recognized exhausted-credit diagnostics without widening admission classification', async () => {
+		const guard = new AIProviderAdmission(policy);
+		const lease = await guard.acquire(attempt);
+		expect(await guard.failure(attempt, lease, { status: 429, error: { code: 'credit_balance_exhausted' } })).toBeNull();
+		const stopped = await guard.failure(attempt, lease, { status: 429, requestId: 'req_credit_balance', error: { code: 'credit_balance_exhausted', message: 'You have no credits remaining. PRIVATE provider text.' } });
+		expect(stopped).toMatchObject({ reason: 'quota', providerCode: 'credit_balance_exhausted', status: 429, requestId: 'req_credit_balance', stopStage: 'quota' });
+		expect(JSON.stringify(stopped)).not.toContain('PRIVATE');
+		const deferred = new AIProviderDeferredError(new Date(), new Date(), 'credit_balance_exhausted');
+		expect(deferred.providerCode).toBe('credit_balance_exhausted');
+		expect(new AIProviderStoppedError('quota', 'PRIVATE provider text').providerCode).toBeNull();
 	});
 
 	it('keeps quota messages separate from ordinary 429 capacity', async () => {

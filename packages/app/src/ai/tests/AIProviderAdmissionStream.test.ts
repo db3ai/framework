@@ -53,6 +53,25 @@ describe('provider recovery SSE observation', () => {
 		await expect(guard.acquire(attempt)).resolves.toMatchObject({ probe: null });
 	});
 
+	it('retains SSE support identity and recognized failure code without treating HTTP 200 as a rejection', async () => {
+		const guard = new AIProviderAdmission();
+		const response = await guard.transport(attempt, async () => new Response('data: {"type":"response.failed","response":{"error":{"code":"server_error","message":"PRIVATE customer text"}}}\n\n', { headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_sse_outage' } }))('https://synthetic.invalid');
+		await response.text();
+		const error = guard.requestFailure(attempt, null);
+		expect(error).toMatchObject({ providerCode: 'server_error', diagnostics: { status: null, requestId: 'req_sse_outage' } });
+		expect(JSON.stringify(error)).not.toContain('PRIVATE');
+	});
+
+	it('retains the support request ID when an SSE body fails during transport', async () => {
+		const guard = new AIProviderAdmission();
+		const body = new ReadableStream<Uint8Array>({
+			/** Simulates a provider connection failure after response headers arrived. */
+			pull(controller) { controller.error(Object.assign(new Error('PRIVATE provider text'), { code: 'ECONNRESET' })); },
+		});
+		const response = await guard.transport(attempt, async () => new Response(body, { headers: { 'content-type': 'text/event-stream', 'x-request-id': 'req_transport_outage' } }))('https://synthetic.invalid');
+		await expect(response.text()).rejects.toMatchObject({ providerCode: 'ECONNRESET', diagnostics: { status: null, requestId: 'req_transport_outage' } });
+	});
+
 	it('accepts a fully framed compatible DONE marker after valid data', async () => {
 		const guard = await recovery();
 		await consume(guard, new TextEncoder().encode('data: {"choices":[]}\n\ndata: [DONE]\n\n'));
