@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, AIRequestError, AIProviderAdmission, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, AIRequestError, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
@@ -396,8 +396,8 @@ describe('AI inside an application', () => {
 	});
 
 	it('retries only a rejected current model request after completed tools without replaying the tools', async () => {
-		const guard = application.ai.providerAdmission;
-		application.ai.providerAdmission = new AIProviderAdmission({ initialSeconds: 0.01, maxSeconds: 0.02 });
+		const ai = application.ai;
+		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation }, providerAdmission: { initialSeconds: 0.01, maxSeconds: 0.02 } }));
 		try {
 			fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_once', call_id: 'call_once', name: 'read_help_guide', arguments: '{}' }]))
 				.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }))
@@ -410,12 +410,12 @@ describe('AI inside an application', () => {
 			expect((await AiRequest.findByPk(queued.aiRequestId!))?.status).toBe('completed');
 			expect(await FailedJob.query().count()).toBe(0);
 			expect(await AiRateLimitReservation.query().count()).toBe(0);
-		} finally { application.ai.providerAdmission = guard; }
+		} finally { application.set('ai', ai); }
 	});
 
 	it('bounds current-request recovery attempts without replaying completed tools', async () => {
-		const guard = application.ai.providerAdmission;
-		application.ai.providerAdmission = new AIProviderAdmission({ initialSeconds: 0.01, maxSeconds: 0.01 });
+		const ai = application.ai;
+		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation }, providerAdmission: { initialSeconds: 0.01, maxSeconds: 0.01 } }));
 		try {
 			fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_bounded', call_id: 'call_bounded', name: 'read_help_guide', arguments: '{}' }]))
 				.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
@@ -426,7 +426,7 @@ describe('AI inside an application', () => {
 			expect(fetch).toHaveBeenCalledTimes(10);
 			expect((await AiMessage.query().all()).filter(message => message.role === 'tool' && message.toolState === 'success')).toHaveLength(1);
 			expect(await QueuedJob.query().count()).toBe(0);
-		} finally { application.ai.providerAdmission = guard; }
+		} finally { application.set('ai', ai); }
 	});
 
 	it.each(['quota', 'cancel'])('does not retry a current request for %s after completed tools', async failure => {
