@@ -181,6 +181,7 @@ export class AIProviderAdmission {
 	 */
 	transport(attempt: AIProviderAttempt, fetcher: typeof fetch): typeof fetch {
 		return async (url, init) => {
+			this.#requestFailures.delete(attempt);
 			const lease = await this.acquire(attempt);
 			let response: Response;
 			try { response = await fetcher(url, init); }
@@ -256,11 +257,24 @@ export class AIProviderAdmission {
 		};
 	}
 
+	/**
+	 * Returns the shared cooldown for a safe SDK retry of the current model request.
+	 * The SDK vetoes emitted output and cancellation before consulting its policy.
+	 * Retains the typed failure until transport actually starts the next attempt,
+	 * because its stateful-request veto runs after policy evaluation. Every new
+	 * attempt reacquires admission; terminal and cancellation decisions take priority.
+	 */
+	requestRetryDelay(attempt: AIProviderAttempt, fallback: unknown, now = Date.now()): number | null {
+		const failure = fallback instanceof AIProviderDeferredError || fallback instanceof AIProviderStoppedError ? fallback : this.#requestFailures.get(attempt) ?? fallback;
+		if (!(failure instanceof AIProviderDeferredError) || now >= failure.retryUntil.getTime()) return null;
+		return Math.max(1, Math.min(failure.retryAt.getTime(), failure.retryUntil.getTime()) - now);
+	}
+
 	/** Restores a typed HTTP/SSE admission failure after the SDK consumes its original event. */
 	requestFailure(attempt: AIProviderAttempt, fallback: unknown): unknown {
 		const failure = this.#requestFailures.get(attempt);
 		this.#requestFailures.delete(attempt);
-		return failure ?? fallback;
+		return fallback instanceof AIProviderDeferredError || fallback instanceof AIProviderStoppedError || isRequestCancellation(fallback) ? fallback : failure ?? fallback;
 	}
 
 	/** Creates and locks the dedicated account row in an autocommit transaction. */

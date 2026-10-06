@@ -283,8 +283,16 @@ newly dispatched jobs. Expired episodes and exhausted accounts remain stopped
 across restarts. `AIProviderDeferredError` releases queue reservations without
 spending a try; `AIProviderStoppedError` terminates immediately with a failed-job
 record and normal final-failure hooks, even when more tries were configured.
-An agent that has already emitted SDK output stops instead of deferring a whole
-turn and replaying completed model/tool work. Saved attempts and results remain.
+After a completed model/tool turn, agents retry only the current model request
+when the SDK has emitted no event for that request. The SDK retains completed
+tools and exact current input, waits for shared admission, and allows at most
+eight retries inside the existing fifteen-minute episode deadline. Each retry
+reacquires capacity and exclusive recovery admission. Queue lease renewal remains
+active while this bounded in-process wait occupies the worker; it is not a durable
+checkpoint and a worker crash cannot promise continuation. Cancellation, exhausted
+quota, stateful requests and any current-request SDK event veto this recovery.
+Failures after such events still stop instead of replaying the whole agent.
+Saved attempts and results remain.
 Terminal errors expose `stopStage`: `quota` for exhausted admission, `deadline`
 for expired outage admission, and `stream-output` for an individual run stopped
 while the account may still be in cooldown. A streamed-output stop does not

@@ -961,6 +961,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			const attemptStartMs = Date.now();
 			let rateLimitLease: AIRateLimitLease | null = null;
 			let sawStreamEvent = false;
+			let completedModelTurn = false;
 			let activeUsage: Usage | null = null;
 			let attemptState: agent.AgentPersistenceState | null = null;
 			let attemptSettled = false;
@@ -986,7 +987,18 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					const runner = new Runner({
 						model: attempt.model,
 						modelProvider: app().ai.createAgentProvider(attempt, rateLimitLease),
-						modelSettings: modelSettingsForProvider(invocation.modelSettings, attempt.provider),
+						modelSettings: {
+							...modelSettingsForProvider(invocation.modelSettings, attempt.provider),
+							retry: {
+								maxRetries: 8,
+								/** Retains completed tools in this SDK run; never restarts the whole agent. */
+								policy: ({ error }) => {
+									if (!completedModelTurn) return false;
+									const delayMs = app().ai.providerAdmission.requestRetryDelay(attempt, agentRateLimitError(error));
+									return delayMs === null ? false : { retry: true, delayMs };
+								},
+							},
+						},
 						tracingDisabled: process.env.OPENAI_AGENTS_TRACING_DISABLED === 'true',
 						traceIncludeSensitiveData: false,
 						workflowName: this.workflowName,
@@ -1008,6 +1020,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 					for await (const event of stream) {
 						sawStreamEvent = true;
+						if (event.type === 'raw_model_stream_event' && event.data.type === 'response_done') completedModelTurn = true;
 
 						const streamEvent = await this.streamEventFromSdkEvent(executionState, event);
 
