@@ -204,6 +204,44 @@ describe('authenticated WebSocket endpoints', () => {
 		const client = await connect(); await expect.poll(client.closed).toBe(1009);
 	});
 
+	it('bounds pending send authorization and removes subscriptions on overload', async () => {
+		let context: WebSocketContext | undefined;
+		let checks = 0;
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => { release = resolve; });
+		await start({ maxPendingSends: 2, endpoints: { '/ws/me': defineWebSocket({ open: value => {
+			context = value;
+			application.webSockets.channels.join('slow', value);
+		} }) } });
+		const client = await connect(); await ready(client);
+		/** Holds real authenticated sends at an application policy boundary. */
+		const authorize = async () => { checks++; await gate; return true; };
+		const pending = [context!.send({ page: 1 }, authorize), context!.send({ page: 2 }, authorize)];
+		try {
+			await expect.poll(() => checks).toBe(2);
+			expect(await context!.send({ page: 3 }, authorize)).toBe(false);
+			await expect.poll(client.closed).toBe(1013);
+			for (let index = 0; index < 100; index++) expect(await context!.send({ page: index }, authorize)).toBe(false);
+			expect(checks).toBe(2);
+			expect(await application.webSockets.channels.publish('slow', {})).toBe(0);
+			expect(application.webSockets.presence('/ws/me')).toEqual([]);
+		} finally { release(); await Promise.all(pending); }
+		expect(await Promise.all(pending)).toEqual([false, false]);
+		expect(client.frames).toEqual([{ type: 'ready' }]);
+	});
+
+	it('releases pending send capacity after delivery without throttling later events', async () => {
+		let context: WebSocketContext | undefined;
+		await start({ maxPendingSends: 2, endpoints: { '/ws/me': defineWebSocket({ open: value => { context = value; } }) } });
+		const client = await connect(); await ready(client);
+		for (let index = 0; index < 10; index += 2) {
+			expect(await Promise.all([context!.send({ page: index }), context!.send({ page: index + 1 })])).toEqual([true, true]);
+		}
+		await expect.poll(() => client.frames.filter(frame => frame.type === 'message').length).toBe(10);
+		expect(client.frames.filter(frame => frame.type === 'message').map(frame => frame.data.page).sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
+		expect(client.closed()).toBe(0);
+	});
+
 	it('bounds queued inbound actions and cancels their application subscriptions', async () => {
 		let release!: () => void;
 		let running = false;
@@ -490,6 +528,41 @@ describe('authenticated HTTP worker publication', () => {
 		allowed = false;
 		await worker();
 		expect(alice.frames.filter(frame => frame.data?.type === 'channel.event')).toHaveLength(1);
+	}, 30000);
+
+	it('discards unattended HTTP bursts without database queries or replay, including after disconnect', async () => {
+		let queries = 0;
+		let accessChecks = 0;
+		/** Counts SQL statements without retaining their contents. */
+		const onQuery = () => { queries++; };
+		await start({ publish: { path, token: secret }, endpoints: { '/ws/me': defineWebSocket({ channels: [defineChannel('website:{websiteId}:jobs', { authorize: () => { accessChecks++; return true; } })] }) } });
+		const target = url.replace('ws:', 'http:').replace('/ws/me', path);
+		/** Exercises real authenticated HTTP requests while no channel viewers exist. */
+		async function unattendedBurst(): Promise<void> {
+			queries = 0;
+			const previousChecks = accessChecks;
+			database.db.on('query', onQuery);
+			try {
+				for (let batch = 0; batch < 40; batch++) {
+					await Promise.all(Array.from({ length: 25 }, async (_, index) => {
+						const response = await fetch(target, { method: 'POST', headers: { authorization: `Bearer ${secret}`, 'content-type': 'application/json' }, body: JSON.stringify({ channel: `website:${batch * 25 + index}:jobs`, event: 'progress', data: { completed: index } }) });
+						try { expect(response.status).toBe(204); } finally { await response.body?.cancel(); }
+					}));
+				}
+				expect(queries).toBe(0);
+				expect(accessChecks).toBe(previousChecks);
+			} finally { database.db.removeListener('query', onQuery); }
+		}
+		await unattendedBurst();
+		const client = await connect(); await ready(client);
+		client.ws.send(JSON.stringify({ type: 'message', data: { type: 'channel.subscribe', channel: 'website:0:jobs' } }));
+		await expect.poll(() => client.frames.at(-1)?.data?.type).toBe('channel.subscribed');
+		expect(await application.webSockets.channel('website:0:jobs').publish('progress', { completed: 1000 })).toBe(1);
+		await expect.poll(() => client.frames.at(-1)?.data?.data).toEqual({ completed: 1000 });
+		expect(client.frames.filter(frame => frame.data?.type === 'channel.event')).toHaveLength(1);
+		client.ws.close();
+		await expect.poll(() => application.webSockets.presence('/ws/me')).toEqual([]);
+		await unattendedBurst();
 	}, 30000);
 
 	it('requires service credentials, rejects browser requests and validates bounded payloads', async () => {

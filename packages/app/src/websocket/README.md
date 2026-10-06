@@ -253,6 +253,12 @@ reload authorized state. A load balancer alone does not broadcast to all replica
 Multiple concurrent socket owners require explicit fan-out. Presence and
 lower-level `channels.publish()` memberships remain process-local.
 
+Events with no local subscribers are discarded immediately, with no per-user
+authentication or resource queries. They are not retained for later subscribers.
+Workers still make one authenticated HTTP request per publication, even with no
+viewers; this is lightweight receiver work, not a zero-cost path. Subscription
+registries remove empty channels and disconnect listeners when viewers leave.
+
 There is no durable replay. A crash between commit and publication, an HTTP
 failure, or a disconnect may lose a signal. Reload saved state after subscription
 and reconnect, and provide explicit refresh. Retrying an ambiguous timeout can
@@ -347,8 +353,14 @@ routing or implement distributed presence for you.
 
 Defaults: 1000 sockets including pending authentication; 5-second authentication
 deadline; 64 KiB incoming/outgoing frames; 256 KiB outgoing buffer; 16 queued
-incoming actions; 30-second heartbeat; 3-second shutdown deadline. Compression
+incoming actions; 32 concurrent outgoing sends awaiting access checks; 30-second heartbeat; 3-second shutdown deadline. Compression
 is disabled. Slow clients, flooding and oversized payloads are disconnected.
+The `maxPendingSends` limit applies before authentication/resource queries begin,
+so slow access checks cannot build an unlimited per-connection backlog. Overflow
+closes that connection with retryable code 1013; the browser reconnects and the app
+reloads saved state. Pending sends release their payloads when their access checks
+settle; this limit does not cancel database queries already running. Ordinary
+sends are neither throttled nor queued for replay.
 Configure `onError` for server diagnostics; application errors close with 1011
 without sending exception text. Proxy rate limits remain application operations.
 
