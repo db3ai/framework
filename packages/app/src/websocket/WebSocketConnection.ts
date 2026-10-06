@@ -13,6 +13,8 @@ export class WebSocketConnection {
 	#userId = '';
 	#ready = false;
 	#pending = 0;
+	/** Bounds retained payloads and concurrent access checks before transport buffering. */
+	#pendingSends = 0;
 	#chain: Promise<void> = Promise.resolve();
 	#alive = true;
 	#checking = false;
@@ -121,8 +123,11 @@ export class WebSocketConnection {
 		});
 	}
 
-	/** Sends application JSON only after fresh authentication and resource policy checks. */
+	/** Bounds in-flight sends before fresh access checks; overload disconnects without queuing or replay. */
 	async #send(data: unknown, authorize?: Parameters<socket.WebSocketContext<any>['send']>[1]): Promise<boolean> {
+		if (this.#abort.signal.aborted) return false;
+		if (this.#pendingSends >= this.limits.maxPendingSends) { this.stop(1013); return false; }
+		this.#pendingSends++;
 		try {
 			let sent = false;
 			await this.#authorized(async context => {
@@ -130,6 +135,7 @@ export class WebSocketConnection {
 			});
 			return sent;
 		} catch (error) { this.report(error); this.stop(1011); return false; }
+		finally { this.#pendingSends--; }
 	}
 
 	/** Enforces frame and buffered-byte limits before handing data to the socket. */

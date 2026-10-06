@@ -64,7 +64,7 @@ export class WebSockets {
 		for (const [path, endpoint] of endpoints) {
 			if (!path.startsWith('/') || path.startsWith('//') || /[?#\s]/.test(path) || !endpoint || typeof endpoint !== 'object') throw new Error('Invalid WebSocket endpoint.');
 		}
-		const limits: socket.WebSocketLimits = { maxConnections: 1000, maxPayloadBytes: 65536, maxBufferedBytes: 262144, maxPendingMessages: 16, authTimeoutMs: 5000, heartbeatMs: 30000, shutdownTimeoutMs: 3000 };
+		const limits: socket.WebSocketLimits = { maxConnections: 1000, maxPayloadBytes: 65536, maxBufferedBytes: 262144, maxPendingMessages: 16, maxPendingSends: 32, authTimeoutMs: 5000, heartbeatMs: 30000, shutdownTimeoutMs: 3000 };
 		for (const key of Object.keys(limits) as (keyof socket.WebSocketLimits)[]) {
 			const value = options[key] ?? limits[key];
 			if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid WebSocket limit: ${key}.`);

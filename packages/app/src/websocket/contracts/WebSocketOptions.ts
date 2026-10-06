@@ -24,6 +24,8 @@ export interface WebSocketOptions {
 	maxBufferedBytes?: number;
 	/** Maximum queued incoming actions per client. Default 16. */
 	maxPendingMessages?: number;
+	/** Maximum concurrent outgoing sends awaiting access checks per client. Overflow closes with retryable 1013. Default 32. */
+	maxPendingSends?: number;
 	/** Deadline for initial authentication. Default 5000 ms. */
 	authTimeoutMs?: number;
 	/** Ping and session/policy revalidation interval. Default 30000 ms. */
@@ -40,6 +42,8 @@ export interface WebSocketLimits {
 	maxPayloadBytes: number;
 	maxBufferedBytes: number;
 	maxPendingMessages: number;
+	/** Includes authentication and resource authorization, before socket buffering begins. */
+	maxPendingSends: number;
 	authTimeoutMs: number;
 	heartbeatMs: number;
 	shutdownTimeoutMs: number;
