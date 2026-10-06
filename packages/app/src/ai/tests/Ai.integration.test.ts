@@ -396,13 +396,37 @@ describe('AI inside an application', () => {
 
 	it('does not replay a completed SDK tool/model turn when the next model call hits an outage', async () => {
 		fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_saved', call_id: 'call_saved', name: 'read_help_guide', arguments: '{}' }]))
-			.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+			.mockResolvedValueOnce(Response.json({ error: { code: 'server_error', message: 'PRIVATE customer input; Bearer secret' } }, { status: 503, headers: { 'x-request-id': 'req_partial_outage' } }));
 		await new HelpAgent({ guidePath: 'help.md' }).queue('Read the guide.', { queue: 'partial-outage', maxTries: 5 });
-		expect((await application.queue.workNextJob('partial-outage'))?.status).toBe('failed');
+		const result = await application.queue.workNextJob('partial-outage');
+		expect(result?.status).toBe('failed');
+		expect(result?.job.attempts).toBe(1);
+		expect(result?.error).toMatchObject({ stopStage: 'stream-output', reason: 'outage', providerCode: 'server_error', status: 503, requestId: 'req_partial_outage', providerStarted: true });
+		expect(String(result?.error)).not.toMatch(/deadline|PRIVATE|Bearer|secret/);
+		await expect(application.ai.generateEmbedding('Blocked sibling')).rejects.toBeInstanceOf(AIProviderDeferredError);
 		expect(await QueuedJob.query().count()).toBe(0);
 		expect(await FailedJob.query().count()).toBe(1);
 		expect(fetch).toHaveBeenCalledTimes(2);
 		expect((await AiMessage.query().all()).some(message => message.role === 'tool')).toBe(true);
+	});
+
+	it('reports a true durable deadline separately from streamed-output stops without another provider request', async () => {
+		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'deadline-agent', maxTries: 10 });
+		expect((await application.queue.workNextJob('deadline-agent'))?.status).toBe('deferred');
+		const bucket = (await AiRateLimitBucket.query().all()).find(row => row.limitKey === 'account-admission')!;
+		const metadata = bucket.metadata!;
+		(metadata.admission as { deadline: number }).deadline = Date.now() - 1;
+		bucket.metadata = metadata;
+		await bucket.save();
+		await QueuedJob.query().patch({ availableAt: Math.floor(Date.now() / 1000) - 1 });
+		const result = await application.queue.workNextJob('deadline-agent');
+		expect(result?.status).toBe('failed');
+		expect(result?.error).toMatchObject({ stopStage: 'deadline', reason: 'outage', providerStarted: false, providerCode: null, status: null, requestId: null });
+		expect(String(result?.error)).toContain('failure deadline reached');
+		expect(await QueuedJob.query().count()).toBe(0);
+		expect(await FailedJob.query().count()).toBe(1);
+		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it('releases agent reservations after a transport failure so the next run can start', async () => {

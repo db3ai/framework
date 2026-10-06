@@ -56,6 +56,14 @@ describe('SQL provider account admission', () => {
 		await expect(guard.acquire(attempt, now + 3002)).resolves.toBeDefined();
 	});
 
+	it('bounds rejection diagnostics and never retains provider messages in cooldown errors', async () => {
+		const guard = new AIProviderAdmission(policy);
+		const lease = await guard.acquire(attempt);
+		const error = await guard.failure(attempt, lease, { status: 503, requestId: 'Bearer PRIVATE secret', error: { code: 'PRIVATE customer text', message: 'PRIVATE article content' } });
+		expect(error).toMatchObject({ providerCode: null, diagnostics: { status: 503, requestId: null }, providerStarted: true });
+		expect(JSON.stringify(error)).not.toMatch(/PRIVATE|Bearer|secret|article/);
+	});
+
 	it('keeps quota messages separate from ordinary 429 capacity', async () => {
 		const guard = new AIProviderAdmission(policy);
 		const lease = await guard.acquire(attempt);

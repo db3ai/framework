@@ -44,9 +44,14 @@ export interface AIProviderAdmissionLease {
 export class AIProviderDeferredError extends QueueRetryLaterError {
 	/** True only for the request that observed the provider failure. */
 	providerStarted = false;
+	/** Recognized rejection diagnostics for the observing request; absent for blocked work. */
+	readonly providerCode: string | null;
+	readonly diagnostics: { status: number | null; requestId: string | null };
 	/** Creates an account cooldown without retaining provider payloads. */
-	constructor(readonly retryAt: Date, readonly retryUntil: Date) {
+	constructor(readonly retryAt: Date, readonly retryUntil: Date, providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null } = {}) {
 		super(Math.max(1, Math.ceil((retryAt.getTime() - Date.now()) / 1000)), 'AI provider temporarily unavailable; waiting for controlled recovery.');
+		this.providerCode = safeProviderCode(providerCode);
+		this.diagnostics = { status: safeProviderStatus(diagnostics.status), requestId: safeProviderRequestId(diagnostics.requestId) };
 		this.name = 'AIProviderDeferredError';
 	}
 }
@@ -55,16 +60,22 @@ export class AIProviderDeferredError extends QueueRetryLaterError {
 export class AIProviderStoppedError extends QueueTerminalError {
 	/** Stable admission code; original provider code stays separate. */
 	readonly code = 'ai_provider_stopped';
+	/** Recognized original rejection code; never an arbitrary provider message. */
+	readonly providerCode: string | null;
 	/** Actual rejection status and provider support identifier; absent for blocked work. */
 	readonly status: number | null;
 	readonly requestId: string | null;
+	/** Distinguishes account admission expiry from an individual run stopped to prevent replay. */
+	readonly stopStage: 'quota' | 'deadline' | 'stream-output';
 	/** True only for the request that observed the provider failure. */
 	providerStarted = false;
 	/** Creates a terminal failure without provider credentials or raw error messages. */
-	constructor(readonly reason: 'quota' | 'outage', readonly providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null } = {}) {
-		super(reason === 'quota' ? 'AI provider credits exhausted; work stopped until operator recovery.' : 'AI provider failure deadline reached; work stopped until operator recovery.');
-		this.status = diagnostics.status ?? null;
-		this.requestId = diagnostics.requestId ?? null;
+	constructor(readonly reason: 'quota' | 'outage', providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null; stopStage?: 'stream-output' } = {}) {
+		super(diagnostics.stopStage === 'stream-output' ? 'AI provider interrupted after streamed output; run stopped to prevent unsafe replay.' : reason === 'quota' ? 'AI provider credits exhausted; work stopped until operator recovery.' : 'AI provider failure deadline reached; work stopped until operator recovery.');
+		this.providerCode = safeProviderCode(providerCode);
+		this.status = safeProviderStatus(diagnostics.status);
+		this.requestId = safeProviderRequestId(diagnostics.requestId);
+		this.stopStage = diagnostics.stopStage ?? (reason === 'quota' ? 'quota' : 'deadline');
 		this.name = 'AIProviderStoppedError';
 	}
 }
@@ -136,7 +147,7 @@ export class AIProviderAdmission {
 			};
 			bucket.metadata = { admission: state };
 			await bucket.save();
-			const decision = state.stopped ? new AIProviderStoppedError(state.reason, details.code, { status: details.status, requestId: details.requestId }) : new AIProviderDeferredError(new Date(state.retryAt), new Date(deadline));
+			const decision = state.stopped ? new AIProviderStoppedError(state.reason, details.code, { status: details.status, requestId: details.requestId }) : new AIProviderDeferredError(new Date(state.retryAt), new Date(deadline), details.code, { status: details.status, requestId: details.requestId });
 			decision.providerStarted = true;
 			return decision;
 		});
@@ -203,7 +214,7 @@ export class AIProviderAdmission {
 				if (error) {
 					observer.invalidate();
 					if (isOpenAIQuotaError({ error }) || isTransientProviderFailure({ error })) {
-						const decision = await guard.failure(attempt, lease, { error });
+						const decision = await guard.failure(attempt, lease, { error, status: response.status, requestId: response.headers.get('x-request-id') });
 						if (decision) guard.#requestFailures.set(attempt, decision);
 					}
 				} else if (event.type === 'response.completed') {
@@ -233,7 +244,9 @@ export class AIProviderAdmission {
 						controller.enqueue(item.value);
 					} catch (error) {
 						await reader.cancel().catch(() => {});
-						controller.error(error instanceof AIProviderDeferredError || error instanceof AIProviderStoppedError ? error : await guard.failure(attempt, lease, error) ?? error);
+						const decision = error instanceof AIProviderDeferredError || error instanceof AIProviderStoppedError ? error : await guard.failure(attempt, lease, error);
+						if (decision instanceof AIProviderDeferredError && !decision.diagnostics.requestId) decision.diagnostics.requestId = safeProviderRequestId(response.headers.get('x-request-id'));
+						controller.error(decision ?? error);
 					}
 				},
 				/** Cancellation retains the bounded recovery lease rather than asserting success. */
@@ -282,4 +295,19 @@ function isRequestCancellation(error: unknown, depth = 0): boolean {
 	if (!(error instanceof Error) || depth > 4) return false;
 	if (error.name === 'AbortError' || error.name === 'APIUserAbortError') return true;
 	return isRequestCancellation(error.cause, depth + 1);
+}
+
+/** Retains only recognized rejection codes, never arbitrary provider-supplied text. */
+function safeProviderCode(value: string | null): string | null {
+	return value !== null && ['insufficient_quota', 'billing_hard_limit_reached', 'server_error', 'service_unavailable', 'overloaded', 'overloaded_error', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(value) ? value : null;
+}
+
+/** Reports rejection HTTP status; a successful SSE handshake is not a rejection status. */
+function safeProviderStatus(value: unknown): number | null {
+	return typeof value === 'number' && Number.isInteger(value) && value >= 400 && value <= 599 ? value : null;
+}
+
+/** Bounds opaque support identifiers and rejects whitespace, headers and arbitrary messages. */
+function safeProviderRequestId(value: unknown): string | null {
+	return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(value) ? value : null;
 }

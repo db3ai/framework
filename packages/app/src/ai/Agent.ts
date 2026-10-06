@@ -1091,7 +1091,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				const restored = agentRateLimitError(caught);
 				const failure = app().ai.providerAdmission?.requestFailure(attempt, restored) ?? restored;
 				// Restarting a turn after streamed output/tools can repeat completed work.
-				const error = failure instanceof AIProviderDeferredError && sawStreamEvent ? new AIProviderStoppedError('outage') : failure;
+				const error = failure instanceof AIProviderDeferredError && sawStreamEvent ? new AIProviderStoppedError('outage', failure.providerCode, { ...failure.diagnostics, stopStage: 'stream-output' }) : failure;
+				if (failure instanceof AIProviderDeferredError && error instanceof AIProviderStoppedError) error.providerStarted = failure.providerStarted;
 				if (attemptState && !attemptSettled) {
 					await this.failTrackedAttempt(
 						attemptState,

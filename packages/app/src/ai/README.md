@@ -285,6 +285,13 @@ spending a try; `AIProviderStoppedError` terminates immediately with a failed-jo
 record and normal final-failure hooks, even when more tries were configured.
 An agent that has already emitted SDK output stops instead of deferring a whole
 turn and replaying completed model/tool work. Saved attempts and results remain.
+Terminal errors expose `stopStage`: `quota` for exhausted admission, `deadline`
+for expired outage admission, and `stream-output` for an individual run stopped
+while the account may still be in cooldown. A streamed-output stop does not
+establish that the account deadline elapsed or require resetting the account.
+Observed deferrals carry recognized provider codes, rejection HTTP status and
+bounded support request IDs into the terminal error; blocked siblings retain
+unknown fields. Raw provider messages and payloads are not attached.
 
 After independently repairing availability or credits, an authorized server
 operator can select the configured account and reset its admission state:
