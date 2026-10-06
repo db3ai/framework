@@ -64,6 +64,18 @@ describe('SQL provider account admission', () => {
 		expect(JSON.stringify(error)).not.toMatch(/PRIVATE|Bearer|secret|article/);
 	});
 
+	it('retains recognized exhausted-credit diagnostics without widening admission classification', async () => {
+		const guard = new AIProviderAdmission(policy);
+		const lease = await guard.acquire(attempt);
+		expect(await guard.failure(attempt, lease, { status: 429, error: { code: 'credit_balance_exhausted' } })).toBeNull();
+		const stopped = await guard.failure(attempt, lease, { status: 429, requestId: 'req_credit_balance', error: { code: 'credit_balance_exhausted', message: 'You have no credits remaining. PRIVATE provider text.' } });
+		expect(stopped).toMatchObject({ reason: 'quota', providerCode: 'credit_balance_exhausted', status: 429, requestId: 'req_credit_balance', stopStage: 'quota' });
+		expect(JSON.stringify(stopped)).not.toContain('PRIVATE');
+		const deferred = new AIProviderDeferredError(new Date(), new Date(), 'credit_balance_exhausted');
+		expect(deferred.providerCode).toBe('credit_balance_exhausted');
+		expect(new AIProviderStoppedError('quota', 'PRIVATE provider text').providerCode).toBeNull();
+	});
+
 	it('keeps quota messages separate from ordinary 429 capacity', async () => {
 		const guard = new AIProviderAdmission(policy);
 		const lease = await guard.acquire(attempt);

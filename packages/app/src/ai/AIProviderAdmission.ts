@@ -299,7 +299,7 @@ function isRequestCancellation(error: unknown, depth = 0): boolean {
 
 /** Retains only recognized rejection codes, never arbitrary provider-supplied text. */
 function safeProviderCode(value: string | null): string | null {
-	return value !== null && ['insufficient_quota', 'billing_hard_limit_reached', 'server_error', 'service_unavailable', 'overloaded', 'overloaded_error', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(value) ? value : null;
+	return value !== null && ['insufficient_quota', 'billing_hard_limit_reached', 'credit_balance_exhausted', 'server_error', 'service_unavailable', 'overloaded', 'overloaded_error', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(value) ? value : null;
 }
 
 /** Reports rejection HTTP status; a successful SSE handshake is not a rejection status. */
