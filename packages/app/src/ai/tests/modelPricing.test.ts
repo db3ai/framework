@@ -11,6 +11,18 @@ import {
 } from '@db3.ai/app/ai';
 
 describe('AI model pricing', () => {
+	it('prices tiers per request, including cached and long-context tokens', () => {
+		const usage = { inputTokens: 300_000, cachedTokens: 100_000, outputTokens: 10_000 };
+		expect(calculateAIRequestCostUSD('gpt-5.6-sol', { ...usage, serviceTier: 'flex' })).toBe(0.99);
+		expect(calculateAIRequestCostUSD('gpt-5.6-sol', { ...usage, serviceTier: 'fast' })).toBe(3.96);
+		expect(calculateAIRequestCostUSD('gpt-5.6-sol', { ...usage, serviceTier: null })).toBeNull();
+		expect(calculateAIRequestCostUSD('gpt-4.1-mini', { ...usage, serviceTier: 'flex' })).toBeNull();
+		expect(calculateAIRequestEntriesCostUSD('gpt-6-sol', [
+			{ ...usage, model: 'gpt-5.6-sol', serviceTier: 'flex' },
+			{ ...usage, model: 'gpt-5.6-sol', serviceTier: 'default' },
+		])).toBe(2.97);
+	});
+
 	it('prices the default GPT-4.1 mini model and dated snapshots with cached input discounts', () => {
 		for (const model of ['gpt-4.1-mini', 'gpt-4.1-mini-2025-04-14']) {
 			expect(calculateAIRequestCostUSD(model, { inputTokens: 200, cachedTokens: 60, outputTokens: 30 })).toBe(0.00011);
@@ -18,6 +30,7 @@ describe('AI model pricing', () => {
 	});
 	it('defines hardcoded OpenAI model pricing per 1M tokens', () => {
 		expect(AI_MODEL_PRICING['gpt-5.6-sol']).toEqual({
+			serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 			inputUSDPer1M: 4.00,
 			cachedInputUSDPer1M: 0.40,
 			outputUSDPer1M: 20.00,
@@ -27,6 +40,7 @@ describe('AI model pricing', () => {
 			longContextOutputMultiplier: 1.5,
 		});
 		expect(AI_MODEL_PRICING['gpt-5.6-terra']).toEqual({
+			serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 			inputUSDPer1M: 2.00,
 			cachedInputUSDPer1M: 0.20,
 			outputUSDPer1M: 12.00,
@@ -36,6 +50,7 @@ describe('AI model pricing', () => {
 			longContextOutputMultiplier: 1.5,
 		});
 		expect(AI_MODEL_PRICING['gpt-5.6-luna']).toEqual({
+			serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 			inputUSDPer1M: 0.20,
 			cachedInputUSDPer1M: 0.02,
 			outputUSDPer1M: 1.20,

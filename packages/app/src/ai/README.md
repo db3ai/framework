@@ -170,8 +170,18 @@ merely because their combined usage exceeds the threshold. GPT-5.6 Sol's publish
 promotional rates are available at least through 2026-11-21; recheck the rate
 card when that period ends rather than assuming a future price.
 
-Direct OpenAI text and agent requests select Standard processing. Estimates
-exclude regional processing surcharges and other tiers. OpenRouter and xAI
+Direct OpenAI text and agent requests default to Standard processing. Pass
+`serviceTier: 'flex'` to `generateText`, `generateTextWithResponse` or
+`generateStructured`, or override `protected readonly serviceTier: AIServiceTier = 'flex'`
+on an `Agent` subclass (import the type from `@db3.ai/app/ai`). The property
+defaults to `'default'`; queued runs preserve the selected tier. Streaming and
+tool turns use the same tier. Separate calls inside tools do not inherit it.
+Nondefault tiers require an entirely OpenAI provider chain.
+
+For the six models above, Flex token rates are half Standard and Fast/Priority
+rates are twice Standard. Costs use each response's reported tier and model;
+unconfirmed nonstandard tiers or missing tier rate cards remain unpriced.
+Hosted-tool fees are unchanged. Estimates exclude regional surcharges. OpenRouter and xAI
 use their provider-reported billed costs. Updates affect new estimates and
 new request records; they do not rewrite stored costs or change app model defaults.
 
@@ -202,7 +212,12 @@ OpenAI adapter and do not fail over. Other protocols need a driver implementatio
 Transient network, rate-limit, quota and server failures can advance to another
 provider. Authentication and request validation failures do not. Agent failover
 stops once the SDK emits an event, avoiding automatic replay of tool effects.
-The per-request timeout defaults to 60 seconds; SDK automatic retries are off.
+The per-request timeout defaults to 60 seconds for Standard and 15 minutes for
+Flex; an explicit `ai.timeoutMs` overrides either. Recovery-probe leases cover
+the selected timeout. SDK automatic retries remain off; existing bounded retry,
+deferral and provider-stop rules still apply. This option does not add durable
+checkpoints or guarantee multi-hour recovery. A partial stream or exhausted
+retry window can still fail; test locally before enabling workflows.
 
 The SQL-backed `AIRateLimiter` coordinates provider capacity across workers.
 Agents reserve capacity for each SDK HTTP request and record response headers

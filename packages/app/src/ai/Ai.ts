@@ -23,6 +23,8 @@ import { AIRateLimitDeferredError, AIRateLimiter, embeddingsRateLimitEndpoint, i
 import { isOpenAIQuotaError, openAIProviderError } from './OpenAIProviderError.js';
 import { providerReportedCostUSD } from './ProviderCosts.js';
 import { sendResponsesRequest } from './ResponsesProviderCall.js';
+import type { AIServiceTier } from './contracts/AIServiceTier';
+import { assertAIServiceTier, effectiveAIServiceTier } from './aiServiceTier';
 import type { AIAllowanceCheckInput, AIRecordIdentity, AIModels, AIConfig, AIOptions, AIProvider, AIProviderSelection, AIResponseLogOptions, EmbeddingResponsePayloadWithUsage, GenerateEmbeddingResult, GenerateImageInput, GenerateImageOptions, GenerateImageResult, GenerateStructuredInput, GenerateTextInput, GenerateTextResult, ImageResponsePayloadWithUsage, RequestLogOptions, TextResponsePayloadWithUsage, TokenUsage, TrackedEmbeddingRequest, TrackedImageRequest, TrackedRequest } from './contracts/AI.js';
 
 /**
@@ -255,6 +257,7 @@ export class Ai {
 			model: input.model,
 			provider: input.provider,
 			transientFailureScope: input.transientFailureScope,
+			serviceTier: input.serviceTier,
 			instructions: input.instructions,
 			input: input.input,
 			maxOutputTokens: input.maxOutputTokens,
@@ -311,6 +314,9 @@ export class Ai {
 		const operation = options.operation ?? 'responses.create';
 		const attempts = this.resolveProviders(input.provider ?? null, input.model ?? null)
 			.filter(attempt => attempt.supportsResponsesApi);
+		const serviceTier = input.serviceTier ?? 'default';
+		for (const attempt of attempts) assertAIServiceTier(attempt.provider, serviceTier);
+		const timeoutMs = this.requestTimeoutMs(serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
 		let tracked: TrackedRequest | null = null;
 		let trackedSettled = false;
@@ -328,7 +334,7 @@ export class Ai {
 				instructions: input.instructions,
 				input: input.input,
 				store: false,
-				...(attempt.provider === AI_PROVIDER.openai ? { service_tier: 'default' } : {}),
+				...(attempt.provider === AI_PROVIDER.openai ? { service_tier: serviceTier } : {}),
 				...maxOutputTokensPayload(input.maxOutputTokens),
 				...extraRequest,
 			};
@@ -379,7 +385,7 @@ export class Ai {
 					baseUrl: attempt.baseUrl,
 					apiKey: attempt.apiKey,
 					request,
-					fetcher: this.providerAdmission.transport(attempt, this.fetcher()),
+					fetcher: this.providerAdmission.transport(attempt, this.fetcher(timeoutMs), timeoutMs),
 				});
 				const { payload, metadata } = result;
 				const admissionFailure = this.providerAdmission.requestFailure(attempt, null);
@@ -567,7 +573,7 @@ export class Ai {
 		input: TrackedProviderAttemptFailure,
 	): Promise<void> {
 		const usage = tokenUsage(input.response);
-		const modelCostUSD = textRequestCostUSD(input.attempt.provider, input.attempt.model, usage, input.response);
+		const modelCostUSD = textRequestCostUSD(input.attempt.provider, input.attempt.model, usage, input.response, input.request.service_tier);
 
 		const aiRequest = new this.models.request({
 			conversation: tracked.conversation,
@@ -702,7 +708,7 @@ export class Ai {
 		lease: AIRateLimitLease | null = null,
 	): Promise<void> {
 		const usage = tokenUsage(response);
-		const costUSD = textRequestCostUSD(tracked.provider, tracked.model, usage, response);
+		const costUSD = textRequestCostUSD(tracked.provider, tracked.model, usage, response, asRecord(tracked.aiRequest.request)?.service_tier);
 
 		tracked.aiRequest.assign({
 			response,
@@ -747,7 +753,7 @@ export class Ai {
 		const usage = tokenUsage(response);
 		const costUSD = !providerStarted
 			? 0
-			: textRequestCostUSD(tracked.provider, tracked.model, usage, response);
+			: textRequestCostUSD(tracked.provider, tracked.model, usage, response, asRecord(tracked.aiRequest.request)?.service_tier);
 
 		tracked.aiRequest.assign({
 			response,
@@ -1168,9 +1174,11 @@ export class Ai {
 	 * @param initialLease - Optional preflight reservation consumed by the first request.
 	 * @returns SDK provider using the service's transport and rate-limit lifecycle.
 	 */
-	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null): ModelProvider {
+	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default'): ModelProvider {
+		assertAIServiceTier(attempt.provider, serviceTier);
+		const timeoutMs = this.requestTimeoutMs(serviceTier);
 		return new OpenAIProvider({
-			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease), timeout: this.options.timeoutMs ?? 60_000, maxRetries: 0 }),
+			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease, timeoutMs), timeout: timeoutMs, maxRetries: 0 }),
 			useResponses: attempt.supportsResponsesApi,
 		});
 	}
@@ -1187,9 +1195,9 @@ export class Ai {
 	 * @param initialLease - First-request reservation, if acquired by the agent.
 	 * @returns Transport that maintains provider capacity and request diagnostics.
 	 */
-	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null): typeof fetch {
+	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null, timeoutMs: number): typeof fetch {
 		let pendingLease = initialLease;
-		const transport = this.providerAdmission.transport(attempt, this.fetcher());
+		const transport = this.providerAdmission.transport(attempt, this.fetcher(timeoutMs), timeoutMs);
 		return async (url, init) => {
 			const aiRequest = aiExecutionContext.getStore()?.aiRequest ?? null;
 			const lease = pendingLease ?? await this.acquireRateLimit({
@@ -1233,12 +1241,17 @@ export class Ai {
 		return { provider: AI_PROVIDER.openai, model, apiKey: this.requireApiKey(), baseUrl: this.baseUrl(), supportsResponsesApi: true };
 	}
 
+	/** Resolves a tier-aware request timeout while respecting an explicit service override. */
+	private requestTimeoutMs(serviceTier: AIServiceTier): number {
+		return this.options.timeoutMs ?? (serviceTier === 'flex' ? 900_000 : 60_000);
+	}
+
 	/**
 	 * Fetch implementation used by provider calls.
 	 */
-	private fetcher(): typeof fetch {
+	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000): typeof fetch {
 		const transport = this.options.fetch || fetch;
-		return (url, init) => transport(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(this.options.timeoutMs ?? 60_000) });
+		return (url, init) => transport(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(timeoutMs) });
 	}
 
 	/**
@@ -1957,9 +1970,10 @@ function textRequestCostUSD(
 	model: string,
 	usage: TokenUsage,
 	payload: TextResponsePayloadWithUsage | null,
+	requestedTier?: unknown,
 ): number | null {
 	if (provider === AI_PROVIDER.openai) {
-		return calculateAIRequestCostUSD(model, usage);
+		return calculateAIRequestCostUSD(typeof payload?.model === 'string' ? payload.model : model, { ...usage, serviceTier: effectiveAIServiceTier(payload?.service_tier, requestedTier) });
 	}
 
 	return providerReportedCostUSD(provider, payload);

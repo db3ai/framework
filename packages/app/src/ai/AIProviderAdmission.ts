@@ -101,7 +101,7 @@ export class AIProviderAdmission {
 	 * Account identity includes provider, origin and a one-way credential digest,
 	 * never endpoint/model or website. Other accounts remain independent.
 	 */
-	async acquire(attempt: AIProviderAttempt, now = Date.now()): Promise<AIProviderAdmissionLease> {
+	async acquire(attempt: AIProviderAttempt, now = Date.now(), requestTimeoutMs = 0): Promise<AIProviderAdmissionLease> {
 		const bucketKey = accountKey(attempt);
 		return this.#locked(attempt, async bucket => {
 			const state = bucket.metadata?.admission as AdmissionState | undefined;
@@ -110,7 +110,7 @@ export class AIProviderAdmission {
 			const retryAt = Math.max(state.retryAt, state.probe ? state.probeUntil : 0);
 			if (now < retryAt) throw new AIProviderDeferredError(new Date(Math.min(retryAt, state.deadline)), new Date(state.deadline));
 			state.probe = randomUUID();
-			state.probeUntil = now + this.#options.recoveryLeaseSeconds * 1000;
+			state.probeUntil = now + Math.max(this.#options.recoveryLeaseSeconds * 1000, requestTimeoutMs > 0 ? requestTimeoutMs + 30_000 : 0);
 			bucket.metadata = { admission: state };
 			await bucket.save();
 			return { bucketKey, generation: state.generation, probe: state.probe };
@@ -181,10 +181,10 @@ export class AIProviderAdmission {
 	 * JSON failures and streaming failures trip the same account state. Recovery
 	 * is cleared only after body consumption, so header arrival is not recovery.
 	 */
-	transport(attempt: AIProviderAttempt, fetcher: typeof fetch): typeof fetch {
+	transport(attempt: AIProviderAttempt, fetcher: typeof fetch, requestTimeoutMs = 0): typeof fetch {
 		return async (url, init) => {
 			this.#requestFailures.delete(attempt);
-			const lease = await this.acquire(attempt);
+			const lease = await this.acquire(attempt, Date.now(), requestTimeoutMs);
 			let response: Response;
 			try { response = await fetcher(url, init); }
 			catch (error) { throw await this.failure(attempt, lease, error) ?? error; }

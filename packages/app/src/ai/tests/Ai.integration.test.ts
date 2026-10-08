@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, AIRequestError, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, type AIServiceTier, AIRequestError, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
@@ -19,8 +19,8 @@ let storageRoot: string;
 const fetch = vi.fn<typeof globalThis.fetch>();
 
 /** Supplies deterministic Responses API SSE while exercising the real SDK and framework. */
-function streamResponse(output: unknown[], text = '', model = 'test-model'): Response {
-	const response = { id: `resp_${output.length}_${text.length}`, object: 'response', created_at: 1, model, status: 'completed', output, usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
+function streamResponse(output: unknown[], text = '', model = 'test-model', serviceTier?: string): Response {
+	const response = { id: `resp_${output.length}_${text.length}`, object: 'response', created_at: 1, model, service_tier: serviceTier, status: 'completed', output, usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
 	const events: Record<string, unknown>[] = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }];
 	for (const [index, item] of output.entries()) {
 		events.push({ type: 'response.output_item.added', output_index: index, item });
@@ -68,6 +68,68 @@ afterAll(async () => {
 });
 
 describe('AI inside an application', () => {
+	it.each([
+		['flex', 0.00003],
+		['default', 0.00006],
+		[undefined, null],
+	] as const)('prices direct Flex requests using reported tier %s', async (reportedTier, expectedCost) => {
+		fetch.mockResolvedValueOnce(Response.json({ model: 'gpt-6-sol', service_tier: reportedTier, output_text: 'Done.', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
+		const result = await application.ai.generateTextWithResponse({ model: 'gpt-6-sol', serviceTier: 'flex', instructions: 'Answer.', input: 'Hello.' });
+		expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
+		expect(await AiRequest.findByPk(result.aiRequestId!)).toMatchObject({ status: 'completed', costUSD: expectedCost });
+	});
+
+	it('keeps Flex streaming across tool turns and prices each actual response tier', async () => {
+		/** Opts this isolated SDK integration scenario into Flex. */
+		class FlexHelpAgent extends HelpAgent {
+			protected override readonly model = 'gpt-6-sol';
+			protected override readonly serviceTier = 'flex' as const;
+		}
+		fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_flex', call_id: 'call_flex', name: 'read_help_guide', arguments: '{}' }], '', 'gpt-6-sol', 'flex'))
+			.mockResolvedValueOnce(streamResponse([{ type: 'message', id: 'msg_test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done.', annotations: [] }] }], 'Done.', 'gpt-6-sol', 'default'));
+		const result = await new FlexHelpAgent({ user: 'ada', scope: 'team-a', guidePath: 'help.md' }).run('Help.');
+		expect(result.finalOutput).toBe('Done.');
+		expect(fetch).toHaveBeenCalledTimes(2);
+		for (const [, options] of fetch.mock.calls) expect(JSON.parse(String(options?.body))).toMatchObject({ service_tier: 'flex', stream: true });
+		expect(JSON.stringify(JSON.parse(String(fetch.mock.calls[1][1]?.body)))).toContain('Change your password on the settings page.');
+		expect(await AiRequest.runCostSummary(result.aiRequestId!)).toMatchObject({ providerRequestCount: 2, unpricedRequestCount: 0, totalCostUSD: 0.00009 });
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+	});
+
+	it('forwards structured Flex and gives its direct request a longer timeout', async () => {
+		const timeout = vi.spyOn(AbortSignal, 'timeout');
+		try {
+			fetch.mockResolvedValueOnce(Response.json({ model: 'gpt-6-sol', service_tier: 'flex', output_text: '{"title":"Done"}', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
+			const result = await application.ai.generateStructured({ model: 'gpt-6-sol', serviceTier: 'flex', instructions: 'Title.', input: 'Hello.', schemaName: 'title', schema: z.object({ title: z.string() }) });
+			expect(result.data.title).toBe('Done');
+			expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
+			expect(timeout).toHaveBeenCalledWith(900_000);
+			expect(await AiRequest.findByPk(result.aiRequestId!)).toMatchObject({ costUSD: 0.00003 });
+		} finally { timeout.mockRestore(); }
+	});
+
+	it('preserves the selected tier when a queued agent is reconstructed', async () => {
+		let selectedTier: AIServiceTier = 'flex';
+		/** Changes the class default after enqueue to check payload ownership. */
+		class QueuedTierAgent extends HelpAgent {
+			protected override readonly model = 'gpt-6-sol';
+			protected override readonly serviceTier = selectedTier;
+		}
+		registerQueuedAgent('QueuedTierAgent', QueuedTierAgent);
+		const queued = await new QueuedTierAgent({ user: 'ada', guidePath: 'help.md' }).queue('Hello.', { queue: 'tier-test' });
+		selectedTier = 'default';
+		fetch.mockResolvedValueOnce(streamResponse([{ type: 'message', id: 'msg_test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done.', annotations: [] }] }], 'Done.', 'gpt-6-sol', 'flex'));
+		expect((await application.queue.workNextJob('tier-test'))?.status).toBe('succeeded');
+		expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
+		expect(await AiRequest.runCostSummary(queued.aiRequestId!)).toMatchObject({ totalCostUSD: 0.00003 });
+	});
+
+	it('rejects non-OpenAI Flex before sending a provider request', async () => {
+		vi.stubEnv('OPENROUTER_API_KEY', 'synthetic-router-key');
+		await expect(application.ai.generateText({ provider: { openrouter: 'test-model' }, serviceTier: 'flex', instructions: 'Answer.', input: 'Hello.' })).rejects.toThrow('require the OpenAI provider');
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
 	it.each([
 		['insufficient_quota', 'Quota exhausted', false],
 		['billing_hard_limit_reached', 'Billing limit reached', false],

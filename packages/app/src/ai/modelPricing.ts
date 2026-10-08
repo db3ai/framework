@@ -5,7 +5,7 @@ export type { AIModelPricing, AIImageModelPricing, AIRequestCostUsage, AIRequest
  * OpenAI Standard processing prices in USD, verified on 2026-09-25.
  *
  * Used to estimate request cost at write time; stored historical costs are not
- * recalculated. Excludes regional processing surcharges and other service tiers.
+ * recalculated. Excludes regional processing surcharges. Tier multipliers were verified on 2026-10-08.
  *
  * @see https://developers.openai.com/api/docs/pricing
  */
@@ -17,6 +17,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		outputUSDPer1M: 1.60,
 	},
 	'gpt-6-astra': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 10.00,
 		cachedInputUSDPer1M: 1.00,
 		outputUSDPer1M: 50.00,
@@ -26,6 +27,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-6-sol': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 2.00,
 		cachedInputUSDPer1M: 0.20,
 		outputUSDPer1M: 10.00,
@@ -35,6 +37,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-6-luna': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 0.10,
 		cachedInputUSDPer1M: 0.01,
 		outputUSDPer1M: 0.50,
@@ -45,6 +48,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 	},
 	// Promotional rates available at least through 2026-11-21; recheck before changing.
 	'gpt-5.6-sol': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 4.00,
 		cachedInputUSDPer1M: 0.40,
 		outputUSDPer1M: 20.00,
@@ -54,6 +58,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-5.6-terra': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 2.00,
 		cachedInputUSDPer1M: 0.20,
 		outputUSDPer1M: 12.00,
@@ -63,6 +68,7 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-5.6-luna': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 0.20,
 		cachedInputUSDPer1M: 0.02,
 		outputUSDPer1M: 1.20,
@@ -183,6 +189,9 @@ export function calculateAIRequestCostUSD(
 	const pricing = AI_MODEL_PRICING[canonicalModelName(model)];
 
 	if (!pricing) return null;
+	const tier = usage.serviceTier === undefined ? 'default' : usage.serviceTier;
+	const tierMultiplier = tier === 'default' ? 1 : tier === 'flex' || tier === 'fast' || tier === 'priority' ? pricing.serviceTierMultipliers?.[tier] : undefined;
+	if (tierMultiplier === undefined) return null;
 	if (!validTokenCount(usage.inputTokens)) return null;
 	if (pricing.outputUSDPer1M !== null && !validTokenCount(usage.outputTokens)) return null;
 
@@ -213,7 +222,7 @@ export function calculateAIRequestCostUSD(
 		+ (cachedTokens * cachedInputRate)
 		+ (cacheWriteTokens * cacheWriteInputRate)
 		+ (outputTokens * outputRate)
-	) / TOKENS_PER_PRICING_UNIT;
+	) * tierMultiplier / TOKENS_PER_PRICING_UNIT;
 
 	return Math.round(cost * COST_PRECISION) / COST_PRECISION;
 }
@@ -237,7 +246,7 @@ export function calculateAIRequestEntriesCostUSD(
 	let cost = 0;
 
 	for (const entry of entries) {
-		const entryCost = calculateAIRequestCostUSD(model, entry);
+		const entryCost = calculateAIRequestCostUSD(entry.model ?? model, entry);
 
 		if (entryCost === null) return null;
 

@@ -35,6 +35,16 @@ describe('SQL provider account admission', () => {
 		expect(guard.requestFailure(attempt, current)).toBe(current);
 	});
 
+	it('keeps a Flex recovery probe leased for its full request timeout', async () => {
+		const guard = new AIProviderAdmission({ ...policy, failureWindowSeconds: 1800 });
+		const now = Date.now();
+		const lease = await guard.acquire(attempt, now);
+		await guard.failure(attempt, lease, outage, now);
+		await guard.acquire(attempt, now + 1001, 900_000);
+		await expect(guard.acquire(attempt, now + 90_000, 900_000)).rejects.toBeInstanceOf(AIProviderDeferredError);
+		await expect(guard.acquire(attempt, now + 932_000, 900_000)).resolves.toBeDefined();
+	});
+
 	it('expires admission before retry transport without retaining the earlier HTTP deferral', async () => {
 		const guard = new AIProviderAdmission(policy);
 		const fetcher = vi.fn(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));

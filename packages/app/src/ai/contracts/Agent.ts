@@ -3,6 +3,7 @@ import type { QueueJobId } from '@db3.ai/app/queue';
 import type { SerializedValueEnvelope } from '@db3.ai/app/serialization';
 import type { AiConversation } from '../AiConversation.js';
 import type { AiRequest, AiRequestRunCostSummary } from '../AiRequest.js';
+import type { AIServiceTier } from './AIServiceTier';
 import type { AgentCitation } from '@db3.ai/pure';
 
 export type { AgentCitation } from '@db3.ai/pure';
@@ -406,6 +407,8 @@ export interface BaseAgentContext {
  * Serializable payload stored on the queue for deferred agent execution.
  */
 export interface QueuedAgentRunPayload extends Record<string, unknown> {
+	/** Captured processing tier. Legacy payloads retain Standard processing. */
+	serviceTier?: AIServiceTier;
 	/**
 	 * Registered agent name used for worker registration and queue observability.
 	 */

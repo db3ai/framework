@@ -5,6 +5,8 @@
  * the rates. `outputUSDPer1M` is null for input-only models such as embeddings.
  */
 export interface AIModelPricing {
+	/** Verified tier multipliers for this model only; absent tiers remain unpriced. */
+	serviceTierMultipliers?: Partial<Record<'flex' | 'fast' | 'priority', number>>;
 	inputUSDPer1M: number;
 	cachedInputUSDPer1M: number | null;
 	outputUSDPer1M: number | null;
@@ -47,6 +49,8 @@ export interface AIImageModelPricing {
  * Normalized token counts captured from a tracked AI provider response.
  */
 export interface AIRequestCostUsage {
+	/** Actual provider tier. Undefined retains legacy Standard; null means unknown. */
+	serviceTier?: string | null;
 	inputTokens: number | null;
 	outputTokens: number | null;
 	cachedTokens?: number | null;
@@ -58,6 +62,8 @@ export interface AIRequestCostUsage {
  * Per-provider-request usage retained from an aggregate Agents SDK run.
  */
 export interface AIRequestCostUsageEntry extends AIRequestCostUsage {
+	/** Actual provider model, when supplied with this completed response. */
+	model?: string;
 	/** Provider endpoint that reported this usage entry, when available. */
 	endpoint?: string;
 }

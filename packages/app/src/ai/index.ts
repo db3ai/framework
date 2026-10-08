@@ -1,4 +1,5 @@
 export * from './Ai';
+export type { AIServiceTier } from './contracts/AIServiceTier';
 export { chunkEmbeddingText } from './chunkEmbeddingText';
 export type { EmbeddingTextChunk, EmbeddingTextChunkOptions } from './contracts/EmbeddingTextChunk';
 export * from './AIErrors';

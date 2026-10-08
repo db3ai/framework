@@ -1,3 +1,4 @@
+import type { AIServiceTier } from './AIServiceTier';
 import type { TextResponsePayload } from '@db3.ai/pure';
 import type { ZodType } from 'zod';
 import type { AiConversation } from '../AiConversation.js';
@@ -152,6 +153,8 @@ export interface AIOptions {
 export interface GenerateTextInput {
 	/** Keep transient failures local to optional work; account quota and existing admission stops still apply. */
 	transientFailureScope?: 'account' | 'request';
+	/** Explicit OpenAI processing tier; defaults to Standard. No automatic tier fallback. */
+	serviceTier?: AIServiceTier;
 	/** Optional per-call model override for the OpenAI provider entry. */
 	model?: string;
 	/** Optional provider failover chain overriding the app default for this call. */
@@ -228,6 +231,10 @@ export interface AIResponseLogOptions extends Record<string, unknown> {
 
 /** Untrusted provider text response, including optional token usage. */
 export interface TextResponsePayloadWithUsage extends TextResponsePayload {
+	/** Actual model reported by the provider for billing. */
+	model?: unknown;
+	/** Actual processing tier reported by OpenAI, not the requested tier. */
+	service_tier?: unknown;
 	/** Provider completion status; omitted by some compatible endpoints. */
 	status?: unknown;
 	usage?: unknown;

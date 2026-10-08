@@ -642,7 +642,7 @@ registerBrowserJsonFormatting(Fastify());
 const safeErrorMessage: string = publicServerErrorMessage(new Error('secret'), 'production');
 void safeErrorMessage;
 import type { TextResponsePayload } from '@db3.ai/pure/ai';
-import { Ai, AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput } from '@db3.ai/app/ai';
+import { Ai, AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput, type AIServiceTier } from '@db3.ai/app/ai';
 const typedDeferral = new AIProviderDeferredError(new Date(), new Date(), 'server_error', { status: 503, requestId: 'req_consumer' });
 const typedStop = new AIProviderStoppedError('outage', typedDeferral.providerCode, { ...typedDeferral.diagnostics, stopStage: 'stream-output' });
 const stopStage: 'quota' | 'deadline' | 'stream-output' = typedStop.stopStage;
@@ -738,7 +738,14 @@ const job = null as QueueJob | null;
 const appOptions = {} as AppOptions;
 const response: TextResponsePayload = { output_text: 'ok' };
 const ai = new Ai({ apiKey: 'test-only-not-used', model: 'test' });
-const astraUsage: AIRequestCostUsage = { inputTokens: 200, cachedTokens: 60, cacheWriteTokens: 40, outputTokens: 30 };
+const serviceTier: AIServiceTier = 'flex';
+abstract class FlexConsumerAgent extends Agent {
+	protected override readonly serviceTier: AIServiceTier = serviceTier;
+	/** Supplies the consumer agent instruction. */
+	async instructions(): Promise<string> { return 'Answer.'; }
+}
+void FlexConsumerAgent;
+const astraUsage: AIRequestCostUsage = { serviceTier, inputTokens: 200, cachedTokens: 60, cacheWriteTokens: 40, outputTokens: 30 };
 const astraCost: number | null = calculateAIRequestCostUSD('gpt-6-astra', astraUsage);
 const solCost: number | null = calculateAIRequestCostUSD('gpt-6-sol', astraUsage);
 const lunaCost: number | null = calculateAIRequestCostUSD('gpt-6-luna', astraUsage);

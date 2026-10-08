@@ -13,6 +13,8 @@ import { AI_PROVIDER, AIQuotaDeferredError, AIRateLimitDeferredError, isFailover
 import { AIAllowanceExceededError } from './AIErrors.js';
 import type { AIUsageCharge } from './contracts/AI';
 import { estimateTokensFromText } from './Estimates.js';
+import type { AIServiceTier } from './contracts/AIServiceTier';
+import { assertAIServiceTier, effectiveAIServiceTier } from './aiServiceTier';
 import { calculateAIHostedToolCost, calculateAIRequestCostUSD, calculateAIRequestEntriesCostUSD, combineAIRequestCostUSD, type AIRequestCostUsageEntry } from './modelPricing.js';
 import { AgentRunJob } from './AgentRunJob.js';
 import { withoutOpenAIQuotaRetryMetadata } from './OpenAIQuotaRetry.js';
@@ -26,6 +28,8 @@ import type * as agent from './contracts/Agent';
  * Fully prepared run inputs and persistence state ready for SDK execution.
  */
 interface PreparedAgentRun {
+	/** Tier captured at admission and retained by queued runs. */
+	serviceTier: AIServiceTier;
 	/** User-visible task message supplied to the agent. */
 	message: string;
 
@@ -126,6 +130,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	protected readonly workflowName: string = this.constructor.name;
 	/** Optional agent-specific model. Omit to use the global `app().ai.model`. */
 	protected readonly model?: string;
+	/** OpenAI processing tier for this agent. Override to opt into local Flex experiments. */
+	protected readonly serviceTier: AIServiceTier = 'default';
 	private currentInput: AgentRunInputPayload | null = null;
 
 	/**
@@ -682,7 +688,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			input: invocation.input,
 			maxTurns: this.maxTurns,
 			model,
-			modelSettings: invocation.modelSettings,
+			modelSettings: modelSettingsForProvider(invocation.modelSettings, AI_PROVIDER.openai, this.serviceTier),
 		});
 	}
 
@@ -878,6 +884,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		return {
 			message,
 			model,
+			serviceTier: this.serviceTier,
 			traceId,
 			previousMessages,
 			invocation,
@@ -907,6 +914,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		return {
 			message: payload.message,
 			model: payload.model,
+			serviceTier: payload.serviceTier ?? 'default',
 			traceId: payload.traceId,
 			previousMessages,
 			invocation,
@@ -941,6 +949,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const instructions = invocation.instructions;
 		const modelInput = invocation.input;
 		const attempts = app().ai.resolveProviders(this.provider(), prepared.model);
+		for (const attempt of attempts) assertAIServiceTier(attempt.provider, prepared.serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
 
 		await this.attachPromptRequestPayload(state, {
@@ -966,9 +975,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			let attemptState: agent.AgentPersistenceState | null = null;
 			let attemptSettled = false;
 			let providerStarted = false;
+			const responsePricing: Array<{ model?: string; serviceTier: string | null }> = [];
 
 			try {
-				attemptState = await this.startTrackedAttempt(state, attempt, attemptStartMs);
+				attemptState = await this.startTrackedAttempt(state, attempt, attemptStartMs, prepared.serviceTier);
 				rateLimitLease = await this.acquireProviderCapacity(
 					prepared,
 					instructions,
@@ -986,9 +996,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					providerStarted = true;
 					const runner = new Runner({
 						model: attempt.model,
-						modelProvider: app().ai.createAgentProvider(attempt, rateLimitLease),
+						modelProvider: app().ai.createAgentProvider(attempt, rateLimitLease, prepared.serviceTier),
 						modelSettings: {
-							...modelSettingsForProvider(invocation.modelSettings, attempt.provider),
+							...modelSettingsForProvider(invocation.modelSettings, attempt.provider, prepared.serviceTier),
 							retry: {
 								maxRetries: 8,
 								/** Retains completed tools in this SDK run; never restarts the whole agent. */
@@ -1020,7 +1030,14 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 					for await (const event of stream) {
 						sawStreamEvent = true;
-						if (event.type === 'raw_model_stream_event' && event.data.type === 'response_done') completedModelTurn = true;
+						if (event.type === 'raw_model_stream_event' && event.data.type === 'response_done') {
+							completedModelTurn = true;
+							const providerData = recordValue(event.data.response.providerData);
+							responsePricing.push({
+								...(typeof providerData?.model === 'string' ? { model: providerData.model } : {}),
+								serviceTier: effectiveAIServiceTier(providerData?.service_tier, prepared.serviceTier),
+							});
+						}
 
 						const streamEvent = await this.streamEventFromSdkEvent(executionState, event);
 
@@ -1053,6 +1070,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						executionState,
 						activeUsage,
 						stream.lastResponseId ?? null,
+						responsePricing,
 					);
 					attemptSettled = true;
 
@@ -1112,6 +1130,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						activeUsage,
 						providerStarted,
 						error,
+						responsePricing,
 					);
 				}
 
@@ -1154,12 +1173,14 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @param rootState - Logical run root and shared conversation state.
 	 * @param attempt - Provider and model selected for this execution.
 	 * @param startedAtMs - Attempt start timestamp in milliseconds.
+	 * @param serviceTier - Requested tier retained alongside this attempt.
 	 * @returns Persistence state scoped to the new provider attempt.
 	 */
 	private async startTrackedAttempt(
 		rootState: agent.AgentPersistenceState,
 		attempt: AIProviderAttempt,
 		startedAtMs: number,
+		serviceTier: AIServiceTier,
 	): Promise<agent.AgentPersistenceState> {
 		const aiRequest = await new (app().ai.models.request)({
 			conversation: rootState.conversation,
@@ -1171,6 +1192,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			operation: 'agents.run.attempt',
 			status: AI_REQUEST_STATUS.pending,
 			request: {
+				serviceTier,
 				rootAiRequestId: rootState.rootAiRequest.id,
 				traceId: rootState.traceId,
 			},
@@ -1207,15 +1229,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		state: agent.AgentPersistenceState,
 		sdkUsage: Usage,
 		lastResponseId: string | null,
+		responsePricing: Array<{ model?: string; serviceTier: string | null }>,
 	): Promise<void> {
 		const usage = agentRunUsage(sdkUsage);
-		const requestUsageEntries = agentRequestCostUsageEntries(sdkUsage);
+		const requestUsageEntries = agentRequestCostUsageEntries(sdkUsage, responsePricing, recordValue(state.aiRequest.request)?.serviceTier);
 		const cost = agentAttemptCost(
 			state.aiRequest.provider,
 			state.model,
 			usage,
 			requestUsageEntries,
 			state.hostedToolUsage,
+			recordValue(state.aiRequest.request)?.serviceTier,
 		);
 
 		state.aiRequest.assign({
@@ -1253,9 +1277,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		sdkUsage: Usage | null,
 		providerStarted: boolean,
 		error: unknown,
+		responsePricing: Array<{ model?: string; serviceTier: string | null }>,
 	): Promise<void> {
 		const usage = sdkUsage ? agentRunUsage(sdkUsage) : emptyAgentRunUsage();
-		const requestUsageEntries = sdkUsage ? agentRequestCostUsageEntries(sdkUsage) : [];
+		const requestUsageEntries = sdkUsage ? agentRequestCostUsageEntries(sdkUsage, responsePricing, recordValue(state.aiRequest.request)?.serviceTier) : [];
 		const hasBillableUsage = sdkUsage
 			? hasBillableAgentAttemptUsage(sdkUsage, state.hostedToolUsage)
 			: Object.values(state.hostedToolUsage).some(count => Number.isFinite(count) && count > 0);
@@ -1266,6 +1291,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				usage,
 				requestUsageEntries,
 				state.hostedToolUsage,
+				recordValue(state.aiRequest.request)?.serviceTier,
 			)
 			: emptyAgentAttemptCost(providerStarted);
 		const message = error instanceof Error ? error.message : `Unable to run ${this.agentName}.`;
@@ -2024,6 +2050,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			aiRequestId: prepared.state.aiRequest.id ? String(prepared.state.aiRequest.id) : null,
 			traceId: prepared.traceId,
 			model: prepared.model,
+			serviceTier: prepared.serviceTier,
 		};
 	}
 
@@ -3277,10 +3304,13 @@ function agentRunUsage(usage: Usage): agent.AgentRunUsage {
  * Normalizes the SDK's individual provider-request usage for accurate pricing.
  *
  * @param usage - Agents SDK aggregate usage object.
+ * @param responsePricing - Terminal response metadata in SDK request order.
+ * @param requestedTier - Saved selection used only for legacy Standard fallback.
  * @returns Individual request entries with cached-input details preserved.
  */
-function agentRequestCostUsageEntries(usage: Usage): AIRequestCostUsageEntry[] {
-	return (usage.requestUsageEntries ?? []).map(entry => ({
+function agentRequestCostUsageEntries(usage: Usage, responsePricing: Array<{ model?: string; serviceTier: string | null }>, requestedTier: unknown): AIRequestCostUsageEntry[] {
+	return (usage.requestUsageEntries ?? []).map((entry, index) => ({
+		...(responsePricing.length === usage.requestUsageEntries?.length ? responsePricing[index] : { serviceTier: effectiveAIServiceTier(undefined, requestedTier) }),
 		inputTokens: numberOrNull(entry.inputTokens),
 		outputTokens: numberOrNull(entry.outputTokens),
 		cachedTokens: tokenDetailValue(entry.inputTokensDetails, 'cached_tokens'),
@@ -3317,6 +3347,7 @@ interface AgentAttemptCost {
  * @param usage - Aggregate attempt usage.
  * @param requestUsageEntries - Per-provider-request usage entries.
  * @param hostedToolUsage - Completed hosted provider-tool calls.
+ * @param requestedTier - Saved selection used for single-request Standard fallback.
  * @returns Complete attempt cost and any unpriced dimensions.
  */
 function agentAttemptCost(
@@ -3325,6 +3356,7 @@ function agentAttemptCost(
 	usage: agent.AgentRunUsage,
 	requestUsageEntries: AIRequestCostUsageEntry[],
 	hostedToolUsage: Record<string, number>,
+	requestedTier: unknown,
 ): AgentAttemptCost {
 	const usesPerRequestUsage = usage.requests > 0
 		&& requestUsageEntries.length === usage.requests;
@@ -3334,7 +3366,7 @@ function agentAttemptCost(
 		? usesPerRequestUsage
 			? calculateAIRequestEntriesCostUSD(model, requestUsageEntries)
 			: usesSingleRequestAggregate
-				? calculateAIRequestCostUSD(model, usage)
+				? calculateAIRequestCostUSD(model, { ...usage, serviceTier: effectiveAIServiceTier(undefined, requestedTier) })
 				: null
 		: null;
 	const hostedToolCost = provider === AI_PROVIDER.openai
@@ -3450,20 +3482,22 @@ function emptyAgentRunUsage(): agent.AgentRunUsage {
 }
 
 /**
- * Applies Standard service tier only to direct OpenAI provider requests.
+ * Applies the explicitly selected service tier only to direct OpenAI requests.
  *
  * @param settings - Agent-owned model settings.
  * @param provider - Provider selected for the current attempt.
- * @returns Provider-safe settings with deterministic OpenAI billing tier.
+ * @param serviceTier - Explicit class selection, frozen in queued run payloads.
+ * @returns Provider-safe settings with the selected OpenAI tier.
  */
-function modelSettingsForProvider(settings: ModelSettings, provider: string): ModelSettings {
+function modelSettingsForProvider(settings: ModelSettings, provider: string, serviceTier: AIServiceTier): ModelSettings {
+	assertAIServiceTier(provider, serviceTier);
 	if (provider !== AI_PROVIDER.openai) return settings;
 
 	return {
 		...settings,
 		providerData: {
 			...(settings.providerData ?? {}),
-			service_tier: 'default',
+			service_tier: serviceTier,
 		},
 	};
 }
