@@ -197,7 +197,7 @@ export class App<TApps extends AppDefinitions = {}> {
 	 * @returns Pino-backed logging service with app lifecycle ownership.
 	 */
 	get log(): Log {
-		return this.service('log', () => new Log(this.options.log));
+		return this.service('log', () => new Log(this.options.log, () => this.mail));
 	}
 
 	/**
@@ -228,7 +228,10 @@ export class App<TApps extends AppDefinitions = {}> {
 	get queue(): Queue {
 		return this.service('queue', () => new Queue(
 			this.db,
-			this.options.queue,
+			{
+				onLifecycleError: failure => this.log.error({ err: failure.error, component: 'queue', source: failure.source, hook: failure.hook, jobId: failure.event.jobId, jobName: failure.event.jobName, action: failure.event.action }, 'Queue lifecycle handler failed'),
+				...this.options.queue,
+			},
 		));
 	}
 

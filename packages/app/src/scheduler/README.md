@@ -68,20 +68,20 @@ inside the scheduler process, so reserve it for short operations.
 
 ### Durable worker progress
 
-Pass an application-owned `SchedulerCheckpoint` as `checkpoint` to
-`SchedulerWorker` or `runSchedulerConsole`. Its two operations are:
+Register `SchedulerCheckpointRecord` in the application's migration model registry,
+then pass `SchedulerCheckpointRecord.checkpoint('my-scheduler')` as `checkpoint`
+to `SchedulerWorker` or `runSchedulerConsole`. It persists restart progress in
+`scheduler_checkpoints`, with atomic initialization and monotonic updates.
+A custom `SchedulerCheckpoint` can supply another backend. Its operations are:
 
 - `load(firstMinute)` atomically establishes the minute immediately before
   `firstMinute` on first use, or returns the existing last evaluated UTC minute.
 - `save(evaluatedFor)` durably advances that minute after the complete batch.
   Concurrent writers must never move it backwards.
 
-The initialization boundary is saved before any dispatch. A replacement worker
-starts with the minute after the saved cursor and covers every elapsed minute.
-Existing occurrence claims deduplicate reconsidered jobs. Without a checkpoint,
-a new process starts in its current minute and cannot recover downtime. A
-liveness timestamp is not a coverage cursor: it can be written after a boundary
-even though that new minute has not been evaluated.
+Coverage is saved before dispatch; replacement workers resume after the cursor.
+Occurrence claims deduplicate replay. Without a checkpoint, startup begins in the
+current minute. A liveness timestamp cannot establish which minute was evaluated.
 
 An incomplete evaluation or failed checkpoint write retries the same minute
 after one second. Individual event failures are recorded as failed occurrences;

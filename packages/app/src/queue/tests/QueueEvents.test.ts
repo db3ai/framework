@@ -35,3 +35,25 @@ it.each(['synchronous', 'asynchronous'] as const)('isolates a %s listener failur
 		await database.destroy();
 	}
 });
+
+
+it('reports lifecycle handler exceptions through the application logger', async () => {
+	const database = await createGeneratedTestDatabase('queue_events_logging');
+	const messages: import('@db3.ai/app/mail').ResolvedMailMessage[] = [];
+	const { Mail } = await import('@db3.ai/app/mail');
+	const mail = new Mail({ transport: { async send(message) {
+		messages.push(message);
+		return { id: 'test', transport: 'test', accepted: ['operator@example.test'], rejected: [] };
+	} } });
+	const application = new App({ db: database.db, mail, queue: { queueMonitor: false }, log: { level: 'error', transports: [{ type: 'email', to: 'operator@example.test' }] } });
+	try {
+		await application.db.install(QueuedJob, FailedJob);
+		application.queue.events.subscribe(() => { throw new Error('Article settlement failed'); });
+		const id = await application.queue.dispatch('test.job', {});
+		await application.log.flush();
+		expect(await QueuedJob.find(id)).not.toBeNull();
+		expect(messages).toHaveLength(1);
+		expect(messages[0].text).toContain('Article settlement failed');
+		expect(messages[0].text).toContain('test.job');
+	} finally { await application.close(); await database.destroy(); }
+});

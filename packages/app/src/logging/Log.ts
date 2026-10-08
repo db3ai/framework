@@ -1,4 +1,5 @@
 import type { ChildLoggerOptions } from 'pino';
+import type { Mail } from '../mail';
 
 import { PinoLoggerDriver } from './drivers/PinoLoggerDriver';
 import type * as logging from './contracts';
@@ -19,9 +20,11 @@ export class Log implements logging.Logger {
 	 * Creates the application logger from explicit options or the Pino driver.
 	 *
 	 * @param options - Logging level, destinations, context, and driver overrides.
+	 * @param mail - Lazy application Mail resolver, required when email is configured.
 	 */
-	constructor(options: logging.LoggingOptions = {}) {
-		this.#driver = options.driver ?? new PinoLoggerDriver(options);
+	constructor(options: logging.LoggingOptions = {}, mail?: () => Mail) {
+		if (options.driver && options.transports !== undefined) throw new Error('Configured logging transports require the default Pino driver.');
+		this.#driver = options.driver ?? new PinoLoggerDriver(options, undefined, mail);
 	}
 
 	/** Returns the current trace function, respecting runtime level changes. */

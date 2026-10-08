@@ -7,3 +7,4 @@ export * from './ScheduledJob';
 export * from './ScheduledOccurrence';
 export * from './ScheduledOccurrenceRecorder';
 export * from './SchedulerWorker';
+export * from './SchedulerCheckpointRecord';

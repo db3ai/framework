@@ -6,6 +6,8 @@ import type ThreadStream from 'thread-stream';
 
 import { isInteractiveDevelopmentEnvironment } from '../../devtools';
 import type * as logging from '../contracts';
+import type { Mail } from '../../mail';
+import { EmailLogTransport } from '../transports/EmailLogTransport';
 import { acquireDevelopmentConsole } from '../acquireDevelopmentConsole';
 
 /**
@@ -56,6 +58,7 @@ const defaultRedactions = [
 export class PinoLoggerDriver implements logging.LoggerDriver {
 	readonly logger: PinoLogger;
 	readonly #transport: ManagedPinoTransport | null;
+	readonly #emails: { level: logging.LogLevel; stream: EmailLogTransport }[] = [];
 	readonly #console?: ReturnType<typeof acquireDevelopmentConsole>;
 	#closed = false;
 	#closing = false;
@@ -66,13 +69,25 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 	 *
 	 * @param options - Framework logging configuration.
 	 * @param destination - Optional direct destination used by focused tests.
+	 * @param mail - Application-owned mail service used by the email destination.
 	 */
 	constructor(
 		options: logging.LoggingOptions = {},
 		destination?: DestinationStream,
+		mail?: () => Mail,
 	) {
 		const environment = options.environment ?? process.env.NODE_ENV ?? 'development';
 		const level = resolveLogLevel(options, process.env);
+		if ((options.transports?.filter(transport => transport.type === 'console').length ?? 0) > 1) throw new Error('Configure at most one console log transport.');
+		for (const transport of options.transports ?? []) {
+			if (!['console', 'file', 'email', 'devtools'].includes(transport.type)) throw new Error('Unknown logging transport type.');
+			if (transport.level !== undefined && !isLogLevel(transport.level)) throw new Error('Invalid logging transport level.');
+			if (transport.type === 'email' && transport.level !== 'silent') {
+				if (!mail) throw new Error('Email logging requires an application Mail resolver.');
+				this.#emails.push({ level: transport.level ?? 'error', stream: new EmailLogTransport(transport, mail) });
+			}
+		}
+
 		const source = options.source
 			?? process.env.PLATFORM_LOG_SOURCE
 			?? process.env.npm_package_name
@@ -96,21 +111,23 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 
 		if (destination) {
 			this.#transport = null;
-			this.logger = pino(pinoOptions, destination);
+			this.logger = pino(pinoOptions, this.#destinations(destination));
 			return;
 		}
 
 		const format = options.consoleFormat ?? process.env.PLATFORM_LOG_FORMAT ?? 'auto';
 		if (!['auto', 'pretty', 'json'].includes(format)) throw new Error(`Invalid PLATFORM_LOG_FORMAT value "${format}". Use auto, pretty, or json.`);
-		const pretty = options.console !== false && level !== 'silent' && (format === 'pretty' || (format === 'auto' && isInteractiveDevelopmentEnvironment(environment) && Boolean(process.stdout.isTTY)));
-		const targets = transportTargets(pretty ? { ...options, console: false } : options, level, environment, process.env);
+		const consoleTransport = options.transports?.find(transport => transport.type === 'console');
+		const consoleEnabled = options.transports ? Boolean(consoleTransport) : options.console !== false;
+		const pretty = consoleEnabled && consoleTransport?.level !== 'silent' && level !== 'silent' && (format === 'pretty' || (format === 'auto' && isInteractiveDevelopmentEnvironment(environment) && Boolean(process.stdout.isTTY)));
+		const targets = transportTargets(pretty ? { ...options, console: false, transports: options.transports?.filter(transport => transport.type !== 'console') } : options, level, environment, process.env);
 		if (pretty) {
 			this.#transport = targets.length ? pino.transport({ targets }) as ManagedPinoTransport : null;
 			this.#transport?.on('error', reportTransportError);
 			this.#console = acquireDevelopmentConsole();
-			const streams: pino.StreamEntry[] = [{ level: 'trace', stream: this.#console.console }];
+			const streams: pino.StreamEntry[] = [{ level: (consoleTransport?.level === 'silent' ? 'trace' : consoleTransport?.level) ?? level, stream: this.#console.console }];
 			if (this.#transport) streams.push({ level: 'trace', stream: this.#transport });
-			this.logger = pino(pinoOptions, pino.multistream(streams));
+			this.logger = pino(pinoOptions, this.#destinations(pino.multistream(streams)));
 			return;
 		}
 
@@ -118,14 +135,14 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			this.#transport = null;
 			this.logger = pino({
 				...pinoOptions,
-				level: 'silent',
-			});
+				level: this.#emails.length ? level : 'silent',
+			}, this.#emails.length ? this.#destinations({ /** Discards the disabled console destination. */ write() {} }) : undefined);
 			return;
 		}
 
-		if (targets.length === 1 && targets[0]?.target === 'pino/file' && targets[0]?.options?.destination === 1) {
+		if (targets.length === 1 && targets[0]?.target === 'pino/file' && targets[0]?.options?.destination === 1 && targets[0]?.level === level) {
 			this.#transport = null;
-			this.logger = pino(pinoOptions);
+			this.logger = pino(pinoOptions, this.#destinations(process.stdout));
 			return;
 		}
 
@@ -133,7 +150,15 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			targets,
 		}) as ManagedPinoTransport;
 		this.#transport.on('error', reportTransportError);
-		this.logger = pino(pinoOptions, this.#transport);
+		this.logger = pino(pinoOptions, this.#destinations(this.#transport));
+	}
+
+	/** Fans already serialized and redacted records out to ordinary destinations and operator email. */
+	#destinations(destination: DestinationStream): DestinationStream {
+		return this.#emails.length ? pino.multistream([
+			{ level: 'trace', stream: destination },
+			...this.#emails,
+		]) : destination;
 	}
 
 	/**
@@ -162,6 +187,7 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 				});
 			});
 			await this.#console?.console.flush();
+			await Promise.all(this.#emails.map(email => email.stream.flush()));
 		} finally {
 			if (!this.#closing) {
 				this.#transport?.unref();
@@ -239,6 +265,20 @@ function transportTargets(
 	if (level === 'silent') return [];
 
 	const targets: TransportTargetOptions[] = [];
+	if (options.transports) {
+		for (const transport of options.transports) {
+			const minimum = transport.level ?? level;
+			if (minimum === 'silent') continue;
+			if (transport.type === 'console') targets.push({ target: 'pino/file', level: minimum, options: { destination: 1 } });
+			if (transport.type === 'file') {
+				if (!transport.destination) throw new Error('File logging requires a destination.');
+				targets.push({ target: 'pino/file', level: minimum, options: { destination: transport.destination, mkdir: true } });
+			}
+			if (transport.type === 'devtools') targets.push({ target: devtoolsTransportTarget(), level: minimum, options: transport.options ?? {} });
+		}
+		return targets;
+	}
+
 
 	if (options.console !== false) {
 		targets.push({ target: 'pino/file', level, options: { destination: 1 } });

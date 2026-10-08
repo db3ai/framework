@@ -503,3 +503,7 @@ must be treated as unavailable rather than counted as idle capacity.
 The sink is optional, coalesces pending updates, and never receives job payloads.
 Applications own access control, expiry and retention. Counts across overlapping
 queue selections are shared capacity, not additional worker processes.
+
+App queues report listener/hook exceptions and job identity through `app.log`;
+`onLifecycleError` overrides this. Standalone queues use stderr. Committed queue
+transitions remain unchanged: essential settlement must be idempotent and recoverable.

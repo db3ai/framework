@@ -1,3 +1,4 @@
+import type { LogTransportOptions } from './LogTransportOptions';
 import type { LoggerDriver } from './LoggerDriver';
 import type { LogBindings, LogLevel } from './Logger';
 
@@ -25,6 +26,8 @@ export interface DevtoolsLogOptions {
  * Application logging configuration.
  */
 export interface LoggingOptions {
+	/** Explicit destinations replace default console/file/devtools selection. An empty array disables output. */
+	transports?: LogTransportOptions[];
 	/** Optional JSON log file retained outside the process/container. The operator owns rotation and retention. */
 	file?: string;
 	/** Injectable logging driver used by tests or alternate implementations. */

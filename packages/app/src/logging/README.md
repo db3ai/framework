@@ -1,130 +1,82 @@
 # Logging
 
-`@db3.ai/app/logging` provides the application logger exposed through
-`app().log`. Pino is the default driver, while the framework owns service discovery,
-configuration, redaction, transport selection, and shutdown.
+`app().log` uses Pino; the framework owns configuration, redaction, transports and shutdown.
 
-## Writing Logs
+## Writing logs
 
-Prefer a short message plus structured fields:
+Use structured context and put exceptions under `err` to retain name, message, stack and cause:
 
 ```ts
-app().log.info({
-	websiteId,
-	pageCount,
-}, 'Website crawl completed');
-```
-
-Pass errors under `err` so Pino retains their name, message, stack, and cause:
-
-```ts
-app().log.error({
-	err: error,
-	websiteId,
-}, 'Website crawl failed');
-```
-
-Use child loggers for context shared by several records:
-
-```ts
-const log = app().log.child({
-	component: 'crawler',
-	websiteId,
-});
-
+app().log.error({ err: error, websiteId }, 'Website crawl failed');
+const log = app().log.child({ component: 'crawler', websiteId });
 log.info('Crawl started');
-log.debug({ url }, 'Page discovered');
 ```
 
-The standard levels are `trace`, `debug`, `info`, `warn`, `error`, `fatal`,
-and `silent`. The default level is `info`; tests default to `silent`.
+Levels are `trace`, `debug`, `info`, `warn`, `error`, `fatal` and `silent`.
+The default is `info`, or `silent` in tests. Application boundaries must log exceptions explicitly.
 
-## Application Configuration
-
-Configure logging through `AppOptions.log`:
+## Configuration
 
 ```ts
 const app = new App({
 	log: {
-		level: 'debug',
+		level: 'info',
 		source: 'example-api',
-		bindings: {
-			release: process.env.RELEASE_SHA,
-		},
-		devtools: true,
+		bindings: { release: process.env.RELEASE_SHA },
+		transports: [
+			{ type: 'console' },
+			{ type: 'file', destination: '/storage/logs/app.jsonl' },
+			{ type: 'email', level: 'error', to: 'operator@example.com' },
+		],
 	},
 });
 ```
 
-Supported environment values:
+`transports` replaces defaults; `[]` disables output. Omit it for legacy/environment
+defaults. Route thresholds combine with the logger minimum; email defaults to `error`,
+others inherit it. `silent` disables a route. Pino permits one console and devtools via
+`{ type: 'devtools', options: { url } }`.
 
-- `PLATFORM_LOG_LEVEL`: minimum standard log level.
-- `PLATFORM_LOG_SOURCE`: source name copied to every record.
-- `PLATFORM_LOG_FORMAT`: console presentation: `auto`, `pretty`, or `json`.
-- `PLATFORM_LOG_DEVTOOLS`: explicitly enables or disables devtools delivery.
-- `PLATFORM_DEVTOOLS_EVENTS_URL`: complete development ingestion endpoint.
-- `PLATFORM_DEVTOOLS_HOST`: development service host when no URL is supplied.
-- `PLATFORM_DEVTOOLS_API_PORT`: development service port, defaulting to `9998`.
+Environment defaults: `PLATFORM_LOG_LEVEL`, `PLATFORM_LOG_SOURCE`, `PLATFORM_LOG_FORMAT`
+(`auto`, `pretty`, `json`), `PLATFORM_LOG_FILE`, `PLATFORM_LOG_DEVTOOLS`,
+`PLATFORM_DEVTOOLS_EVENTS_URL`, `PLATFORM_DEVTOOLS_HOST`, `PLATFORM_DEVTOOLS_API_PORT` (9998).
+Legacy `log.file` adds a file alongside stdout unless `console: false`.
 
-Development terminals show live pending requests and grouped request/response
-blocks. Production, tests and pipes keep structured JSON. `consoleFormat` or
-`PLATFORM_LOG_FORMAT` selects `auto`, `pretty` or `json`; files/devtools stay
-structured. See the [development logging guide](development/README.md) for payload
-capture, preview limits, terminal lifecycle, multi-process launchers and runnable
-examples. Tests only enable devtools network delivery when explicitly configured.
+Terminals show pending requests and grouped exchanges; production/tests/pipes use JSON.
+`consoleFormat` overrides presentation. Files/devtools stay structured; test devtools
+requires opt-in. See [development logging](development/README.md).
 
-## Development Log Stream
+## Email
 
-The Pino transport runs in a worker thread and sends bounded, best-effort HTTP
-batches to the same generic event endpoint used by database and queue
-instrumentation:
+Every matching record, including repeats, gets a separate submission through `app.mail`.
+Logging formats redacted primitive context and exception message/stack/cause as text and
+escaped HTML, excluding arbitrary nested payloads. Common credentials are masked.
+There is no grouping, deduplication, cooldown, retry or database dependency.
+Operation backoff remains the caller's responsibility.
 
-```text
-app().log
-	-> Pino worker transport
-	-> POST /api/events
-	-> development event store
-	-> WebSocket
-	-> Logs panel
-```
+Sends are asynchronous and ordered; flush/close drains them. Abrupt exits lose pending
+mail. Refusals go to stderr without recursive emails; later sends continue. Keep raw logs:
+acceptance is not inbox delivery. App supplies the lazy Mail resolver accepted by `Log`.
+Database, PostHog and OpenTelemetry transports are not included.
 
-The default batch contains at most 25 records and a partial batch waits at most
-100 milliseconds. At most 1,000 unsent events are retained; the oldest event is
-discarded when that bound is exceeded. A failed batch is discarded and later
-delivery pauses for one second. Logging therefore remains observability rather
-than an application dependency.
+## Delivery and shutdown
 
-`App.close()` flushes the logger and closes its worker transport. Application
-entrypoints should always use the framework shutdown lifecycle rather than
-calling `process.exit()` directly after writing a log.
+Devtools sends worker-thread HTTP batches to `/api/events`: at most 25 records per batch,
+100ms partial-batch wait, 1,000 pending events. Overflow drops oldest events; failed batches
+are discarded and delivery pauses one second. Its event store feeds the Logs panel.
 
-## Security
+`App.close()` flushes logging and closes owned workers; use it instead of immediate
+`process.exit()`. Caller-supplied streams remain caller-owned. File transports create parent
+directories; mount files persistently and manage rotation, retention, permissions and capacity.
+`Log.level` changes affect subsequent method lookups, not previously captured functions.
 
-The default Pino driver removes common password, secret, token, authorization,
-and cookie paths before records reach stdout or devtools. Applications can add
-more redaction paths through `AppOptions.log.redact`.
+## Security and boundaries
 
-Redaction is a safeguard, not permission to log request bodies, credentials,
-payment details, or personal data. Prefer explicit safe fields over logging
-large application objects.
+Pino removes common credential, authorization and cookie paths. Add paths with `log.redact`;
+`false` disables protection. Path redaction cannot remove arbitrary secret substrings,
+private prose or unfamiliar nested fields. Avoid sensitive messages, URL queries and bodies;
+log explicit safe fields and test application-specific redaction.
 
-Redaction removes configured paths, not arbitrary secret substrings. Error messages, URL query strings and unfamiliar nested properties may still contain sensitive data. Test your application paths and never embed a credential in the log message itself. `redact: false` disables the protection.
-
-`Log.level` changes take effect on subsequent method lookups; avoid capturing a log function and then expecting it to be replaced when the level changes. `App.close()` owns its logger; a manually supplied output stream remains the creator's resource to end. The [full API](https://db3.ai/docs/logging-api) includes all current logger, driver, options and HTTP exchange contracts.
-
-## Framework Boundaries
-
-Logs describe operations for people and observability tools. They are not a
-framework event bus and must not trigger application behavior.
-
-Database query events, queue lifecycle events, and durable flow events retain
-their own typed contracts. They can be correlated with logs through fields such
-as `requestId`, `jobId`, `websiteId`, `flowId`, and `component`.
-
-## Persistent JSON files
-
-Set `log.file` or `PLATFORM_LOG_FILE` to append the same redacted JSON records to
-a persistent file, in addition to stdout unless `console: false`. Parent
-directories are created by the Pino file transport. `App.close()` flushes and
-closes the transport. Mount the destination outside ephemeral containers and
-configure rotation, retention, permissions and capacity monitoring externally.
+Logs must not trigger application behavior. Database, queue and flow events keep their
+own typed contracts; correlate them using request/job/website/flow IDs and component fields.
+See the [API](https://db3.ai/docs/logging-api) for contracts.

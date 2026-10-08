@@ -33,7 +33,7 @@ export function registerHttpErrorHandler(fastify: FastifyInstance, options: serv
 		const reference = ulid();
 		failures.set(reply, { error, reference });
 		const context = { request, statusCode: reply.statusCode, reference, responseBody };
-		request.log.error({ err: error, statusCode: reply.statusCode, reference, responseBody }, 'Request failed with server error');
+		request.log.error({ err: error, requestMethod: request.method, requestUrl: request.url, statusCode: reply.statusCode, reference, responseBody }, 'Request failed with server error');
 		try {
 			options.onServerError?.(error, context);
 		} catch (observerError) {
