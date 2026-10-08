@@ -129,6 +129,8 @@ export class AIProviderAdmission {
 		const details = openAIProviderError(error);
 		const quota = isOpenAIQuotaError(error);
 		const transient = !quota && isTransientProviderFailure(error);
+		// Optional work cannot declare an account outage from its own transport failure.
+		if (transient && attempt.transientFailureScope === 'request') return null;
 		if (!quota && !transient) {
 			await this.success(attempt, lease, now);
 			return null;

@@ -371,3 +371,7 @@ oversized events, incomplete EOF and cancellation retain the bounded recovery
 lease rather than asserting success. Retained lines/events are limited to one
 MiB of decoded characters; oversized events are discarded only by the observer
 until their blank boundary, and later valid quota events still stop the account.
+
+### Optional request failure isolation
+
+Text and structured calls may set `transientFailureScope: "request"` for optional work. Timeouts, transport failures and server errors then fail that request without opening the shared account outage circuit. Existing account admission stops and explicit quota exhaustion remain shared. Capacity limits, allowance checks and usage tracking still apply. This does not guarantee provider availability or remove the cost of a request.

@@ -254,6 +254,7 @@ export class Ai {
 		const result = await this.generateTextResult({
 			model: input.model,
 			provider: input.provider,
+			transientFailureScope: input.transientFailureScope,
 			instructions: input.instructions,
 			input: input.input,
 			maxOutputTokens: input.maxOutputTokens,
@@ -319,7 +320,7 @@ export class Ai {
 		}
 
 		for (let index = 0; index < attempts.length; index++) {
-			const attempt = attempts[index]!;
+			const attempt = { ...attempts[index]!, transientFailureScope: input.transientFailureScope };
 			const hasFallback = index < attempts.length - 1;
 			const attemptStartMs = Date.now();
 			const request = {

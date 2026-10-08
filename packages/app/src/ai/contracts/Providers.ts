@@ -23,6 +23,8 @@ export interface AIProviderConfig {
  * One resolved, fully configured provider attempt in a failover chain.
  */
 export interface AIProviderAttempt {
+	/** Optional work isolates transient transport failures; quota and existing account stops remain shared. */
+	transientFailureScope?: 'account' | 'request';
 	/** Stable provider id persisted on tracking rows and bucket keys. */
 	provider: AIProvider;
 	/** Model sent to this provider. */

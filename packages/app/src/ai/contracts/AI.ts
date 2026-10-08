@@ -150,6 +150,8 @@ export interface AIOptions {
  * Plain text request sent to the Responses API.
  */
 export interface GenerateTextInput {
+	/** Keep transient failures local to optional work; account quota and existing admission stops still apply. */
+	transientFailureScope?: 'account' | 'request';
 	/** Optional per-call model override for the OpenAI provider entry. */
 	model?: string;
 	/** Optional provider failover chain overriding the app default for this call. */
