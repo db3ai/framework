@@ -3,6 +3,8 @@ node_modules
 .git
 **/.env
 **/.env.*
+!**/.env.example
+!**/.env.test.example
 **/dist
-**/storage
+apps/*/storage
 **/coverage
