@@ -19,7 +19,8 @@
 	"workspaces": [
 		"packages/*",
 		"apps/starter",
-		"apps/framework"
+		"apps/framework",
+		"apps/flow-lab"
 	],
 	"overrides": {
 		"@tiptap/extension-code-block": "^3.31.3",
@@ -42,6 +43,7 @@
 		"docs:generate": "npm run generate --workspace @db3.ai/docs",
 		"docs:test": "npm test --workspace @db3.ai/docs",
 		"docs:build": "npm run build --workspace @db3.ai/docs",
-		"docs:dev": "npm run dev --workspace @db3.ai/docs"
+		"docs:dev": "npm run dev --workspace @db3.ai/docs",
+		"dev:flow-lab": "npm run dev --workspace flow-lab"
 	}
 }

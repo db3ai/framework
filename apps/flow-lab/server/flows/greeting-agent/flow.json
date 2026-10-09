@@ -1,0 +1,120 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDPRR0NT39S75V942MEV34X",
+	"name": "Greeting Agent",
+	"description": "Nested flow that builds, observes, delays, and formats a greeting.",
+	"inputs": {
+		"name": {
+			"default": "Ada",
+			"description": "Validated name supplied by the parent flow.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"outputs": {
+		"greeting": {
+			"description": "Uppercase greeting returned to the parent block.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXDPRR0SFZD88KPG6VV068ET",
+			"type": "flow.input",
+			"name": "Agent Input",
+			"position": {
+				"x": 49,
+				"y": 180
+			}
+		},
+		{
+			"id": "01KXDPRR0T3F139G3P8RZGNAF3",
+			"type": "text.build-greeting",
+			"name": "Build Greeting",
+			"config": {
+				"prefix": "Hello"
+			},
+			"position": {
+				"x": 360,
+				"y": 180
+			}
+		},
+		{
+			"id": "01KXDPRR0T1CKYMTVS7NXDWXW0",
+			"type": "debug.tap",
+			"name": "Observe Greeting",
+			"position": {
+				"x": 640,
+				"y": 180
+			}
+		},
+		{
+			"id": "01KXDPRR0T9XX9Y03XR9H7QQJZ",
+			"type": "control.wait",
+			"name": "Wait 800ms",
+			"config": {
+				"milliseconds": 800
+			},
+			"position": {
+				"x": 920,
+				"y": 180
+			}
+		},
+		{
+			"id": "01KXDPRR0T3KMWB6S1S653HCXR",
+			"type": "text.uppercase",
+			"name": "Uppercase",
+			"position": {
+				"x": 1200,
+				"y": 180
+			}
+		},
+		{
+			"id": "01KXDPRR0TRCJWKWVXG3R7VNCZ",
+			"type": "flow.output",
+			"name": "Agent Output",
+			"position": {
+				"x": 1480,
+				"y": 180
+			}
+		}
+	],
+	"connections": [
+		{
+			"id": "01KXDPRR0TAGH8WRD249MFY8R6",
+			"sourceBlockId": "01KXDPRR0SFZD88KPG6VV068ET",
+			"sourcePort": "name",
+			"targetBlockId": "01KXDPRR0T3F139G3P8RZGNAF3",
+			"targetPort": "name"
+		},
+		{
+			"id": "01KXDPRR0TA2QND8SB8Y3JRC2G",
+			"sourceBlockId": "01KXDPRR0T3F139G3P8RZGNAF3",
+			"sourcePort": "greeting",
+			"targetBlockId": "01KXDPRR0T1CKYMTVS7NXDWXW0",
+			"targetPort": "greeting"
+		},
+		{
+			"id": "01KXDPRR0TR1Z316Q7HH64ZZH2",
+			"sourceBlockId": "01KXDPRR0T1CKYMTVS7NXDWXW0",
+			"sourcePort": "greeting",
+			"targetBlockId": "01KXDPRR0T9XX9Y03XR9H7QQJZ",
+			"targetPort": "greeting"
+		},
+		{
+			"id": "01KXDPRR0T2JF4DVJ36EA4H42C",
+			"sourceBlockId": "01KXDPRR0T9XX9Y03XR9H7QQJZ",
+			"sourcePort": "greeting",
+			"targetBlockId": "01KXDPRR0T3KMWB6S1S653HCXR",
+			"targetPort": "greeting"
+		},
+		{
+			"id": "01KXDPRR0T7FREABHWPHTK0ZYT",
+			"sourceBlockId": "01KXDPRR0T3KMWB6S1S653HCXR",
+			"sourcePort": "greeting",
+			"targetBlockId": "01KXDPRR0TRCJWKWVXG3R7VNCZ",
+			"targetPort": "greeting"
+		}
+	]
+}

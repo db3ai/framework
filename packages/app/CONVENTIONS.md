@@ -50,6 +50,13 @@ actions with `defineCommand()`, mapping named parameters and terminal results.
 Actions execute in the active app context, use `app()` and return normal values
 so application and UI server handlers can call them directly.
 
+## Frontend Development
+
+Follow the [frontend development rules](agent-instructions.md#frontend-development)
+before creating or changing frontend behaviour. They define component,
+composable, store and plain-function ownership, lifecycle cleanup and direct
+behavioural verification. Existing examples do not override those rules.
+
 ## File Naming
 
 Platform enforces the mechanically checkable naming rules with

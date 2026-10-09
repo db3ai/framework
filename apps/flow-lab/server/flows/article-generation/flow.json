@@ -1,0 +1,166 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDVYBKNBPTHGME52391YBVB",
+	"name": "Article Production",
+	"description": "Loads an article request, researches capped link candidates, produces the entitled image set, validates the assembled markdown, and persists only an approved article.",
+	"inputs": {
+		"request": {
+			"default": {
+				"contentPlanId": "01KXDVYBKM23VQ2DTETC09YM4R",
+				"userId": "01KXDVYBKJFHDBTEH2J8MQC25D",
+				"imagePolicy": {
+					"bodyImageCount": 3,
+					"paidExtraImageAllowance": 0,
+					"requireDiagram": true
+				}
+			},
+			"description": "Article identity and image entitlement supplied by a form, webhook, API, schedule, or manual run.",
+			"editor": {
+				"component": "DomJsonInput",
+				"label": "Article production request",
+				"placeholder": "Enter ids and imagePolicy as JSON",
+				"rows": 12
+			},
+			"required": true,
+			"type": "json"
+		}
+	},
+	"outputs": {
+		"result": {
+			"description": "Persisted article identity, inline asset evidence, link selections, and final metrics.",
+			"required": true,
+			"type": "json"
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXKCH6AVZ7Y9X7D7SEE0H8RQ",
+			"type": "flow.input",
+			"name": "Production Request",
+			"position": { "x": -280, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBKSCRFXV4A6DRCT5M8P",
+			"type": "input.article-request",
+			"name": "Validate Entitlements",
+			"config": {
+				"form": {
+					"component": "DomForm",
+					"props": { "name": "article-production-request" },
+					"children": [
+						{
+							"component": "DomTextInput",
+							"props": { "label": "User ID", "name": "userId", "required": true }
+						},
+						{
+							"component": "DomTextInput",
+							"props": { "label": "Content plan ID", "name": "contentPlanId", "required": true }
+						},
+						{
+							"component": "DomNumberInput",
+							"props": { "label": "Body images", "name": "imagePolicy.bodyImageCount", "min": 2, "value": 3 }
+						},
+						{
+							"component": "DomNumberInput",
+							"props": { "label": "Paid extra image allowance", "name": "imagePolicy.paidExtraImageAllowance", "min": 0, "value": 0 }
+						},
+						{
+							"component": "DomToggle",
+							"props": { "label": "Require a diagram or infographic", "name": "imagePolicy.requireDiagram", "value": true }
+						}
+					]
+				}
+			},
+			"position": { "x": 20, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBKT65J0MNN17GAQTCN0",
+			"type": "database.fetch-article-inputs",
+			"name": "Fetch User and Plan",
+			"position": { "x": 340, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBKV8BRFP0AQMG0BSBJJ",
+			"type": "article.build-context",
+			"name": "Build Editorial Context",
+			"position": { "x": 660, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBKX08BBTXV7VBN4FB9F",
+			"type": "flow.subflow",
+			"name": "Research and Select Links",
+			"flowId": "01KXDVYBKPYZBS5VFAXJ9XPQ77",
+			"position": { "x": 1000, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBKYNEMD8W6R22KPK59T",
+			"type": "flow.subflow",
+			"name": "Produce and Finalize Article",
+			"flowId": "01KXDVYBKQDT7MGV900EXRATF2",
+			"position": { "x": 1360, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBM0XFHYT7J84VSWCB8X",
+			"type": "database.insert-article",
+			"name": "Persist Approved Article",
+			"position": { "x": 1720, "y": 130 }
+		},
+		{
+			"id": "01KXDVYBM15JJ4Y0E6GK20SREB",
+			"type": "flow.output",
+			"name": "Production Result",
+			"position": { "x": 2060, "y": 130 }
+		}
+	],
+	"connections": [
+		{
+			"id": "01KXKCH6AWCQAPS62HWYN2X4R0",
+			"sourceBlockId": "01KXKCH6AVZ7Y9X7D7SEE0H8RQ",
+			"sourcePort": "request",
+			"targetBlockId": "01KXDVYBKSCRFXV4A6DRCT5M8P",
+			"targetPort": "request"
+		},
+		{
+			"id": "01KXDVYBM26G9QDQF3SYB6M15N",
+			"sourceBlockId": "01KXDVYBKSCRFXV4A6DRCT5M8P",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBKT65J0MNN17GAQTCN0",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBM3MJRKXR6R3PGY882H",
+			"sourceBlockId": "01KXDVYBKT65J0MNN17GAQTCN0",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBKV8BRFP0AQMG0BSBJJ",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBM4WB019R9G83X8EY9M",
+			"sourceBlockId": "01KXDVYBKV8BRFP0AQMG0BSBJJ",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBKX08BBTXV7VBN4FB9F",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZQWPTTRWTP2CAH55A",
+			"sourceBlockId": "01KXDVYBKX08BBTXV7VBN4FB9F",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBKYNEMD8W6R22KPK59T",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZ0SWB4D2VH0JHA03Z",
+			"sourceBlockId": "01KXDVYBKYNEMD8W6R22KPK59T",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBM0XFHYT7J84VSWCB8X",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBM8KPG6JXS5RPSY4XKR",
+			"sourceBlockId": "01KXDVYBM0XFHYT7J84VSWCB8X",
+			"sourcePort": "result",
+			"targetBlockId": "01KXDVYBM15JJ4Y0E6GK20SREB",
+			"targetPort": "result"
+		}
+	]
+}

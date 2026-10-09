@@ -1,0 +1,22 @@
+{
+	"name": "db3-starter-electron",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Isolated Electron experiment for the hosted DB3 starter frontend.",
+	"type": "module",
+	"main": "dist/src/main.js",
+	"engines": { "node": ">=24" },
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"start": "npm run build && electron .",
+		"test": "npm run build && node --test --test-concurrency=1 dist/tests/*.test.js",
+		"package": "npm run build && electron-packager . \"DB3 Starter\" --out=out --overwrite --asar --app-bundle-id=ai.db3.starter.experiment --ignore=\"^/(src|tests|out)(/|$)|^/dist/tests(/|$)|^/tsconfig.json$\""
+	},
+	"devDependencies": {
+		"@electron/packager": "20.3.0",
+		"@types/node": "^24.0.0",
+		"electron": "44.4.5",
+		"playwright-core": "1.61.1",
+		"typescript": "^6.0.3"
+	}
+}

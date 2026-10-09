@@ -1,0 +1,119 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDVYBKRNTT0XV0QKASZRQKX",
+	"name": "Daily Content Planner",
+	"description": "Daily scheduled flow that maintains 30 days of planned content, selects the next item, and invokes Article Generation.",
+	"inputs": {
+		"date": {
+			"type": "string",
+			"required": true,
+			"default": "2026-07-13",
+			"description": "Schedule date used for manual development runs.",
+			"editor": {
+				"component": "DomTextInput",
+				"label": "Schedule date",
+				"placeholder": "YYYY-MM-DD"
+			}
+		}
+	},
+	"outputs": {
+		"result": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXKCH6AY47F44BQW77C8G7Z1",
+			"type": "flow.input",
+			"name": "Inputs",
+			"position": {
+				"x": -280,
+				"y": 150
+			}
+		},
+		{
+			"id": "01KXDVYBMRKDJHRBGCNY2HYEAG",
+			"type": "trigger.daily-schedule",
+			"name": "Every Day",
+			"position": {
+				"x": 20,
+				"y": 150
+			}
+		},
+		{
+			"id": "01KXDVYBMSN58JPKKX2A4WY1RC",
+			"type": "database.ensure-plan-coverage",
+			"name": "Ensure 30 Days Planned",
+			"position": {
+				"x": 340,
+				"y": 150
+			}
+		},
+		{
+			"id": "01KXDVYBMT3W4WZ93518DJEK4N",
+			"type": "database.pick-next-content-plan",
+			"name": "Pick Next Article",
+			"position": {
+				"x": 680,
+				"y": 150
+			}
+		},
+		{
+			"id": "01KXDVYBMV5PWV0HVHHP4TPX8B",
+			"type": "flow.subflow",
+			"name": "Article Generation",
+			"flowId": "01KXDVYBKNBPTHGME52391YBVB",
+			"position": {
+				"x": 1020,
+				"y": 150
+			}
+		},
+		{
+			"id": "01KXDVYBMWJC1XMFYBYE45SHQG",
+			"type": "flow.output",
+			"name": "Daily Result",
+			"position": {
+				"x": 1360,
+				"y": 150
+			}
+		}
+	],
+	"connections": [
+		{
+			"id": "01KXKCH6AYKMQSBZ09MQPF0P7N",
+			"sourceBlockId": "01KXKCH6AY47F44BQW77C8G7Z1",
+			"sourcePort": "date",
+			"targetBlockId": "01KXDVYBMRKDJHRBGCNY2HYEAG",
+			"targetPort": "date"
+		},
+		{
+			"id": "01KXDVYBMXRGX1YJ37WBMNWSHZ",
+			"sourceBlockId": "01KXDVYBMRKDJHRBGCNY2HYEAG",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMSN58JPKKX2A4WY1RC",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBMYFM1WDEKGARGJK8FA",
+			"sourceBlockId": "01KXDVYBMSN58JPKKX2A4WY1RC",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMT3W4WZ93518DJEK4N",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBMZ9K7TX4D3HTKYRWC7",
+			"sourceBlockId": "01KXDVYBMT3W4WZ93518DJEK4N",
+			"sourcePort": "request",
+			"targetBlockId": "01KXDVYBMV5PWV0HVHHP4TPX8B",
+			"targetPort": "request"
+		},
+		{
+			"id": "01KXDVYBN0PT8HXX55HWFXAWQ9",
+			"sourceBlockId": "01KXDVYBMV5PWV0HVHHP4TPX8B",
+			"sourcePort": "result",
+			"targetBlockId": "01KXDVYBMWJC1XMFYBYE45SHQG",
+			"targetPort": "result"
+		}
+	]
+}

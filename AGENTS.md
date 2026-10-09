@@ -23,6 +23,13 @@ Do not develop framework changes in a consumer snapshot.
   following apps/starter, with migrations and schema snapshots in `server/database/`.
   Framework library source stays in package `src/` directories.
 
+## Frontend work
+
+Before creating or changing frontend behaviour, read the
+[frontend development rules](packages/app/agent-instructions.md#frontend-development).
+Keep components focused on UI; put substantial behaviour in feature-owned
+composables, stores or plain TypeScript functions as appropriate.
+
 ## Standards
 
 - Use tabs for indentation and one main concept per file.

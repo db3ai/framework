@@ -1,0 +1,106 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDVYBKPYZBS5VFAXJ9XPQ77",
+	"name": "Article Research Agent",
+	"description": "Researches the topic, discovers same-site and approved exchange pages, and freezes a capped editorial link plan.",
+	"inputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"outputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXKCH6AXWWVDBJH7R9DRGWZ2",
+			"type": "flow.input",
+			"name": "Research Inputs",
+			"position": { "x": -280, "y": 150 }
+		},
+		{
+			"id": "01KXDVYBM98F0XK2GZDNV70177",
+			"type": "agent.keyword-research",
+			"name": "Deep Keyword Research",
+			"position": { "x": 20, "y": 150 }
+		},
+		{
+			"id": "01KXDVYBMA8KXJXZBF8862JT61",
+			"type": "search.internal-link-candidates",
+			"name": "Find Internal Candidates",
+			"position": { "x": 340, "y": 150 }
+		},
+		{
+			"id": "01KY01DHDV38R9XCY2AJ8B7TZX",
+			"type": "search.external-link-candidates",
+			"name": "Find Exchange Candidates",
+			"position": { "x": 680, "y": 150 }
+		},
+		{
+			"id": "01KY01DHDZPB1V9GRQ12MZWYVW",
+			"type": "article.select-links",
+			"name": "Select Capped Link Plan",
+			"position": { "x": 1020, "y": 150 }
+		},
+		{
+			"id": "01KXDVYBMBYS1NV3R7MZJR0VCX",
+			"type": "debug.state-tap",
+			"name": "Observe Research and Links",
+			"position": { "x": 1360, "y": 150 }
+		},
+		{
+			"id": "01KXKCH6AX3W66YRJ1C8SPNGD1",
+			"type": "flow.output",
+			"name": "Research Outputs",
+			"position": { "x": 1680, "y": 150 }
+		}
+	],
+	"connections": [
+		{
+			"id": "01KXKCH6AXXSTZZ0QCWBTZYAQW",
+			"sourceBlockId": "01KXKCH6AXWWVDBJH7R9DRGWZ2",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBM98F0XK2GZDNV70177",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBMDQDG5PJCTEBYRGK9Y",
+			"sourceBlockId": "01KXDVYBM98F0XK2GZDNV70177",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMA8KXJXZBF8862JT61",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZP0SR7KEPHR89KVWY",
+			"sourceBlockId": "01KXDVYBMA8KXJXZBF8862JT61",
+			"sourcePort": "state",
+			"targetBlockId": "01KY01DHDV38R9XCY2AJ8B7TZX",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZSGX4P36PHX4G8YNQ",
+			"sourceBlockId": "01KY01DHDV38R9XCY2AJ8B7TZX",
+			"sourcePort": "state",
+			"targetBlockId": "01KY01DHDZPB1V9GRQ12MZWYVW",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZEVPWFKZAJE9KJEWT",
+			"sourceBlockId": "01KY01DHDZPB1V9GRQ12MZWYVW",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMBYS1NV3R7MZJR0VCX",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXKCH6AXTPGTAJS76K03GA7K",
+			"sourceBlockId": "01KXDVYBMBYS1NV3R7MZJR0VCX",
+			"sourcePort": "state",
+			"targetBlockId": "01KXKCH6AX3W66YRJ1C8SPNGD1",
+			"targetPort": "state"
+		}
+	]
+}

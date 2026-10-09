@@ -55,8 +55,8 @@ export function documentationArticleMarkdown(
 		`> ${article.summary}`,
 		[
 			`- Package: \`${article.packageName}\``,
-			`- Canonical page: [${articleUrl(article, origin)}](${articleUrl(article, origin)})`,
-			`- Markdown: [${articleMarkdownUrl(article, origin)}](${articleMarkdownUrl(article, origin)})`,
+			`- Canonical page: <${articleUrl(article, origin)}>`,
+			`- Markdown: <${articleMarkdownUrl(article, origin)}>`,
 			`- Framework source of truth: \`${article.sourcePath}\``,
 		].join('\n'),
 	];
@@ -260,7 +260,6 @@ function renderBehaviouralTestAuthority(): string {
 	const testSources = Object.entries(frameworkAuthority.behaviourTestSources).map(([testPath, source]) => [
 		`<a id="${authorityAnchor('test', testPath)}"></a>`,
 		`## Behaviour test: \`${testPath}\``,
-		'Exact framework-owned test source captured by the documentation build:',
 		fencedCode(source, sourceLanguage(testPath)),
 	].join('\n\n'));
 

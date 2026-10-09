@@ -1,0 +1,35 @@
+{
+	"name": "@db3.ai/flow-designer",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./style.css": "./src/style.css"
+	},
+	"scripts": {
+		"check": "vue-tsc --noEmit -p tsconfig.json"
+	},
+	"dependencies": {
+		"@lucide/vue": "^1.21.0",
+		"@db3.ai/app": "0.1.0",
+		"@db3.ai/pure": "0.1.0",
+		"@vue-flow/background": "^1.3.2",
+		"@vue-flow/controls": "^1.1.3",
+		"@vue-flow/core": "^1.47.0",
+		"@vue-flow/minimap": "^1.5.4"
+	},
+	"peerDependencies": {
+		"vue": "^3.5.0"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"vue": "^3.5.33",
+		"vue-tsc": "^3.3.4"
+	},
+	"files": [
+		"src",
+		"README.md"
+	],
+	"license": "MIT"
+}

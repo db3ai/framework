@@ -53,7 +53,7 @@ export async function createDocsServer(options: DocsServerOptions = {}): Promise
 	server.get('/framework/healthz', async (_request, reply) => {
 		reply.header('cache-control', 'no-store');
 
-		return { status: 'ready' };
+		return { status: 'ready', ...(process.env.DOCS_RELEASE_REVISION ? { revision: process.env.DOCS_RELEASE_REVISION } : {}) };
 	});
 
 	// Vite removes its base prefix while serving modules; SSR retains the public location.

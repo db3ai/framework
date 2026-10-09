@@ -3,9 +3,13 @@
 
 This application uses `@db3.ai/app`.
 
-- Before changing framework usage, resolve and read the installed framework
-  instructions with
+- Before creating or changing frontend behaviour or framework usage, resolve
+  and read the installed framework instructions with
   `node -p "require.resolve('@db3.ai/app/agent-instructions')"`.
+- Follow its Frontend development rules: keep Vue components focused on UI,
+  move substantial reactive behaviour into feature-owned composables, and keep
+  Vue-independent logic in plain TypeScript functions. Existing large components
+  are not precedent.
 - Treat the installed package exports and declarations as the supported API.
 - Keep application-specific models, routes, jobs and policy in this repository.
 - Name class-owning TypeScript files and Vue components with PascalCase. The filename must match the primary class or component.

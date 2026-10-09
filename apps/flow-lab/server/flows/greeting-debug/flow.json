@@ -1,0 +1,83 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDNZE8JYH73Z55DA8QKCDM8",
+	"name": "Greeting Debug Flow",
+	"description": "A parent flow that validates input, delegates to a nested greeting agent, and exposes the result.",
+	"inputs": {
+		"name": {
+			"default": "Ada",
+			"description": "Name to greet.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"outputs": {
+		"greeting": {
+			"description": "Uppercase greeting produced by the nested agent.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXDNZE8KA4AQ5NAEAAH5EG9D",
+			"type": "flow.input",
+			"name": "Manual Input",
+			"position": {
+				"x": -82,
+				"y": 44
+			}
+		},
+		{
+			"id": "01KXDNZE8KA8P220NCRFJ15S5Z",
+			"type": "validation.require-name",
+			"name": "Require Name",
+			"position": {
+				"x": 280,
+				"y": 44
+			}
+		},
+		{
+			"id": "01KXDNZE8KRZ9W9AKZAXFEQXPG",
+			"type": "flow.subflow",
+			"name": "Greeting Agent",
+			"flowId": "01KXDPRR0NT39S75V942MEV34X",
+			"position": {
+				"x": 625,
+				"y": 44
+			}
+		},
+		{
+			"id": "01KXDNZE8MDGSR5YPZB74M1GPA",
+			"type": "flow.output",
+			"name": "Flow Output",
+			"position": {
+				"x": 948,
+				"y": 44
+			}
+		}
+	],
+	"connections": [
+		{
+			"id": "01KXDNZE8MH8YC73H1YEQ2VDY2",
+			"sourceBlockId": "01KXDNZE8KA4AQ5NAEAAH5EG9D",
+			"sourcePort": "name",
+			"targetBlockId": "01KXDNZE8KA8P220NCRFJ15S5Z",
+			"targetPort": "name"
+		},
+		{
+			"id": "01KXDNZE8MDSTXWFG69D1BTVZD",
+			"sourceBlockId": "01KXDNZE8KA8P220NCRFJ15S5Z",
+			"sourcePort": "name",
+			"targetBlockId": "01KXDNZE8KRZ9W9AKZAXFEQXPG",
+			"targetPort": "name"
+		},
+		{
+			"id": "01KXDNZE8M8TCNQ13TCGFDYA6D",
+			"sourceBlockId": "01KXDNZE8KRZ9W9AKZAXFEQXPG",
+			"sourcePort": "greeting",
+			"targetBlockId": "01KXDNZE8MDGSR5YPZB74M1GPA",
+			"targetPort": "greeting"
+		}
+	]
+}

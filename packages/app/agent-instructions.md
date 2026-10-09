@@ -30,6 +30,36 @@ from `node_modules` into the application. If the installed declarations,
 documentation and runtime disagree, treat that as a framework defect and record
 the installed package version.
 
+## Frontend development
+
+Read these rules before creating or changing frontend behaviour. Existing large
+components and starter examples are not exceptions or architectural precedent.
+
+- Keep Vue components focused on templates, interaction wiring, accessibility and
+	styles. Keep trivial presentation state local, such as an open disclosure.
+- Put substantial reactive state, form workflows, async orchestration and
+	lifecycle management in feature-owned `useSomething` composables, even when
+	only one component uses them. Keep composables beside the feature they own.
+- Put calculations, normalization, validation and business decisions that do not
+	need Vue in plain TypeScript functions. Keep shared state in its owning store;
+	do not duplicate it in a composable. The server remains authoritative for
+	authorization, billing and persisted business rules.
+- Expose a small, explicit set of reactive state and actions. Split by cohesive
+	responsibility, not an arbitrary line limit. Do not move a whole component
+	script into one oversized composable or create pass-through wrappers.
+- Make logic independently exercisable without rendering the full page. Keep
+	network and browser side effects at explicit boundaries, preserve reactive
+	inputs, handle failures and stale responses, and clean up requests, watchers,
+	timers and subscriptions with their owning scope.
+- Prioritize direct behavioural tests of functions, stores and composables for
+	important decisions and state transitions. Cover relevant failure, concurrency
+	and cleanup cases. Use a minimal lifecycle harness when required; retain
+	focused component tests for bindings, interactions and accessibility. Source
+	text assertions and screenshots do not establish logical correctness.
+- For new work, identify the state and behaviour owner before building the UI.
+	For existing components, extract only the responsibilities involved in the
+	current task. Preserve behaviour and avoid unrelated refactoring.
+
 ## Application boundaries
 
 - For new applications, use `client/` for browser code and `server/` for backend

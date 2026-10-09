@@ -1,0 +1,132 @@
+{
+	"schemaVersion": 1,
+	"id": "01KXDVYBKQDT7MGV900EXRATF2",
+	"name": "Article Production Agent",
+	"description": "Plans the article and exact asset count, writes it, generates and places images, weaves selected links, and enforces final editorial constraints.",
+	"inputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"outputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"blocks": [
+		{
+			"id": "01KXKCH6AXVW0QCXDDS7MD3ABG",
+			"type": "flow.input",
+			"name": "Production Inputs",
+			"position": { "x": -280, "y": 140 }
+		},
+		{
+			"id": "01KXDVYBMFVNY2MGRXR40N9MF1",
+			"type": "agent.article-plan",
+			"name": "Generate Article Plan",
+			"position": { "x": 20, "y": 140 }
+		},
+		{
+			"id": "01KY01DHDZZAYCEVMTWFD0A0Z3",
+			"type": "article.plan-images",
+			"name": "Plan Exact Image Set",
+			"position": { "x": 340, "y": 140 }
+		},
+		{
+			"id": "01KXDVYBMGTGKEV1S4DYRAX9JR",
+			"type": "agent.write-article",
+			"name": "Write With Stable Anchors",
+			"position": { "x": 680, "y": 140 }
+		},
+		{
+			"id": "01KXDVYBMH2RXQZ91G046TEW78",
+			"type": "agent.generate-images",
+			"name": "Generate Planned Images",
+			"position": { "x": 1020, "y": 140 }
+		},
+		{
+			"id": "01KXDVYBMJB3E1XDD9955BA3EM",
+			"type": "article.place-images",
+			"name": "Place Images Inline",
+			"position": { "x": 1360, "y": 140 }
+		},
+		{
+			"id": "01KY01DHDZ2QFGBKY1MVWSB2PM",
+			"type": "article.weave-links",
+			"name": "Weave Links Naturally",
+			"position": { "x": 1700, "y": 140 }
+		},
+		{
+			"id": "01KXDVYBMK7B9ARBKA97492D5P",
+			"type": "article.finalize",
+			"name": "Validate and Finalize",
+			"position": { "x": 2040, "y": 140 }
+		},
+		{
+			"id": "01KXKCH6AX0DCAPWQX5H12Q9YT",
+			"type": "flow.output",
+			"name": "Production Outputs",
+			"position": { "x": 2380, "y": 140 }
+		}
+	],
+	"connections": [
+		{
+			"id": "01KY01DHDZHNWZKH1GAR7XK910",
+			"sourceBlockId": "01KXKCH6AXVW0QCXDDS7MD3ABG",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMFVNY2MGRXR40N9MF1",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZTVQ7HC91MKZNS5D4",
+			"sourceBlockId": "01KXDVYBMFVNY2MGRXR40N9MF1",
+			"sourcePort": "state",
+			"targetBlockId": "01KY01DHDZZAYCEVMTWFD0A0Z3",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZB4NK29F28BBP5PSS",
+			"sourceBlockId": "01KY01DHDZZAYCEVMTWFD0A0Z3",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMGTGKEV1S4DYRAX9JR",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBMNC18CNR2X1NV2D78Z",
+			"sourceBlockId": "01KXDVYBMGTGKEV1S4DYRAX9JR",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMH2RXQZ91G046TEW78",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXDVYBMPG93JJGD0T7ZWHW1A",
+			"sourceBlockId": "01KXDVYBMH2RXQZ91G046TEW78",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMJB3E1XDD9955BA3EM",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZ42JH6GZ097BX1HXE",
+			"sourceBlockId": "01KXDVYBMJB3E1XDD9955BA3EM",
+			"sourcePort": "state",
+			"targetBlockId": "01KY01DHDZ2QFGBKY1MVWSB2PM",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KY01DHDZQ4J7R3R91322X013",
+			"sourceBlockId": "01KY01DHDZ2QFGBKY1MVWSB2PM",
+			"sourcePort": "state",
+			"targetBlockId": "01KXDVYBMK7B9ARBKA97492D5P",
+			"targetPort": "state"
+		},
+		{
+			"id": "01KXKCH6AY9E37PS3ZR9E4YGHB",
+			"sourceBlockId": "01KXDVYBMK7B9ARBKA97492D5P",
+			"sourcePort": "state",
+			"targetBlockId": "01KXKCH6AX0DCAPWQX5H12Q9YT",
+			"targetPort": "state"
+		}
+	]
+}

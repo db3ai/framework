@@ -97,3 +97,10 @@ permissions and creates inspected tarball evidence only; it cannot publish to np
 Version: `0.1.0`
 License: `MIT`  
 Repository: <https://github.com/db3ai/framework>
+
+## Flow editor and lab
+
+`packages/flow-designer` owns the reusable Vue graph editor and run inspector.
+`apps/flow-lab` retains standalone flow examples and their database tests.
+Run `npm run dev:flow-lab` for the lab; the project-scoped Cloud product lives
+in the separate db3.ai repository at `apps/flows`.
