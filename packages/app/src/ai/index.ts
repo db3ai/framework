@@ -19,6 +19,7 @@ export * from './modelPricing';
 export * from './OpenAIProviderError';
 export * from './ProviderCosts';
 export * from './Agent';
+export * from './AgentOutputValidationError';
 export * from './contracts/Agent';
 export * from './AgentRunJob';
 export * from './registry';

@@ -485,7 +485,9 @@ import { createSsrRenderContext, renderSsrDocument, SSR_APP_MARKER, SSR_STATE_MA
 
 import { ActiveRecord, mariaDbDialect, rememberDatabaseDialect } from '@db3.ai/app/db';
 if (ActiveRecord.getScopedDb() !== undefined) throw new Error('Unexpected database scope.');
-import { AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
+import { AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, AgentOutputValidationError, Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
+const missingOutput = new AgentOutputValidationError('document_not_saved', 'The document was not saved.');
+if (!(missingOutput instanceof Error) || missingOutput.code !== 'document_not_saved') throw new Error('Installed output validation error failed.');
 const admissionDeferral = new AIProviderDeferredError(new Date(), new Date(), 'server_error', { status: 503, requestId: 'req_consumer' });
 const streamStop = new AIProviderStoppedError('outage', admissionDeferral.providerCode, { ...admissionDeferral.diagnostics, stopStage: 'stream-output' });
 if (streamStop.stopStage !== 'stream-output' || streamStop.status !== 503 || streamStop.requestId !== 'req_consumer' || streamStop.message.includes('deadline')) throw new Error('Installed provider stop diagnostics failed.');
@@ -642,7 +644,10 @@ registerBrowserJsonFormatting(Fastify());
 const safeErrorMessage: string = publicServerErrorMessage(new Error('secret'), 'production');
 void safeErrorMessage;
 import type { TextResponsePayload } from '@db3.ai/pure/ai';
-import { Ai, AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput, type AIServiceTier } from '@db3.ai/app/ai';
+import { Ai, AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, AgentOutputValidationError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput, type AIServiceTier } from '@db3.ai/app/ai';
+const missingOutput: AgentOutputValidationError = new AgentOutputValidationError('document_not_saved', 'The document was not saved.');
+const outputFailureCode: string = missingOutput.code;
+void outputFailureCode;
 const typedDeferral = new AIProviderDeferredError(new Date(), new Date(), 'server_error', { status: 503, requestId: 'req_consumer' });
 const typedStop = new AIProviderStoppedError('outage', typedDeferral.providerCode, { ...typedDeferral.diagnostics, stopStage: 'stream-output' });
 const stopStage: 'quota' | 'deadline' | 'stream-output' = typedStop.stopStage;

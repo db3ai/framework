@@ -120,6 +120,24 @@ diagnostic prompt items; filter those from ordinary user views. It supplies
 data for your renderer, not a history endpoint or UI component.
 
 Every provider attempt retains status, input, response, usage and timing.
+Agent attempt responses retain a bounded `completion` summary before application
+output validation: observed terminal model-turn count, last provider terminal
+status/incomplete reason, and persisted tool start/success/error counts. These
+counts describe observed events, not a guarantee that a business operation saved.
+Missing provider metadata stays null; unrecognized status/reason values become
+`unknown`. The attempt row and its parent identify the execution and logical run;
+`lastResponseId` correlates a completed SDK execution with the provider.
+
+An `afterFinalOutput` hook can throw `AgentOutputValidationError` with a fixed
+application code and payload-free message, for example
+`new AgentOutputValidationError('document_not_saved', 'The required document was not saved.')`.
+The completed provider attempt retains `outputValidation: { status: 'failed', code }`
+even if a later queue retry completes the logical root. Other hook errors retain
+a null code; dependency waits are not validation failures. This does not change
+retry/admission policy or mark billable provider work as failed. No additional
+prompt, final-output text, raw response, or tool payload is copied into diagnostics.
+An unsatisfied hook still prevents the final assistant message being saved.
+
 `AiRequest.runCostSummary(id)` aggregates recursively linked provider work
 without counting the root aggregate twice. Unknown usage and costs remain
 unknown. When `unpricedRequestCount` is nonzero, `totalCostUSD` is only the known
