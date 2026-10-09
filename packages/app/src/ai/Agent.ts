@@ -1,5 +1,7 @@
 import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
 import { aiExecutionContext } from './AiExecutionContext';
+import { AgentOutputValidationError } from './AgentOutputValidationError';
+import { createAgentCompletionDiagnostics, recordAgentCompletion, type AgentCompletionDiagnostics } from './agentCompletionDiagnostics';
 import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type FunctionCallItem, type FunctionCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
 import { isQueueRetryLaterError } from '@db3.ai/app/queue';
 import type * as queue from '@db3.ai/app/queue';
@@ -976,6 +978,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			let attemptSettled = false;
 			let providerStarted = false;
 			const responsePricing: Array<{ model?: string; serviceTier: string | null }> = [];
+			const completion = createAgentCompletionDiagnostics();
 
 			try {
 				attemptState = await this.startTrackedAttempt(state, attempt, attemptStartMs, prepared.serviceTier);
@@ -1033,6 +1036,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						if (event.type === 'raw_model_stream_event' && event.data.type === 'response_done') {
 							completedModelTurn = true;
 							const providerData = recordValue(event.data.response.providerData);
+							recordAgentCompletion(completion, providerData);
 							responsePricing.push({
 								...(typeof providerData?.model === 'string' ? { model: providerData.model } : {}),
 								serviceTier: effectiveAIServiceTier(providerData?.service_tier, prepared.serviceTier),
@@ -1042,6 +1046,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						const streamEvent = await this.streamEventFromSdkEvent(executionState, event);
 
 						if (!streamEvent) continue;
+						if (streamEvent.type === 'tool.calling') completion.toolCalls++;
+						if (streamEvent.type === 'tool.success') completion.toolSuccesses++;
+						if (streamEvent.type === 'tool.error') completion.toolErrors++;
 
 						if (streamEvent.type === 'text.delta') {
 							assistantText += streamEvent.delta;
@@ -1071,12 +1078,24 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						activeUsage,
 						stream.lastResponseId ?? null,
 						responsePricing,
+						completion,
 					);
 					attemptSettled = true;
 
 					const structuredOutput = this.structuredFinalOutput(stream.finalOutput);
 					const finalOutput = agentMarkdownWithCitations(rawFinalOutput, citations);
-					const outputMetadata = await this.afterFinalOutput(state, stream.finalOutput);
+					let outputMetadata: Record<string, unknown> | null;
+					try {
+						outputMetadata = await this.afterFinalOutput(state, stream.finalOutput);
+					} catch (error) {
+						if (!isQueueRetryLaterError(error)) {
+							await executionState.aiRequest.assign({ response: {
+								...recordValue(executionState.aiRequest.response),
+								outputValidation: { status: 'failed', code: error instanceof AgentOutputValidationError ? error.code : null },
+							} }).save();
+						}
+						throw error;
+					}
 					const assistantMessage = await this.saveMessage(executionState, {
 						role: AI_MESSAGE_ROLE.assistant,
 						content: finalOutput,
@@ -1131,6 +1150,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						providerStarted,
 						error,
 						responsePricing,
+						completion,
 					);
 				}
 
@@ -1230,6 +1250,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		sdkUsage: Usage,
 		lastResponseId: string | null,
 		responsePricing: Array<{ model?: string; serviceTier: string | null }>,
+		completion: AgentCompletionDiagnostics,
 	): Promise<void> {
 		const usage = agentRunUsage(sdkUsage);
 		const requestUsageEntries = agentRequestCostUsageEntries(sdkUsage, responsePricing, recordValue(state.aiRequest.request)?.serviceTier);
@@ -1245,6 +1266,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		state.aiRequest.assign({
 			response: agentAttemptResponse(usage, requestUsageEntries, cost, state.hostedToolUsage, {
 				lastResponseId,
+				completion,
 			}),
 			status: AI_REQUEST_STATUS.completed,
 			completedAt: new Date(),
@@ -1278,6 +1300,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		providerStarted: boolean,
 		error: unknown,
 		responsePricing: Array<{ model?: string; serviceTier: string | null }>,
+		completion: AgentCompletionDiagnostics,
 	): Promise<void> {
 		const usage = sdkUsage ? agentRunUsage(sdkUsage) : emptyAgentRunUsage();
 		const requestUsageEntries = sdkUsage ? agentRequestCostUsageEntries(sdkUsage, responsePricing, recordValue(state.aiRequest.request)?.serviceTier) : [];
@@ -1299,6 +1322,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		state.aiRequest.assign({
 			response: agentAttemptResponse(usage, requestUsageEntries, cost, state.hostedToolUsage, {
 				error: message,
+				completion,
 			}),
 			status: AI_REQUEST_STATUS.failed,
 			completedAt: new Date(),
