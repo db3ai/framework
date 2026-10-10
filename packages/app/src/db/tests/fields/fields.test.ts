@@ -810,6 +810,26 @@ describe('field interfaces', () => {
 		]);
 	});
 
+	it('writes PostgreSQL timestamp columns and predicates with UTC components', async () => {
+		const field = new TimestampField({ column: 'published_at' });
+		const context = { ...ctx('publishedAt'), dialect: postgresDialect };
+		const state = field.createState(context);
+		field.setValue(state, new Date('2026-10-10T09:00:00-04:00'), context);
+		expect(await field.getDataForDb(state, context, { isInsert: true, onlyDirty: false })).toEqual({ published_at: '2026-10-10 13:00:00.000' });
+		expect(field.getQueryValue('2026-10-10T09:00:00-04:00', context)).toBe('2026-10-10 13:00:00.000');
+	});
+
+	it('hydrates naive database timestamps as UTC and rejects invalid dates', () => {
+		const field = new TimestampField({ column: 'published_at' });
+		const state = field.createState(ctx('publishedAt'));
+		field.setFromDb(state, { published_at: '2026-10-10 13:00:00' }, ctx('publishedAt'));
+		expect(field.getJsonValue(state, ctx('publishedAt'))).toBe('2026-10-10T13:00:00.000Z');
+		field.setValue(state, '2026-10-10T09:00:00-04:00', ctx('publishedAt'));
+		expect(field.getJsonValue(state, ctx('publishedAt'))).toBe('2026-10-10T13:00:00.000Z');
+		field.setValue(state, new Date(NaN), ctx('publishedAt'));
+		expect(field.getJsonValue(state, ctx('publishedAt'))).toBeNull();
+	});
+
 	it('generates auto timestamps and serializes dates for JSON', async () => {
 		const field = new TimestampField({
 			column: 'updated_at',

@@ -533,3 +533,20 @@ scope and supported options depend on the database engine and indexes.
 `ActiveRecord.getScopedDb()` exposes only the explicit `withDb` connection, or
 `undefined`. It is an infrastructure-adapter seam for transaction participation;
 normal model/application code should continue using model APIs and `getDb()`.
+
+## UTC timestamp contract
+
+`TimestampField` uses Date values in memory and ISO UTC strings in JSON. ISO/SQL
+datetimes without an offset are interpreted as UTC, independent of the Node
+process timezone. Invalid/locale date strings normalize to null and required
+field validation still applies. Explicit offsets are honored. This does not
+interpret a user's local scheduling form; resolve its timezone before assigning.
+
+The default `db()` connection forces MySQL/MariaDB driver conversion to UTC and
+initializes every SQL session to UTC, including DATABASE_URL connections.
+PostgreSQL sessions use UTC and their per-client timestamp-without-timezone
+parser follows the same UTC convention. Timestamp fields write UTC calendar
+components to PostgreSQL timestamp columns, avoiding local Date serialization. Custom/injected Knex connections remain
+caller-owned: configure both driver conversion and the SQL session for UTC.
+Changing that contract does not repair historical incorrectly encoded values;
+inspect and migrate those separately before adopting it in an existing app.

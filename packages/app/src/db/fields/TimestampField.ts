@@ -1,3 +1,4 @@
+import { utcDate } from '@db3.ai/pure/dates';
 import {
 	BasicFieldState,
 	DbSchemaPart,
@@ -46,21 +47,7 @@ export class TimestampField extends FieldType<
 	 * Parses app input into a Date object.
 	 */
 	protected override parse(input: unknown): Date | null {
-		if (input === null || input === undefined || input === '') {
-			return null;
-		}
-
-		if (input instanceof Date) {
-			return input;
-		}
-
-		const date = new Date(String(input));
-
-		if (Number.isNaN(date.getTime())) {
-			return null;
-		}
-
-		return date;
+		return input instanceof Date || typeof input === 'string' ? utcDate(input) : null;
 	}
 
 	/**
@@ -73,12 +60,16 @@ export class TimestampField extends FieldType<
 	/**
 	 * Converts app-memory Date to database value.
 	 */
-	protected override toDbValue(input: Date | null): Date | null {
+	protected override toDbValue(input: Date | null): Date | string | null {
 		if (input === null || input === undefined) {
 			return null;
 		}
 
-		return input;
+		// PostgreSQL timestamp-without-timezone ignores offsets on Date parameters.
+		// Send UTC calendar components explicitly rather than the driver's local rendering.
+		return this.schemaDialect().name === 'postgres'
+			? input.toISOString().replace('T', ' ').replace('Z', '')
+			: input;
 	}
 
 	protected override defaultFormComponent(): string {

@@ -1,0 +1,220 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
+
+:root {
+	/* Each token is light-dark(light, dark); color-scheme below picks one. */
+	--ground: light-dark(#f4f5f7, #121316);
+	--ground-deep: light-dark(#ffffff, #0e0f11);
+	--bar: light-dark(#ffffff, #17181c);
+	--rail: light-dark(#eef0f3, #15161a);
+	--panel: light-dark(#ffffff, #1a1c20);
+	--raised: light-dark(#eceef2, #22252b);
+	--raised-hi: light-dark(#e1e4ea, #2a2e36);
+	--line: light-dark(#d9dde4, #2c3038);
+	--line-soft: light-dark(#e7e9ee, #22252b);
+	--line-strong: light-dark(#c7ccd5, #343944);
+	--text: light-dark(#16181d, #e8e9ec);
+	--text-2: light-dark(#363b45, #c9cdd4);
+	--muted: light-dark(#5b6270, #9ba1ad);
+	--faint: light-dark(#767d89, #6b717c);
+	--link: light-dark(#1d5fc4, #8dbbff);
+	--ok: light-dark(#1b7f50, #4cc38a);
+	--warn: light-dark(#9a6200, #e8b04b);
+	--bad: light-dark(#c2352b, #f07a6a);
+	--accent: light-dark(#2a68cf, #3f7bd9);
+	--menu: light-dark(#ffffff, #1f2226);
+	--crashed: light-dark(#fdf2f1, #160f10);
+	--shadow: light-dark(rgba(20, 26, 38, 0.16), rgba(0, 0, 0, 0.55));
+	--backdrop: light-dark(rgba(22, 26, 34, 0.32), rgba(5, 6, 8, 0.6));
+
+	/* Process kinds: icon colour, with tints mixed from it. */
+	--kind-api: light-dark(#2563c9, #6aa8ff);
+	--kind-web: light-dark(#a8590a, #f2a65a);
+	--kind-queue: light-dark(#7444c4, #b48cf2);
+	--kind-scheduler: light-dark(#0f7c76, #5fc4b8);
+	--kind-script: light-dark(#5b6270, #c9cdd4);
+
+	/* Terminal colours 0–7 and their bright variants 8–15. */
+	--ansi-0: light-dark(#3b4048, #5c6370);
+	--ansi-1: light-dark(#c2352b, #f07a6a);
+	--ansi-2: light-dark(#1b7f50, #4cc38a);
+	--ansi-3: light-dark(#9a6200, #e8b04b);
+	--ansi-4: light-dark(#2563c9, #6aa8ff);
+	--ansi-5: light-dark(#8a3fc4, #c78bf0);
+	--ansi-6: light-dark(#0f7c76, #5fc4b8);
+	--ansi-7: light-dark(#5b6270, #c9cdd4);
+	--ansi-8: light-dark(#767d89, #8a919c);
+	--ansi-9: light-dark(#d4473c, #ff9a8c);
+	--ansi-10: light-dark(#228f5c, #6edba6);
+	--ansi-11: light-dark(#a86f00, #f5c96b);
+	--ansi-12: light-dark(#3474d8, #8dbbff);
+	--ansi-13: light-dark(#9a52d4, #d9a8ff);
+	--ansi-14: light-dark(#138c85, #86ddd2);
+	--ansi-15: light-dark(#16181d, #f4f5f7);
+
+	--sans: 'IBM Plex Sans', system-ui, sans-serif;
+	--mono: 'IBM Plex Mono', ui-monospace, monospace;
+	/* System by default; the theme menu sets data-theme on <html>. */
+	color-scheme: light dark;
+}
+
+:root[data-theme='light'] {
+	color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+	color-scheme: dark;
+}
+
+* {
+	box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+	height: 100%;
+}
+
+/* The app scrolls inside its panes; the page itself never scrolls or rubber-bands. */
+html,
+body {
+	overflow: hidden;
+	overscroll-behavior: none;
+}
+
+body {
+	margin: 0;
+	background: var(--ground);
+	color: var(--text);
+	font-family: var(--sans);
+	font-size: 14px;
+}
+
+a {
+	color: var(--link);
+}
+
+button,
+input,
+select {
+	font: inherit;
+	color: inherit;
+}
+
+button {
+	cursor: pointer;
+}
+
+button:disabled {
+	cursor: default;
+	opacity: 0.5;
+}
+
+:focus-visible {
+	outline: 2px solid var(--link);
+	outline-offset: 2px;
+}
+
+.visually-hidden {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.mono {
+	font-family: var(--mono);
+}
+
+.btn {
+	height: 32px;
+	padding: 0 10px;
+	border-radius: 7px;
+	border: 1px solid var(--line-strong);
+	background: transparent;
+	color: var(--text-2);
+	font-size: 12px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+	background: var(--raised);
+	color: var(--text);
+}
+
+.btn--primary {
+	background: var(--accent);
+	border-color: var(--accent);
+	color: #fff;
+	font-weight: 600;
+}
+
+.btn--primary:hover:not(:disabled) {
+	background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.icon-btn {
+	width: 34px;
+	height: 34px;
+	border-radius: 7px;
+	border: 1px solid var(--line-strong);
+	background: var(--raised);
+	color: var(--text-2);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.icon-btn:hover:not(:disabled) {
+	color: var(--text);
+	background: var(--raised-hi);
+}
+
+.icon-btn--ghost {
+	border-color: transparent;
+	background: transparent;
+	color: var(--muted);
+	width: 30px;
+	height: 30px;
+}
+
+.dot {
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	flex: none;
+	background: var(--faint);
+}
+
+.dot--ok {
+	background: var(--ok);
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 20%, transparent);
+}
+
+.dot--busy {
+	background: var(--warn);
+}
+
+.dot--bad {
+	background: var(--bad);
+}
+
+.tone--bad {
+	color: var(--bad);
+}
+
+.tone--off {
+	color: var(--muted);
+}
+
+.eyebrow {
+	font-size: 11px;
+	letter-spacing: 0.08em;
+	text-transform: uppercase;
+	color: var(--muted);
+}

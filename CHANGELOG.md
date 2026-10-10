@@ -5,6 +5,29 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+## [0.1.0-beta.4] - 2026-10-10
+
+- Add explicit UTC parsing, named-timezone formatting and calendar dates, and
+	local scheduling conversion with explicit daylight-saving ambiguity policies.
+- Configure default database connections for UTC and make timestamp fields
+	interpret offset-free ISO/SQL values as UTC. Locale date strings are rejected;
+	applications must resolve local scheduling input before assigning timestamps.
+	Existing incorrectly encoded database values require a separate migration.
+- Improve development logs with queue-state/job highlighting and support for
+	forced colour in process-manager output.
+- Include AI service-tier selection and costing, provider-admission isolation,
+	bounded request recovery, configurable exception-email transports, and bounded
+	concurrent WebSocket sends added since the previous release candidate.
+- Include retained runnable jobs, worker presence, updated framework examples,
+	and the independently packaged documentation runtime.
+- Add Dock as a local process-manager application with live terminals, process
+	discovery, project controls and an isolated Electron shell. Dock remains outside
+	the published framework packages and generated starter.
+- Refresh generated documentation and verify timezone helpers through the
+	installed-package runtime and TypeScript consumer checks.
+- Release Pure, App and Create together through the manual `next` channel;
+	workspace development versions remain unchanged by the manual publisher.
+
 ## [0.1.0-beta.3] - 2026-09-28
 
 - Include the beta 2 feature set below and correct the public Git filename of

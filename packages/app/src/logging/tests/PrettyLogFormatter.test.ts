@@ -74,3 +74,22 @@ describe('PrettyLogFormatter', () => {
 		expect(formatter.format({ ...base, msg: 'request completed', reqId: 0, res: { statusCode: 404 }, time: 'invalid' })).toContain('--:--:-- [http] Request  404');
 	});
 });
+
+describe('queue message colours', () => {
+	const queueBase = { ...base, component: 'queue-worker' };
+
+	it('colours state verbs and job labels when colouring is on', () => {
+		const formatter = new PrettyLogFormatter(true);
+		const claimed = formatter.format({ ...queueBase, msg: '[queue] Claimed CollectKeywordRanksJob#5249 on "default" attempt 1/3.' });
+		expect(claimed).toContain('[queue] \u001b[34mClaimed\u001b[0m \u001b[1;35mCollectKeywordRanksJob#5249\u001b[0m on "default"');
+		expect(formatter.format({ ...queueBase, msg: '[queue] Processed CollectKeywordRanksJob#5249 on "default".' })).toContain('\u001b[32mProcessed\u001b[0m');
+		expect(formatter.format({ ...queueBase, msg: '[queue] Released SyncJob#7 after attempt 1/3; retrying in 5s.' })).toContain('\u001b[33mReleased\u001b[0m');
+		expect(formatter.format({ ...queueBase, level: 50, msg: '[queue] Failed SyncJob#7 after 3/3 attempts.' })).toContain('\u001b[31mFailed\u001b[0m');
+		expect(formatter.format({ ...queueBase, msg: '[queue] Worker started for "default".' })).toContain('[queue] Worker started for "default".');
+	});
+
+	it('leaves messages plain without colour', () => {
+		const formatter = new PrettyLogFormatter();
+		expect(formatter.format({ ...queueBase, msg: '[queue] Claimed CollectKeywordRanksJob#5249 on "default" attempt 1/3.' })).toContain('[queue] Claimed CollectKeywordRanksJob#5249 on "default" attempt 1/3.');
+	});
+});

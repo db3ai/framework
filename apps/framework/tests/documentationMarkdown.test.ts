@@ -219,7 +219,8 @@ test('complete AI context contains every registered article and verified source'
 	const contentBytes = Buffer.byteLength(llmsFullText().replaceAll('https://db3.ai/framework/', 'https://db3.ai/'));
 	const mountOverhead = productionBytes - contentBytes;
 	// Reconciled provider admission, request diagnostics and operational-email contracts add public source evidence.
-	assert.ok(contentBytes < 1_760_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.76 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	// UTC timestamp contracts and timezone helper declarations add public API evidence.
+	assert.ok(contentBytes < 1_780_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.78 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 

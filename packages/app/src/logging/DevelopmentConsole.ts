@@ -27,7 +27,7 @@ export class DevelopmentConsole {
 		this.#output = options.output ?? process.stdout;
 		this.#write = this.#output.write.bind(this.#output);
 		this.#interactive = options.interactive ?? Boolean(this.#output.isTTY && process.env.TERM !== 'dumb');
-		this.#formatter = new PrettyLogFormatter(options.color ?? (Boolean(this.#output.isTTY) && process.env.NO_COLOR === undefined && process.env.FORCE_COLOR !== '0'));
+		this.#formatter = new PrettyLogFormatter(options.color ?? consoleColor(Boolean(this.#output.isTTY), process.env));
 		if (this.#interactive) {
 			if (options.coordinateStdio !== false && this.#output === process.stdout) {
 				this.#coordinate(process.stdout);
@@ -134,4 +134,21 @@ export class DevelopmentConsole {
 		stream.write = write;
 		this.#restore.push(() => { if (stream.write === write) stream.write = original; });
 	}
+}
+
+/**
+ * Whether the pretty console uses colour. `NO_COLOR` turns it off; a set
+ * `FORCE_COLOR` (other than `0` or `false`) turns it on even without a TTY, as
+ * when a process manager pipes output into its own terminal view; otherwise a
+ * TTY decides.
+ *
+ * @param isTTY - Whether the output stream is a terminal.
+ * @param env - Process environment.
+ * @returns Whether to emit ANSI colours.
+ */
+export function consoleColor(isTTY: boolean, env: NodeJS.ProcessEnv): boolean {
+	if (env.NO_COLOR !== undefined) return false;
+	const force = env.FORCE_COLOR;
+	if (force === '0' || force === 'false') return false;
+	return force !== undefined || isTTY;
 }

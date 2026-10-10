@@ -47,5 +47,8 @@
 	},
 	"bugs": {
 		"url": "https://github.com/db3ai/framework/issues"
+	},
+	"dependencies": {
+		"@js-temporal/polyfill": "0.5.1"
 	}
 }

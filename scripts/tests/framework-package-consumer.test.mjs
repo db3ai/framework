@@ -401,6 +401,11 @@ async function writeConsumerFixtures(consumerRoot, stagedRoot) {
 	];
 
 	await writeFile(join(consumerRoot, 'runtime.mjs'), `
+import { utcDate, formatInTimeZone, calendarDateInTimeZone, validTimeZone, zonedDateTimeToIso } from '@db3.ai/pure/dates';
+if (zonedDateTimeToIso('2026-10-10T09:00', 'Europe/London') !== '2026-10-10T08:00:00Z') throw new Error('Installed Temporal conversion failed');
+if (utcDate('2026-10-10 13:00:00')?.toISOString() !== '2026-10-10T13:00:00.000Z') throw new Error('Installed UTC parsing failed');
+if (calendarDateInTimeZone('2026-10-10T01:00:00Z', 'America/Los_Angeles') !== '2026-10-09') throw new Error('Installed timezone calendar failed');
+if (!validTimeZone('America/New_York') || !formatInTimeZone('2026-10-10T13:00:00Z', 'America/New_York')) throw new Error('Installed timezone formatting failed');
 import Fastify from 'fastify';
 import { registerBrowserJsonFormatting } from '@db3.ai/app/server/browser-json';
 import { registerHttpErrorHandler, publicServerErrorMessage } from '@db3.ai/app/server';
@@ -599,6 +604,13 @@ for (const specifier of ${JSON.stringify(runtimeSpecifiers)}) {
 `, 'utf8');
 
 	await writeFile(join(consumerRoot, 'typecheck.ts'), `
+import { utcDate, formatInTimeZone, calendarDateInTimeZone, validTimeZone, zonedDateTimeToIso } from '@db3.ai/pure/dates';
+const scheduledInstant: string = zonedDateTimeToIso('2026-10-10T09:00', 'Europe/London');
+const utcInstant: Date | null = utcDate('2026-10-10 13:00:00');
+const timeZone: string | null = validTimeZone('Europe/London');
+const dateLabel: string = formatInTimeZone('2026-10-10T13:00:00Z', 'Europe/London');
+const calendarDay: string = calendarDateInTimeZone('2026-10-10T13:00:00Z', 'Europe/London');
+void [utcInstant, timeZone, dateLabel, calendarDay];
 import { Auth, UserIdentity, PasswordLoginAttempt, PasswordSuspendedError, type PasswordAuthProviderOptions, type PasswordSuspensionOptions, type PasswordSuspension } from '@db3.ai/app/auth';
 import { newGuardedBrowserContext, type GuardedBrowserContextOptions } from '@db3.ai/app/network/playwright';
 const suspension: PasswordSuspensionOptions = { maxFailedAttempts: 20 };

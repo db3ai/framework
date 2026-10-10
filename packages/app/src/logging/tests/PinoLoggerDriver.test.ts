@@ -52,6 +52,17 @@ describe('pretty console transport', () => {
 		expect(JSON.parse(json.stdout.split('\n')[0]!).msg).toBe('Worker ready');
 	});
 
+	it('colours piped pretty output when FORCE_COLOR asks, unless NO_COLOR is set', async () => {
+		const forced = await run({ environment: 'development', tty: false }, { PLATFORM_LOG_FORMAT: 'pretty', FORCE_COLOR: '1' });
+		expect(forced.stdout).toMatch(/POST → \/hello/);
+		expect(forced.stdout).toMatch(/\u001b\[3[0-9]m/);
+		const off = await run({ environment: 'development', tty: false }, { PLATFORM_LOG_FORMAT: 'pretty', FORCE_COLOR: '1', NO_COLOR: '1' });
+		expect(off.stdout).not.toContain('\u001b');
+		const zero = await run({ environment: 'development', tty: true }, { FORCE_COLOR: '0' });
+		// A TTY still gets cursor redraws; only colour codes must be absent.
+		expect(zero.stdout).not.toMatch(/\u001b\[3[0-9]m/);
+	});
+
 	it('disables console output and rejects invalid format configuration', async () => {
 		expect((await run({ console: false })).stdout).toBe('');
 		await expect(run({}, { PLATFORM_LOG_FORMAT: 'invalid' })).rejects.toThrow('Invalid PLATFORM_LOG_FORMAT');

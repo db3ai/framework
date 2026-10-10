@@ -1,4 +1,5 @@
 import { STATUS_CODES } from 'node:http';
+import { highlightQueueMessage } from './highlightQueueMessage';
 
 /** Minimal retained HTTP context, bounded independently of the original log sinks. */
 interface PendingRequest {
@@ -65,7 +66,7 @@ export class PrettyLogFormatter {
 		const category = severity >= 50 ? 'error' : severity >= 40 ? 'warn' : typeof record.component === 'string' ? record.component : severity <= 20 ? 'debug' : 'app';
 		const context = Object.entries(record).filter(([key, value]) => !hiddenFields.has(key) && value != null).slice(0, 8).map(([key, value]) => `${compact(key, 40)}=${compact(value, 100)}`).join('  ');
 		const details = errorDetails(record.err ?? record.error);
-		return `${this.#paint(timestamp(record.time), 90)} ${this.#paint(`[${compact(category, 30)}]`, severity >= 50 ? 31 : severity >= 40 ? 33 : 36)} ${compact(record.msg ?? '', 500)}${context ? `  ${this.#paint(context, 90)}` : ''}\n${details ? indent(details) + '\n' : ''}`;
+		return `${this.#paint(timestamp(record.time), 90)} ${this.#paint(`[${compact(category, 30)}]`, severity >= 50 ? 31 : severity >= 40 ? 33 : 36)} ${this.#message(compact(record.msg ?? '', 500))}${context ? `  ${this.#paint(context, 90)}` : ''}\n${details ? indent(details) + '\n' : ''}`;
 	}
 
 	/** Returns waiting rows without mutating completed output or request order. */
@@ -100,7 +101,10 @@ export class PrettyLogFormatter {
 	}
 
 	/** Colours structural labels only, never application-controlled terminal escapes. */
-	#paint(text: string, code: number): string { return this.#color ? `\u001b[${code}m${text}\u001b[0m` : text; }
+	#paint(text: string, code: number | string): string { return this.#color ? `\u001b[${code}m${text}\u001b[0m` : text; }
+
+	/** Highlights queue states and job labels when colouring. */
+	#message(text: string): string { return this.#color ? highlightQueueMessage(text, (part, code) => this.#paint(part, code)) : text; }
 }
 
 const hiddenFields = new Set(['level', 'time', 'pid', 'hostname', 'source', 'environment', 'release', 'component', 'msg', 'req', 'res', 'httpExchange', 'responseTime', 'err', 'error']);
