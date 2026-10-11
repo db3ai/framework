@@ -8,6 +8,9 @@ Pure, App and Create use one lockstep version and one release entry.
 ## [0.1.0] - 2026-10-11
 
 - Release Pure, App and Create together without the beta suffix on npm `latest`.
+- Pin the release runner to npm 11.15.0, preserving the package inspection JSON
+	contract while enabling OIDC trusted publishing. The beta.5 candidate was not
+	published after npm 12 changed that contract.
 - Establish the `0.1.x` maintenance line and document the standard registry
 	installation and automatic GitHub release process.
 - Include the UTC/timezone handling, framework improvements and trusted

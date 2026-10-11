@@ -32,7 +32,7 @@ App coverage with required MariaDB and Redis, packed consumers, generated-app
 checks, release policy tests, and inspection of the exact versioned artifacts.
 Only the subsequent publication job receives `id-token: write` and the
 `npm-production` environment. It rebuilds from the verified immutable commit.
-Both jobs use Node 24, pinned npm 12.2.0 and Actions pinned to full commit SHAs.
+Both jobs use Node 24, pinned npm 11.15.0 and Actions pinned to full commit SHAs.
 GitHub-hosted Actions capacity must be available; npm does not independently
 watch GitHub releases when Actions cannot run.
 
