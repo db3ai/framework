@@ -5,6 +5,14 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-11
+
+- Release Pure, App and Create together without the beta suffix on npm `latest`.
+- Establish the `0.1.x` maintenance line and document the standard registry
+	installation and automatic GitHub release process.
+- Include the UTC/timezone handling, framework improvements and trusted
+	publishing introduced in the preceding beta releases.
+
 ## [0.1.0-beta.5] - 2026-10-11
 
 - Publish Pure, App and Create automatically after a GitHub release passes the

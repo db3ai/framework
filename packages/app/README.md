@@ -36,7 +36,7 @@ Keep app-specific behavior in `apps/*`. Move code here only when it is reusable 
 
 ## Installation
 
-After the first public release, install the framework runtime with:
+Install the framework runtime with:
 
 ```sh
 npm install @db3.ai/app
@@ -50,14 +50,13 @@ SSR adapters.
 The framework is MIT licensed; private applications sharing the development
 repository are excluded by the licence scope. Public framework source belongs
 in `github.com/db3ai/framework`. The published packages are `@db3.ai/app`,
-`@db3.ai/pure` and `@db3.ai/create`. Maintainers can publish a verified beta from
-the repository root with `npm run framework:publish -- --version 0.1.0-beta.1`;
-add `--dry-run` to inspect it without publishing. npm handles packaging, login
-and upload. See `packages/app/RELEASING.md` for release checks and the manual
-bootstrap and trusted-publishing workflows.
+`@db3.ai/pure` and `@db3.ai/create`. Publishing an annotated framework tag as a
+GitHub release runs the release checks and publishes all three through npm
+trusted publishing. Stable releases use `latest`; prereleases use `next`.
+See [the release policy](https://github.com/db3ai/framework/blob/main/docs/framework-release.md)
+for tagging, verification and recovery.
 
-The [installation guide](https://db3.ai/docs/installation) distinguishes the
-unpublished preview tarballs from the future npm install command. The
+The [installation guide](https://db3.ai/framework/docs/installation) covers setup. The
 [first app](https://db3.ai/docs/create-app) uses the shipped
 `src/server/examples` files to run and test an independent Fastify application.
 Auth, Storage, Media and Scheduler also ship their service-owned examples.

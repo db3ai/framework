@@ -4,7 +4,7 @@ Typed TypeScript application framework packaged as `@db3.ai/app` and
 `@db3.ai/pure`, with the `@db3.ai/create` application starter. This repository
 contains their public source, the runnable starter, service documentation, examples and behaviour tests.
 
-This is the development branch, ahead of the published npm prerelease.
+The `main` branch contains ongoing development; `0.1.x` maintains the 0.1 release line.
 Run [apps/starter](./apps/starter/README.md) directly from this checkout
 to develop and try framework features. Its local environment file is ignored by
 Git. AI is optional. The [independent consumer checks](./packages/create/README.md#test-the-unpublished-preview)
@@ -57,10 +57,15 @@ packages without publishing them:
 npm run framework:package:test
 ```
 
-## Release candidates
+## Releases
 
-`main` contains upcoming work. Maintained version branches and immutable release
-tags will identify supported releases; there is no stable release tag yet.
+Install the released framework with `npm install @db3.ai/app`, or create an app
+with `npm create @db3.ai@latest my-app`. The non-beta release line starts at
+`0.1.0`; prereleases remain available separately under `next`.
+
+Maintained version branches and immutable annotated tags identify releases.
+Publishing a GitHub release runs the full checks and publishes all three npm
+packages through trusted publishing. Stable versions use `latest`.
 The public documentation website lives at
 [`apps/framework`](./apps/framework/README.md). It is a separate
 deployment root with its own `index.ts`; the framework packages are build inputs.
@@ -90,9 +95,8 @@ then update and test each affected consumer. Record the framework revision and
 consumer dependency change together in the handoff. Independent app changes
 need only that app's project context.
 
-[The framework release policy](./packages/app/RELEASING.md) defines the reviewed,
-non-publishing candidate gate. The checked-in workflow has read-only repository
-permissions and creates inspected tarball evidence only; it cannot publish to npm.
+[The framework release policy](./packages/app/RELEASING.md) documents automatic
+publication, versioned tags, verification-only runs and manual recovery.
 
 Version: `0.1.0`
 License: `MIT`  

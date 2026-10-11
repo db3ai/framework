@@ -11,8 +11,7 @@ packages and applications.
 
 ## Installation
 
-For a local preview, use the supplied Pure tarball rather than an unpublished
-registry version. After installing it, copy `node_modules/@db3.ai/pure/examples/`
+After installing the package, copy `node_modules/@db3.ai/pure/examples/`
 into your app's `examples/` and run `npx tsx examples/runNoteTags.ts` with the
 development tools from the website's Installation page. It normalizes allowed
 tags, rejects an unknown option and recovers with a valid choice. The exact
@@ -23,7 +22,7 @@ The helpers do not replace request validation or authorization. In particular,
 `values`. Check `invalid` before saving. These functions do not need an `App`,
 database, provider key or HTTP server.
 
-After the first public release, install the utilities with:
+Install the utilities with:
 
 ```sh
 npm install @db3.ai/pure
@@ -31,12 +30,10 @@ npm install @db3.ai/pure
 
 ## Publishing status
 
-The staging workflow produces a consumer-verifiable public package artifact,
-under the selected MIT license. The target package name is `@db3.ai/pure` and
-the configured public source target is `github.com/db3ai/framework`. Neither
-metadata nor a successful local package test proves that source and npm versions
-are public. Verify npm access, the public repository and trusted-publisher
-configuration before publishing. Contributors follow `packages/app/RELEASING.md`.
+Pure is released with App and Create from `db3ai/framework` under the MIT
+license. Stable releases use npm `latest`; prereleases use `next`. GitHub releases
+run tests and publish through npm trusted publishing. Contributors follow
+[the release policy](https://github.com/db3ai/framework/blob/main/docs/framework-release.md).
 
 ## Consumer package artifacts
 

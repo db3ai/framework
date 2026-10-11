@@ -57,8 +57,8 @@ The creator runs directly from source too:
 node packages/create/bin/create.mjs ../my-app --no-install
 ```
 
-Before npm publication, that independent app still needs the matching framework
-packages from the preview instructions below. Workspace development does not
+That independent app needs the matching framework release from npm, or the
+local tarballs described below when testing unreleased changes. Workspace development does not
 prove that a published package contains all required files and dependencies.
 
 Packaging includes a clean copy of `apps/starter` under the released creator's
@@ -68,7 +68,7 @@ artifacts, and rejects symbolic links and unreviewed source roots.
 
 ## Release command
 
-**Not published yet.** Once Create, App and Pure are published together:
+Create a new app using the current non-beta framework release:
 
 ```sh
 npm create @db3.ai@latest my-app
@@ -116,9 +116,9 @@ Create is included in the framework-only public source export. The source
 workspace remains private in npm metadata to prevent accidental publication;
 the three-tarball preview above still works. It is not an npm release.
 
-Release TODO: npm publishing for Create, existing framework
-release gates, DOM Studio redistribution terms, and a documented production
-deployment. This package does not publish or deploy any app automatically.
+Create is published with App and Pure after the automated framework release
+gates pass. Application production configuration and deployment remain the
+application owner's responsibility; this package does not deploy apps.
 
 Generated apps include `AGENTS.md` for human and agent collaboration and
 `plans/README.md` for disposable ideas. Only the planning policy is copied;
