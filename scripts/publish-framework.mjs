@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readPublishedPackage } from './lib/published-framework.mjs';
 import { FRAMEWORK_RELEASE_PACKAGES, assertPackageInspection, isFrameworkReleaseVersion } from './lib/framework-release-policy.mjs';
 
 const REPOSITORY_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -14,16 +15,22 @@ const NPM_COMMAND = process.platform === 'win32' ? 'npm.cmd' : 'npm';
  * Parses the explicitly selected release version and optional npm dry-run.
  *
  * @param {string[]} args - Arguments passed after `npm run framework:publish --`.
- * @returns {{ version: string, tag: string, dryRun: boolean, from: string }} Publication options.
+ * @returns {{ version: string, tag: string, dryRun: boolean, from: string, provenance: boolean, skipExisting: boolean }} Publication options.
  */
 export function parsePublishArguments(args) {
 	let version;
 	let tag;
 	let dryRun = false;
+	let provenance = false;
+	let skipExisting = false;
 	let from = 'pure';
 	for (let index = 0; index < args.length; index += 1) {
 		const argument = args[index];
-		if (argument === '--dry-run') {
+		if (argument === '--provenance') {
+			provenance = true;
+		} else if (argument === '--skip-existing') {
+			skipExisting = true;
+		} else if (argument === '--dry-run') {
 			dryRun = true;
 		} else if (argument === '--version' || argument === '--tag' || argument === '--from') {
 			const value = args[++index];
@@ -40,7 +47,7 @@ export function parsePublishArguments(args) {
 	if (!/^[a-z][a-z0-9-]*$/.test(tag)) throw new Error('--tag must be an npm channel name such as next or latest.');
 	if (version.includes('-') && tag === 'latest') throw new Error('Publish prereleases under next or another prerelease tag.');
 	if (!FRAMEWORK_RELEASE_PACKAGES.some(definition => definition.directory === from)) throw new Error('--from must be pure, app or create.');
-	return { version, tag, dryRun, from };
+	return { version, tag, dryRun, from, provenance, skipExisting };
 }
 
 /**
@@ -50,7 +57,7 @@ export function parsePublishArguments(args) {
  * versions and local app dependency links remain intact. All package inspections
  * finish before the first publication. npm handles authentication interactively.
  *
- * @param {{ version: string, tag: string, dryRun: boolean, from: string }} options - Explicit release identity, mode and resume point.
+ * @param {{ version: string, tag: string, dryRun: boolean, from: string, provenance: boolean, skipExisting: boolean }} options - Explicit release identity, mode and resume point.
  * @returns {Promise<void>}
  */
 export async function publishFramework(options) {
@@ -60,7 +67,7 @@ export async function publishFramework(options) {
 		console.log(`Building DB3 ${options.version} for npm tag ${options.tag}${options.dryRun ? ' (dry-run)' : ''}.`);
 		runCommand(process.execPath, [join(REPOSITORY_ROOT, 'scripts/stage-framework-packages.mjs'), '--output', outputRoot, '--repository-url', sourceManifest.repository.url], REPOSITORY_ROOT);
 		await setPublicationVersion(outputRoot, options.version);
-		publishPackageDirectories(outputRoot, options);
+		await publishPackageDirectories(outputRoot, options);
 		console.log(options.dryRun ? 'Selected npm publication dry-runs passed. Nothing was published.' : `Published the selected DB3 ${options.version} packages under ${options.tag}.`);
 	} finally {
 		await rm(outputRoot, { recursive: true, force: true });
@@ -96,22 +103,37 @@ export async function setPublicationVersion(outputRoot, version) {
  * to every npm publish invocation and package lifecycle scripts are disabled.
  *
  * @param {string} outputRoot - Directory containing the three compiled packages.
- * @param {{ version: string, tag: string, dryRun: boolean, from?: string }} options - Release identity, mode and optional resume point after a partial release.
+ * @param {{ version: string, tag: string, dryRun: boolean, from?: string, provenance?: boolean, skipExisting?: boolean }} options - Release identity, mode and optional resume point after a partial release.
  * @param {typeof runCommand} command - External process runner.
- * @returns {void}
+ * @param {typeof readPublishedPackage} registry - Reads existing immutable registry metadata.
+ * @returns {Promise<void>}
  */
-export function publishPackageDirectories(outputRoot, options, command = runCommand) {
+export async function publishPackageDirectories(outputRoot, options, command = runCommand, registry = readPublishedPackage) {
 	const startIndex = FRAMEWORK_RELEASE_PACKAGES.findIndex(definition => definition.directory === (options.from ?? 'pure'));
 	if (startIndex < 0) throw new Error('Unknown package resume point.');
+	const existing = new Set();
 	for (const definition of FRAMEWORK_RELEASE_PACKAGES) {
 		const output = command(NPM_COMMAND, ['pack', '--dry-run', '--ignore-scripts', '--json'], join(outputRoot, definition.directory), true);
 		const inspections = JSON.parse(output);
 		if (!Array.isArray(inspections) || inspections.length !== 1) throw new Error(`Expected one npm inspection for ${definition.name}.`);
 		assertPackageInspection({ name: definition.name, version: options.version }, inspections[0]);
+		if (options.skipExisting) {
+			const published = await registry(definition.name, options.version);
+			if (published) {
+				if (!inspections[0].integrity || published.integrity !== inspections[0].integrity) {
+					throw new Error(`Published ${definition.name}@${options.version} differs from this build; refusing to overwrite or skip it.`);
+				}
+				existing.add(definition.name);
+			}
+		}
 	}
 	for (const definition of FRAMEWORK_RELEASE_PACKAGES.slice(startIndex)) {
+		if (existing.has(definition.name)) {
+			console.log(`Verified identical ${definition.name}@${options.version}; skipping immutable version.`);
+			continue;
+		}
 		console.log(`${options.dryRun ? 'Dry-running' : 'Publishing'} ${definition.name}@${options.version}`);
-		command(NPM_COMMAND, ['publish', '--access=public', `--tag=${options.tag}`, '--provenance=false', '--ignore-scripts', ...(options.dryRun ? ['--dry-run'] : [])], join(outputRoot, definition.directory));
+		command(NPM_COMMAND, ['publish', '--access=public', `--tag=${options.tag}`, `--provenance=${options.provenance === true}`, '--ignore-scripts', ...(options.dryRun ? ['--dry-run'] : [])], join(outputRoot, definition.directory));
 	}
 }
 

@@ -1,46 +1,59 @@
 # Framework release policy
 
-## Current status
+## Current release process
 
-The registry contains the initial `0.1.0-beta.1` preview of `@db3.ai/pure`,
-`@db3.ai/app` and `@db3.ai/create` (verified on 2026-09-27). Prepare subsequent
-previews through the manual beta publication procedure below, after release
-verification and explicit maintainer authorization. Publish prereleases under
-`next`; changing `latest` is a separate promotion. The automated candidate
-workflow remains non-publishing until its external protection and trusted
-publisher requirements are satisfied. The strict
-packed-package consumer now passes with dependency declaration
-checking enabled. The pinned Agents SDK has a type-only Node shim shipped by
-App; it must be reviewed or removed when upgrading the SDK. The framework
-uses MIT, with a root licence scope that explicitly excludes private application
-code and unrelated packages. Root, App, Pure and Create metadata declare MIT; this is
-not permission to publish the current private monorepo or its history.
+Publishing a GitHub release in `db3ai/framework` runs
+`.github/workflows/framework-publish.yml`. It tests the tagged source before
+publishing `@db3.ai/pure`, `@db3.ai/app` and `@db3.ai/create`, in that order,
+using npm trusted publishing and provenance. No npm token, interactive login,
+or per-release publishing approval is needed in Actions.
 
-1. `db3ai/framework` is the dedicated public source repository. Its initial source
-   push contains App, Pure, Create, tests, service documentation and examples.
-   Source publication is distinct from npm publication or a stable release.
-   The application development monorepo is not the npm publication source.
-2. The package `repository` objects target `db3ai/framework`, with the
-   correct package directories. Verify the remote
-   exists and contains the reviewed source before publication.
-3. Verify the current maintainer's authenticated npm publication access before
-   publishing. Existing packages do not prove the current session has access.
-4. Configure npm trusted publishing for each package after the initial bootstrap.
-5. Create GitHub tag protection and the protected `npm-production` environment.
+1. Commit the changes and a dated `CHANGELOG.md` heading for the new SemVer.
+2. Push the reviewed commit to `main` for a prerelease, or its matching
+   maintenance branch (`0.1.x`, `1.x`, etc.) for a stable release.
+3. Create and push an **annotated** tag, for example:
 
-The checked-in `framework-release-candidate.yml` workflow cannot publish. It has
-read-only repository permission, no npm token, no OIDC permission, and no npm
-publish or stage command. It deliberately fails when run from a private
-repository.
+```sh
+git tag -a framework-v0.1.0-beta.5 -m 'Framework 0.1.0-beta.5'
+git push origin framework-v0.1.0-beta.5
+```
 
-`framework-ci.yml` runs read-only source/example checks, all three workspace
-test suites with required MariaDB/Redis, App's coverage floors, the packed
-App/Pure consumer gate, the packed generated-app gate and release-policy tests
-on public `main` and maintenance-branch pushes/PRs. When the repository has the
-`CODACY_API_TOKEN` Actions secret, the workflow uploads App's LCOV report to the
-`db3ai/framework` Codacy project. It has no publishing credentials or write
-permission. Dependency review, release-branch validation and package provenance
-retain their separate checks.
+4. Create a GitHub release using that existing tag. Mark versions containing
+   `-` as prereleases. Publishing the release starts verification and publication.
+   Draft releases do not publish. Creating a new tag through the release UI
+   alone does not satisfy the annotated-tag requirement.
+5. Check the **Publish framework** run. Success means all three public archives
+   were downloaded and their SHA-512 integrity verified. Prereleases use `next`;
+   stable releases use `latest`. A published GitHub release alone is not evidence
+   that npm publication succeeded.
+
+The verification job runs source/example checks, Pure/Create/Starter tests,
+App coverage with required MariaDB and Redis, packed consumers, generated-app
+checks, release policy tests, and inspection of the exact versioned artifacts.
+Only the subsequent publication job receives `id-token: write` and the
+`npm-production` environment. It rebuilds from the verified immutable commit.
+Both jobs use Node 24, pinned npm 12.2.0 and Actions pinned to full commit SHAs.
+GitHub-hosted Actions capacity must be available; npm does not independently
+watch GitHub releases when Actions cannot run.
+
+Workspace manifests intentionally retain development versions. The publishing
+script assigns the release version and exact internal dependency pins to
+**disposable compiled package manifests**, including Create's starter template.
+Do not publish the root or source workspace directories with bare `npm publish`.
+
+Manual dispatch of **Publish framework** accepts an existing annotated tag and
+runs verification only. The older **Framework release candidate** workflow also
+remains non-publishing and retains its stricter source-manifest version policy;
+it is not required by the automatic publication workflow.
+
+### Recovery
+
+All releases are serialized. Re-run failed jobs only for the same immutable tag.
+`--skip-existing` skips a previously uploaded version only when its registry
+integrity exactly matches the rebuilt artifact; mismatches stop publication.
+Never move a published tag or overwrite a version. Source corrections require a
+new version. Registry propagation can take several minutes; the final check
+waits up to 15 minutes for all archives without uploading them again.
 
 ## Public repository shape
 
@@ -225,7 +238,7 @@ Do not change the visibility of the current Platform repository. Export a
 reviewed source-only tree into a fresh repository so private product code,
 credentials and historical files never become public through Git history.
 
-## Candidate process
+## Legacy candidate inspection process
 
 Pure and App use lockstep SemVer. App must depend on the exact matching Pure
 version, and every release uses one root changelog entry and one annotated tag:
@@ -275,118 +288,55 @@ to publish or stage a package. In this private monorepo it is expected to fail
 until the public source and versioned changelog requirements are satisfied.
 The MIT licence and intended package repository metadata are already present.
 
-## Trusted publishing and provenance
+## Trusted publishing configuration
 
-Do not add a long-lived npm token to the normal release workflow. Once each npm
-package exists, configure one trusted GitHub publisher per package with:
-
-- the dedicated public repository owner and name;
-- the exact future publication workflow filename `framework-publish.yml`;
-- environment `npm-production`; and
-- `npm stage publish` permission only, not direct `npm publish`.
-
-The future publication job must run on a GitHub-hosted runner, set only
-`contents: read` and `id-token: write`, use Node 24 with npm 11.15 or newer,
-disable package-manager caching, and pin every third-party Action to a complete
-commit SHA. Configure each npm package to require 2FA and disallow traditional
-publish tokens after trusted publishing is active.
-
-With npm 11.15 or newer, configure both stage-only relationships after the
-bootstrap release while authenticated as a package maintainer:
+Configure each of the three existing npm packages once as a package maintainer:
 
 ```sh
 npm trust github @db3.ai/pure --repo db3ai/framework \
-	--file framework-publish.yml --env npm-production --allow-stage-publish
+	--file framework-publish.yml --env npm-production --allow-publish
 npm trust github @db3.ai/app --repo db3ai/framework \
-	--file framework-publish.yml --env npm-production --allow-stage-publish
+	--file framework-publish.yml --env npm-production --allow-publish
+npm trust github @db3.ai/create --repo db3ai/framework \
+	--file framework-publish.yml --env npm-production --allow-publish
 ```
 
-GitHub's `npm-production` environment should require at least one reviewer,
-prevent the workflow initiator from approving their own run, and allow only
-protected `framework-v*` tags. Protect tag creation separately so an ordinary
-writer cannot manufacture a release ref. Environment protection availability
-depends on the public repository's GitHub plan and must be verified in repository
-settings before a publication workflow is enabled.
+Use npm 12.2.0 for this setup. npm may require one-time maintainer authentication
+to change trust configuration. Direct publishing permission is intentional:
+stage-only permission would still require manual approval on every release.
+The GitHub environment `npm-production` permits `framework-v*` tags, with no
+required reviewers, so publishing a release is the maintainer's release action.
+The workflow additionally checks public repository identity, annotated tag,
+exact event/checkout commit, branch ancestry, changelog and package contents.
 
-npm trusted publishing automatically generates provenance only for public
-packages built from a public source repository. That is why this candidate gate
-rejects the private monorepo and requires exact package repository metadata.
+Only GitHub-hosted publication jobs in that exact repository, workflow and
+environment receive short-lived OIDC credentials. No npm token belongs in the
+workflow. Newly created trust must complete a successful publish within npm's
+initial two-day activation window. Verify each package's configuration and the
+first successful publication rather than assuming that saving the workflow
+configured npm.
+
 See npm's [trusted publishing](https://docs.npmjs.com/trusted-publishers/) and
-[provenance](https://docs.npmjs.com/generating-provenance-statements/)
-documentation, plus GitHub's guidance for
-[deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments)
-and [pinning Actions to full commit SHAs](https://docs.github.com/en/actions/reference/security/secure-use).
+[trust CLI](https://docs.npmjs.com/cli/v12/commands/npm-trust/) documentation.
 
-## First-publication bootstrap
+## Manual fallback
 
-`npm stage publish` cannot create a brand-new package. Therefore a first public version needs a
-separately reviewed bootstrap decision; the normal stage-only workflow cannot be
-enabled first.
-
-### Manual beta publication
-
-A maintainer can publish directly from the repository root using Node.js 24 and
-npm 11. Log in to npm, complete the release tests and dependency audit, then run:
+When GitHub Actions cannot run, a maintainer can run the same release tests
+locally with Node 24, required MariaDB and Redis, then inspect and publish:
 
 ```sh
-npm run framework:publish -- --version 0.1.0-beta.1
+npm run check
+npm run test:release
+npm run framework:publish:test
+npm run framework:publish -- --version 0.1.0-beta.5 --tag next --dry-run
+npm run framework:publish -- --version 0.1.0-beta.5 --tag next --skip-existing
+node scripts/verify-published-framework.mjs 0.1.0-beta.5
 ```
 
-Add `--dry-run` to build and inspect the same packages without publishing:
-
-```sh
-npm run framework:publish -- --version 0.1.0-beta.1 --dry-run
-```
-
-The command compiles Pure and App, copies the canonical starter into Create,
-applies the selected version and exact framework dependency pins to disposable
-package manifests, and inspects every package before publishing. It then runs
-ordinary `npm publish` from each built package directory in Pure, App, Create
-order. npm creates and uploads the archives itself. No tarball management is
-required. Workspace versions and source exports remain unchanged.
-
-The version is required. Prereleases default to `next`; stable versions default
-to `latest`. `--tag` can select another channel. Authentication stays in npm's
-interactive terminal, and a failure stops subsequent publications. For a partial
-release, check npm's registry before continuing; published versions cannot be
-overwritten. If Pure succeeded but App failed, keep the same source and version
-and resume with `--from app`; use `--from create` when only Create remains.
-This command builds the current checkout, so rerun the relevant
-release verification when source changes. It does not rerun the full test suite.
-
-The private monorepo root is not an npm package to publish. Bare `npm publish`
-there cannot publish all three framework packages. Their workspace manifests
-also target TypeScript source; staging supplies the compiled public exports.
-
-Inspected tarballs remain an optional way to freeze verified release artifacts.
-Both publication routes use `--access public` and `--provenance=false`. The explicit
-provenance override is required for a workstation publication: it does not have
-the CI identity needed to generate an npm provenance attestation. Do not claim
-CI provenance for this release or fabricate a CI environment. Publishing the
-packages remains a maintainer action; preparing the handoff never publishes.
-
-Keep the corresponding reviewed source available in `db3ai/framework`. After
-the first publication, configure trusted publishing for all three packages for
-subsequent releases. A manual beta does not change the provenance and protected
-context requirements of the automated candidate workflow.
-
-### CI bootstrap with provenance
-
-If provenance is required on version `0.1.0`, the safest practical bootstrap is
-a one-time workflow in the public repository that uses a short-lived,
-least-privilege npm credential stored only in the protected `npm-production`
-environment. It must run the same candidate gates, use `npm publish
---provenance` for Pure, App and Create in that order, and require environment approval. After
-the first version exists, immediately remove the credential and bootstrap
-workflow, configure all three stage-only trusted publishers, and disallow token
-publishing. This exception must be explicitly approved before implementation.
-
-For every later version, automation should run `npm stage publish` for Pure and
-then App. A maintainer downloads and reviews both staged tarballs, checks them
-against the candidate integrity record, approves Pure first with 2FA, and only
-then approves App. npm documents the manual approval flow in
-[staged publishing](https://docs.npmjs.com/staged-publishing/).
-
-No executable publication workflow belongs in the repository until the license,
-public source location, npm access, bootstrap, environment, and protected-tag
-decisions above are complete.
+Select the actual new version and retain the matching source tag and changelog.
+Local publication uses npm's interactive authentication and defaults to
+`--provenance=false`; a workstation does not have the Actions identity needed
+for provenance. The automated workflow explicitly enables `--provenance`.
+The publishing script inspects packages but does not run the full test suite.
+`--from app` or `--from create` remain available for an inspected partial manual
+release. Never substitute local success for verified registry availability.

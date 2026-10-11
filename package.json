@@ -40,7 +40,7 @@
 		"framework:release:test": "node --test scripts/tests/framework-release-policy.test.mjs",
 		"framework:release:prepare": "node scripts/prepare-framework-release.mjs",
 		"framework:publish": "node scripts/publish-framework.mjs",
-		"framework:publish:test": "node --test scripts/tests/framework-publish.test.mjs",
+		"framework:publish:test": "node --test scripts/tests/framework-publish.test.mjs scripts/tests/github-framework-release.test.mjs",
 		"docs:generate": "npm run generate --workspace @db3.ai/docs",
 		"docs:test": "npm test --workspace @db3.ai/docs",
 		"docs:build": "npm run build --workspace @db3.ai/docs",

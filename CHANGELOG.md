@@ -5,6 +5,14 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+## [0.1.0-beta.5] - 2026-10-11
+
+- Publish Pure, App and Create automatically after a GitHub release passes the
+	full source, coverage and installed-consumer checks, using npm trusted publishing.
+- Retain provenance, validate annotated release tags and release-line ancestry,
+	and recover partial publications only when existing package bytes match.
+- Verify public archive availability and integrity after npm accepts publication.
+
 ## [0.1.0-beta.4] - 2026-10-10
 
 - Add explicit UTC parsing, named-timezone formatting and calendar dates, and

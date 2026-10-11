@@ -9,8 +9,8 @@ const VERSION = '0.1.0-beta.1';
 
 /** Verifies a maintainer explicitly chooses the version and beta distribution tag. */
 test('publication requires a version and keeps prereleases off latest', () => {
-	assert.deepEqual(parsePublishArguments(['--version', VERSION]), { version: VERSION, tag: 'next', dryRun: false, from: 'pure' });
-	assert.deepEqual(parsePublishArguments(['--version', VERSION, '--dry-run']), { version: VERSION, tag: 'next', dryRun: true, from: 'pure' });
+	assert.deepEqual(parsePublishArguments(['--version', VERSION]), { version: VERSION, tag: 'next', dryRun: false, from: 'pure', provenance: false, skipExisting: false });
+	assert.deepEqual(parsePublishArguments(['--version', VERSION, '--dry-run']), { version: VERSION, tag: 'next', dryRun: true, from: 'pure', provenance: false, skipExisting: false });
 	assert.equal(parsePublishArguments(['--version', VERSION, '--from', 'app']).from, 'app');
 	assert.throws(() => parsePublishArguments(['--version', VERSION, '--from', 'unrelated']));
 	assert.equal(parsePublishArguments(['--version', '1.0.0']).tag, 'latest');
@@ -42,10 +42,10 @@ test('compiled packages and generated app use the selected lockstep version', as
 });
 
 /** Ensures every package is inspected before any npm publish and flags apply to all. */
-test('npm publishes package directories in dependency order after all inspections', () => {
+test('npm publishes package directories in dependency order after all inspections', async () => {
 	for (const dryRun of [false, true]) {
 		const calls = [];
-		publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun }, (executable, args, cwd) => {
+		await publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun }, (executable, args, cwd) => {
 			calls.push({ executable, args, cwd });
 			return inspection(basename(cwd));
 		});
@@ -62,9 +62,9 @@ test('npm publishes package directories in dependency order after all inspection
 });
 
 /** Prevents a late package inspection failure from creating a partial release. */
-test('invalid creator contents prevent publication of every package', () => {
+test('invalid creator contents prevent publication of every package', async () => {
 	let publishes = 0;
-	assert.throws(() => publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: false }, (executable, args, cwd) => {
+	await assert.rejects(() => publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: false }, (executable, args, cwd) => {
 		if (args[0] === 'publish') publishes += 1;
 		return basename(cwd) === 'create' ? JSON.stringify([{ name: '@db3.ai/create', version: VERSION, files: [] }]) : inspection(basename(cwd));
 	}), /missing/);
@@ -72,10 +72,10 @@ test('invalid creator contents prevent publication of every package', () => {
 });
 
 /** Allows a maintainer to resume a partial release after checking registry state. */
-test('resuming at App inspects all packages and publishes only App and Create', () => {
+test('resuming at App inspects all packages and publishes only App and Create', async () => {
 	const published = [];
 	const inspected = [];
-	publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: true, from: 'app' }, (executable, args, cwd) => {
+	await publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: true, from: 'app' }, (executable, args, cwd) => {
 		(args[0] === 'publish' ? published : inspected).push(basename(cwd));
 		return inspection(basename(cwd));
 	});
@@ -84,9 +84,9 @@ test('resuming at App inspects all packages and publishes only App and Create', 
 });
 
 /** Stops dependency publication after npm reports an error without automatic retries. */
-test('an npm publication failure stops subsequent packages', () => {
+test('an npm publication failure stops subsequent packages', async () => {
 	const published = [];
-	assert.throws(() => publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: false }, (executable, args, cwd) => {
+	await assert.rejects(() => publishPackageDirectories('/release', { version: VERSION, tag: 'next', dryRun: false }, (executable, args, cwd) => {
 		if (args[0] === 'publish') {
 			published.push(basename(cwd));
 			if (basename(cwd) === 'app') throw new Error('npm authentication failed');
@@ -104,5 +104,31 @@ test('an npm publication failure stops subsequent packages', () => {
  */
 function inspection(directory) {
 	const paths = ['package.json', 'README.md', 'LICENSE', ...(directory === 'create' ? ['bin/create.mjs', 'src/createProject.mjs', 'template/package.json', 'template/.env.example', 'template/server/app.ts', 'template/tests/app.test.ts'] : ['dist/index.js', 'dist/index.d.ts'])];
-	return JSON.stringify([{ name: `@db3.ai/${directory}`, version: VERSION, files: paths.map(path => ({ path })) }]);
+	return JSON.stringify([{ name: `@db3.ai/${directory}`, version: VERSION, integrity: 'sha512-fixture', files: paths.map(path => ({ path })) }]);
 }
+
+/** Ensures OIDC publications retain provenance and unchanged partial releases can resume safely. */
+test('trusted publishing skips identical versions and uses provenance for remaining packages', async () => {
+	const parsed = parsePublishArguments(['--version', VERSION, '--provenance', '--skip-existing']);
+	assert.equal(parsed.provenance, true);
+	assert.equal(parsed.skipExisting, true);
+	const published = [];
+	await publishPackageDirectories('/release', parsed, (executable, args, cwd) => {
+		if (args[0] === 'publish') {
+			published.push(basename(cwd));
+			assert.ok(args.includes('--provenance=true'));
+		}
+		return inspection(basename(cwd));
+	}, async name => name === '@db3.ai/pure' ? { integrity: 'sha512-fixture' } : null);
+	assert.deepEqual(published, ['app', 'create']);
+});
+
+/** Refuses to continue a partial release when even a later package has different bytes. */
+test('a registry integrity mismatch prevents every publication', async () => {
+	let publishes = 0;
+	await assert.rejects(() => publishPackageDirectories('/release', { version: VERSION, tag: 'next', skipExisting: true }, (executable, args, cwd) => {
+		if (args[0] === 'publish') publishes++;
+		return inspection(basename(cwd));
+	}, async name => name === '@db3.ai/create' ? { integrity: 'sha512-different' } : null), /differs from this build/);
+	assert.equal(publishes, 0);
+});
