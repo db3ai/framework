@@ -384,14 +384,14 @@ minute when response headers omit capacity; this is an admission policy, not
 an assertion about the account's provider tier. Observed headers remain authoritative.
 An image attempt deferred before provider execution is finalized in the audit
 trail rather than left pending. Queue owners retain durable waiting state separately.
-Direct text, image and embedding HTTP rejections throw `AIRequestError` with
-`code`, `status` and `requestId` when supplied; missing fields remain `null`.
+Ordinary direct text, image and embedding HTTP rejections throw `AIRequestError`
+with `code`, `status` and `requestId` when supplied; missing fields remain `null`.
 These identifiers exclude the provider payload and inputs. Known quota codes
 (`insufficient_quota`, `billing_hard_limit_reached`) and explicit “no credits
-remaining” responses are terminal direct-call failures, including code-less
-HTTP 429 responses. They do not become queue capacity deferrals. Ordinary
-throttling still raises `AIRateLimitDeferredError`. Existing agent quota retry
-and configured provider failover policies are separate from this direct-call path.
+remaining” responses throw `AIProviderStoppedError`, including code-less HTTP
+429 responses. They stop only the affected request. Ordinary throttling still
+raises `AIRateLimitDeferredError`. Configured failover can try another provider
+before an agent emits output; it does not create a shared account block.
 Capacity deferrals integrate with queue retries. The `allowance` hook
 checks application budgets separately. Override `usageCharge()` and
 `settleUsage()` in an agent when your app needs an idempotent commercial ledger.
@@ -499,14 +499,15 @@ Installed app developers run their own tests using a disposable database and
 an injected `ai.fetch`. No live key is needed for simulated provider tests.
 See the [AI guides](https://db3.ai/docs/ai) for app-focused examples.
 
-SSE recovery requires an explicit `response.completed` event or compatible
-`[DONE]` marker, a complete event boundary and clean body EOF. The observer joins
-multiline `data` fields and supports LF, CR and CRLF across arbitrary UTF-8 byte
-fragments; it forwards original bytes unchanged. Malformed JSON, uncertain UTF-8,
-oversized events, incomplete EOF and cancellation retain the bounded recovery
-lease rather than asserting success. Retained lines/events are limited to one
-MiB of decoded characters; oversized events are discarded only by the observer
-until their blank boundary, and later valid quota events still stop the account.
+The SSE observer recognizes successful completion only after an explicit
+`response.completed` event or compatible `[DONE]` marker, a complete event
+boundary and clean body EOF. It joins multiline `data` fields and supports LF,
+CR and CRLF across arbitrary UTF-8 byte fragments while forwarding original
+bytes unchanged. Malformed JSON, uncertain UTF-8, oversized events, incomplete
+EOF and cancellation do not reset the request's retry backoff. Retained lines
+and events are limited to one MiB of decoded characters; oversized events are
+discarded only by the observer until their blank boundary. Recognized quota
+and transient errors terminate that request's stream with typed diagnostics.
 
 ### Queued tool continuation
 
