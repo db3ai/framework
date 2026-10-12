@@ -48,7 +48,7 @@ export class AgentConversations {
 			if (['queued', 'running', 'waiting'].includes(conversation.streamState.run.status)) await this.#settleStop(conversation, 'Conversation stopped.', 'cancelled');
 			return { ...input, status: conversation.streamState.run.status };
 		});
-		this.#afterStop(input.conversationId, input.aiRequestId, committed);
+		this.#afterStateChange(input.conversationId, input.aiRequestId, committed);
 		return result;
 	}
 
@@ -190,6 +190,36 @@ export class AgentConversations {
 		await this.drain();
 	}
 
+	/**
+	 * Reflects a released queue attempt through a fresh writer, even when its
+	 * recorder failed. A later attempt or stop wins over this delayed callback.
+	 * Custom queue adapters delegate their onRetry hook here; no tools are run.
+	 */
+	async settleQueuedRetry(aiRequestId: string, attempt: number): Promise<void> {
+		if (!this.enabled) return;
+		const request = await this.ai.models.request.find(aiRequestId);
+		if (!request?.conversation?.id) return;
+		const id = String(request.conversation.id);
+		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		await this.#transaction(async () => {
+			const conversation = await this.ai.models.conversation.where('id', id).forUpdate().firstOrFail();
+			const previous = conversation.streamState;
+			if (!previous || previous.run.aiRequestId !== aiRequestId || previous.run.attempt > attempt || ['completed', 'cancelled', 'blocked'].includes(previous.run.status)) return;
+			if (previous.run.status === 'waiting' && previous.owner === null && previous.run.attempt === attempt) return;
+			const root = await this.ai.models.request.where('id', aiRequestId).forUpdate().firstOrFail();
+			if (root.status === 'completed' || root.errorCode === 'agent_cancelled') return;
+			await this.ai.models.request.where('id', aiRequestId).patch({ status: 'pending', completedAt: null, errorCode: null, errorMessage: null });
+			const run: stream.AgentRunState = { ...previous.run, attempt, status: 'waiting', completedAt: null, error: null };
+			conversation.streamState = { owner: null, run, activity: { code: 'waiting', label: 'Waiting to retry' } };
+			for (const event of [{ type: 'run.state', run }, { type: 'status.changed', activity: conversation.streamState.activity }] as stream.AgentConversationEvent[]) {
+				conversation.streamSequence++;
+				await AiStreamEvent.create({ conversation: id, sequence: conversation.streamSequence, aiRequestId, attempt, itemId: null, event }).save();
+			}
+			await conversation.save();
+		});
+		this.#afterStateChange(id, aiRequestId, committed);
+	}
+
 	/** Records a settled queue failure, cancellation or block without executing provider work. */
 	async settleQueuedStop(aiRequestId: string, message: string, status: 'failed' | 'blocked' | 'cancelled' = 'failed'): Promise<void> {
 		if (!this.enabled) return;
@@ -202,7 +232,7 @@ export class AgentConversations {
 			if (!conversation.streamState || conversation.streamState.run.aiRequestId !== aiRequestId) return;
 			await this.#settleStop(conversation, message, status);
 		});
-		this.#afterStop(id, aiRequestId, committed);
+		this.#afterStateChange(id, aiRequestId, committed);
 	}
 
 	/** Settles under the caller's conversation lock, preserving output and idempotency. */
@@ -238,7 +268,7 @@ export class AgentConversations {
 	}
 
 	/** Publishes and wakes local execution only after all enclosing transactions commit. */
-	#afterStop(conversationId: string, aiRequestId: string, committed?: Promise<boolean>): void {
+	#afterStateChange(conversationId: string, aiRequestId: string, committed?: Promise<boolean>): void {
 		const database = app().db.knex;
 		/** Re-enters the ordinary database scope after the mutation's transaction closes. */
 		const notify = (): void => ActiveRecord.withDb(database, () => { this.kick(conversationId); for (const listener of this.#stopListeners.get(aiRequestId) ?? []) listener(); });

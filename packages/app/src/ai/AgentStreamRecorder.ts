@@ -51,7 +51,7 @@ export class AgentStreamRecorder {
 				await message.assign({ metadata: { ...message.metadata, streaming: false } }).save();
 				await this.#changed(conversation, message);
 			}
-			this.#attempt = status === 'queued' ? 0 : (prior?.run.aiRequestId === this.state.rootAiRequest.id ? prior.run.attempt : 0) + 1;
+			this.#attempt = status === 'queued' ? 0 : this.context?.job.attempts ?? (prior?.run.aiRequestId === this.state.rootAiRequest.id ? prior.run.attempt : 0) + 1;
 			const run: stream.AgentRunState = { aiRequestId: String(this.state.rootAiRequest.id), status, attempt: this.#attempt, startedAt: status === 'running' ? prior?.run.startedAt ?? new Date().toISOString() : null, completedAt: null, error: null };
 			conversation.streamState = { owner: this.#owner, run, activity: { code: status, label: status === 'queued' ? 'Queued' : 'Running' } };
 			await this.#append(conversation, { type: 'run.state', run }, null);
@@ -216,14 +216,18 @@ export class AgentStreamRecorder {
 		await this.#assertOwnership();
 		const committed = databaseTransactionCommit(app().ai.models.conversation.getDb());
 		const database = app().db.knex;
-		const result = await app().ai.models.conversation.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+		const connection = app().ai.models.conversation.getDb();
+		// The conversation lock serializes this journal. Fresh statement snapshots keep
+		// FK checks valid when another worker updates the request/user/scope meanwhile.
+		// Admission may own an enclosing transaction; its isolation remains caller-owned.
+		const result = await connection.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const conversation = await app().ai.models.conversation.where('id', this.state.conversation.id).forUpdate().firstOrFail();
 			if (fenced) await this.#assertRun(conversation);
 			await this.#assertOwnership();
 			const result = await work(conversation);
 			await app().ai.models.conversation.where('id', conversation.id).patch({ streamSequence: conversation.streamSequence, streamState: conversation.streamState });
 			return result;
-		}));
+		}), connection.isTransaction ? undefined : { isolationLevel: 'read committed' });
 		// Reuse the inbox commit observer; never publish rolled-back or unfinished outer work.
 		if (committed) void committed.then(success => { if (success) ActiveRecord.withDb(database, () => this.#service.kick(String(this.state.conversation.id))); });
 		else this.#service.kick(String(this.state.conversation.id));

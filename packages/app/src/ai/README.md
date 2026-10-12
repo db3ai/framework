@@ -96,8 +96,21 @@ no socket code. Existing messages and request records hold current output; a
 bounded journal records committed deltas, tool/progress changes and lifecycle.
 Queue ownership and a conversation writer token fence stale writes. Final text
 updates the same display item as partial text. A recorded provider completion is
-settled on retry without another provider call. This does not make arbitrary tool
-side effects exactly once: tools still own their existing idempotency/checkpoints.
+settled on retry without another provider call. The shared SDK lifecycle bridge
+records each tool result as soon as that tool finishes, even while other tools in
+the same model turn are still running. Later SDK batch events are deduplicated by
+call ID. No application tool needs completion or WebSocket glue. The next model
+turn still waits for its full tool batch. Recording transactions lock the
+conversation and use READ COMMITTED for fresh foreign-key checks while other
+workers update referenced records; an enclosing caller transaction retains its
+own isolation. No provider or tool execution is retried by this recording path.
+
+This does not make arbitrary tool side effects exactly once: tools still own
+their existing idempotency/checkpoints. Queue adapters delegate `onRetry` to
+`AgentRunJob.onRetry()` (or `conversations.settleQueuedRetry(requestId, attempt)`)
+so a released attempt shows `waiting`, even after its stream recorder fails.
+The retry callback cannot replace a stopped or newer attempt. Terminal failures
+use `onFinalFailure`.
 
 ### Reading and attaching
 

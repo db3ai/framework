@@ -1,5 +1,5 @@
 import { app } from '../server/appContext';
-import { QueueableJob, type QueueableJobFailureContext, type QueueableJobContext } from '@db3.ai/app/queue';
+import { QueueableJob, type QueueableJobFailureContext, type QueueableJobContext, type QueueableJobRetryContext } from '@db3.ai/app/queue';
 import { queuedAgentFromPayload } from './registry.js';
 import type { QueuedAgentRunPayload } from './contracts/Agent';
 
@@ -30,6 +30,11 @@ export class AgentRunJob extends QueueableJob<QueuedAgentRunPayload> {
 
 		await agent.runQueued(this.data, context);
 	}
+	/** Records the queue's released retry independently of a failed stream writer. */
+	override async onRetry(context: QueueableJobRetryContext): Promise<void> {
+		if (this.data.aiRequestId) await app().ai.conversations.settleQueuedRetry(this.data.aiRequestId, context.job.attempts);
+	}
+
 	/** Records terminal reconstruction failures using the same durable view as worker output. */
 	override async onFinalFailure(context: QueueableJobFailureContext): Promise<void> {
 		if (this.data.aiRequestId) await app().ai.conversations.settleQueuedStop(this.data.aiRequestId, context.error instanceof Error ? context.error.message : 'Agent job failed.');

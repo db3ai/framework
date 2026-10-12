@@ -1,6 +1,7 @@
 import { agentAdmission } from './agentAdmission';
 import type { AgentQueueOptions } from './contracts/AgentStreamingOptions';
 import { AgentStreamRecorder } from './AgentStreamRecorder';
+import { AgentToolEvents } from './AgentToolEvents';
 import { AIProviderRetryError } from './AIProviderRetryError';
 import { AIProviderStoppedError } from './AIProviderStoppedError';
 import { aiExecutionContext } from './AiExecutionContext';
@@ -1046,6 +1047,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			let attemptState: agent.AgentPersistenceState | null = null;
 			let attemptSettled = false;
 			let providerStarted = false;
+			let toolEvents: AgentToolEvents | undefined;
 			const responsePricing: Array<{ model?: string; serviceTier: string | null }> = [];
 
 			try {
@@ -1089,9 +1091,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					});
 					const sdkAgent = this.sdkAgent(invocation, attempt.model);
 					const sdkContext = this.sdkContext(executionState, emit);
+					toolEvents = new AgentToolEvents(runner, { calling: item => this.toolCalledEvent(executionState, item), output: item => this.toolOutputEvent(executionState, item) }, emit);
 					const stream = await runner.run(sdkAgent, modelInput, {
 						stream: true,
-						signal: this.#recorder?.signal,
+						signal: AbortSignal.any([toolEvents.signal, ...this.#recorder ? [this.#recorder.signal] : []]),
 						context: sdkContext,
 						maxTurns: this.maxTurns,
 						reasoningItemIdPolicy: 'preserve',
@@ -1111,6 +1114,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 							});
 						}
 
+						if (await toolEvents.consume(event)) continue;
+
 						const streamEvent = await this.streamEventFromSdkEvent(executionState, event);
 
 						if (!streamEvent) continue;
@@ -1123,6 +1128,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					}
 
 					await stream.completed;
+					await toolEvents.drain();
 					const streamFailure = app().ai.providerTransport?.requestFailure(attempt, null);
 					if (streamFailure) throw streamFailure;
 					const rawFinalOutput = this.finalOutputText(stream.finalOutput, assistantText);
@@ -1191,7 +1197,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					};
 				});
 			} catch (caught) {
-				const restored = this.#recorder?.signal.reason instanceof JobRunStoppedError ? this.#recorder.signal.reason : agentRateLimitError(caught);
+				const restored = this.#recorder?.signal.reason instanceof JobRunStoppedError ? this.#recorder.signal.reason : toolEvents?.signal.reason ?? agentRateLimitError(caught);
 				const failure = restored instanceof JobRunStoppedError ? restored : app().ai.providerTransport.requestFailure(attempt, restored);
 				// Restarting a turn after streamed output/tools can repeat completed work.
 				const error = failure instanceof AIProviderRetryError && sawStreamEvent ? new AIProviderStoppedError('outage', failure.providerCode, { ...failure.diagnostics, stopStage: 'stream-output' }) : failure;
@@ -1227,6 +1233,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 				throw error;
 			} finally {
+				await toolEvents?.close();
 				await app().ai.releaseRateLimit(rateLimitLease);
 			}
 		}
@@ -1660,12 +1667,6 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		if (event.type === 'raw_model_stream_event') {
 			return await this.rawModelStreamEvent(state, event.data);
 		}
-
-		if (event.type !== 'run_item_stream_event') return null;
-		if (event.name === 'tool_called') return await this.toolCalledEvent(state, event.item);
-		if (event.name === 'tool_output') return await this.toolOutputEvent(state, event.item);
-		if (event.name === 'tool_search_called') return await this.toolCalledEvent(state, event.item);
-		if (event.name === 'tool_search_output_created') return await this.toolOutputEvent(state, event.item);
 
 		return null;
 	}

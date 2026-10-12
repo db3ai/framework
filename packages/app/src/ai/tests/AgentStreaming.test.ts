@@ -1,3 +1,5 @@
+import { AgentStreamRecorder } from '../AgentStreamRecorder';
+import type { AgentPersistenceState } from '../contracts/Agent';
 import { z } from 'zod';
 import type { RunContext } from '@openai/agents';
 import { createServer, type Server } from 'node:http';
@@ -241,6 +243,72 @@ describe('durable agent streaming', () => {
 		} finally { finishTool(); await work; }
 	});
 
+	it('publishes independent tool outcomes before their parallel batch finishes', async () => {
+		const gates = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
+		const names = ['lookup_record', 'check_permission', 'wait_for_report'];
+		/** Uses ordinary tools with no completion callbacks or custom progress code. */
+		class ParallelToolsAgent extends StreamingAgent {
+			/** Allows the synthetic provider to group independent function calls. */
+			protected override modelSettings() { return { ...super.modelSettings(), parallelToolCalls: true }; }
+			/** Returns independently controlled success/error outcomes through the common SDK bridge. */
+			protected override tools() {
+				return names.map((name, index) => Object.assign(tool({ name, description: name, parameters: z.object({}),
+					/** Waits only on this tool's gate; another tool must not delay its saved result. */
+					execute: async () => { await gates[index]!.promise; return index === 1 ? { status: 'error', message: 'Permission denied.' } : { status: 'success', result: name }; },
+				}), { title: name }));
+			}
+		}
+		registerQueuedAgent('ParallelToolsAgent', ParallelToolsAgent);
+		const calls = names.map((name, index) => ({ type: 'function_call', id: `fc_parallel_${index}`, call_id: `call_parallel_${index}`, name, arguments: '{}' }));
+		const response = { id: 'resp_parallel', object: 'response', model: 'test-model', created_at: 1, status: 'completed', output: calls, usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 } };
+		const events = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }, ...calls.flatMap((item, output_index) => [{ type: 'response.output_item.added', output_index, item }, { type: 'response.output_item.done', output_index, item }]), { type: 'response.completed', response }];
+		const final = controlledResponse(); final.finish('Finished');
+		fetch.mockResolvedValueOnce(new Response(events.map((event, sequence_number) => `data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } })).mockResolvedValueOnce(final.response);
+		const queued = await new ParallelToolsAgent({ user: 'viewer', scope: 'team' }).queue('Inspect', { queue: 'parallel-tools' });
+		const work = application.queue.workNextJob('parallel-tools');
+		try {
+			await vi.waitFor(async () => expect(await AiMessage.where('conversation', queued.conversationId).where('role', 'tool').where('toolState', 'calling').count()).toBe(3));
+			for (const index of [2, 1]) {
+				gates[index]!.resolve();
+				const state = index === 1 ? 'error' : 'success';
+				await vi.waitFor(async () => {
+					const snapshot = await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'admin' });
+					expect(snapshot.timeline.find(item => item.id === `call_parallel_${index}`)).toMatchObject({ state });
+					expect(snapshot.timeline.find(item => item.id === 'call_parallel_0')).toMatchObject({ state: 'calling' });
+				});
+				await application.ai.conversations.drain();
+				expect(published.some(frame => JSON.stringify(frame).includes(`call_parallel_${index}`) && JSON.stringify(frame).includes(`"state":"${state}"`))).toBe(true);
+				expect(fetch).toHaveBeenCalledOnce();
+			}
+			gates[0]!.resolve();
+			expect((await work)?.status).toBe('succeeded');
+			for (const [index] of names.entries()) expect(await AiMessage.where('conversation', queued.conversationId).where('toolCallId', `call_parallel_${index}`).whereIn('toolState', ['success', 'error']).count()).toBe(1);
+			expect(fetch).toHaveBeenCalledTimes(2);
+		} finally { for (const gate of gates) gate.resolve(); await work; }
+	});
+
+	it('records a tool result despite a concurrent update to its referenced request without replaying work', async () => {
+		const conversation = await AiConversation.create({ user: 'viewer', scope: 'team' }).save();
+		const request = await AiRequest.create({ conversation, user: 'viewer', scope: 'team', operation: 'agents.run.queue', request: {} }).save();
+		const state: AgentPersistenceState = { conversation, rootAiRequest: request, aiRequest: request, nextSequence: 1, model: 'test-model', traceId: 'trace_fk_race', startTimeMs: Date.now(), metadata: {}, toolDefinitions: [], hostedToolUsage: {}, hostedToolCallIds: new Set(), citations: [], toolArgumentsByCallId: {} };
+		const recorder = new AgentStreamRecorder(state);
+		let writes = 0;
+		try {
+			await recorder.begin('running');
+			await recorder.message(state, { role: 'tool', contentJson: {}, metadata: { eventType: 'tool_success' } }, async () => {
+				// The recorder has read message order. A real second connection now
+				// commits a parent update before the insert's foreign-key check.
+				await database.db('ai_requests').where('id', request.id).update({ metadata: JSON.stringify({ observed: true }) });
+				writes++;
+				return AiMessage.create({ conversation, aiRequest: request, role: 'tool', sequence: state.nextSequence, toolCallId: 'call_race', toolName: 'lookup_record', toolState: 'success', contentJson: { state: 'success', result: { saved: true } } }).save();
+			});
+			expect(writes).toBe(1);
+			expect(await AiMessage.where('conversation', conversation.id).count()).toBe(1);
+			const snapshot = await application.ai.conversations.load(reader, { conversationId: String(conversation.id), view: 'admin' });
+			expect(snapshot.timeline.find(item => item.id === 'call_race')).toMatchObject({ state: 'success', result: { saved: true } });
+		} finally { await recorder.close().catch(() => undefined); }
+	});
+
 	it('repairs a lost final publication through maintenance without repeating provider work', async () => {
 		available = false;
 		const provider = controlledResponse(); fetch.mockResolvedValue(provider.response);
@@ -299,11 +367,25 @@ describe('durable agent streaming', () => {
 			await application.queue.workNextJob('settlement');
 			const root = await AiRequest.findOrFail(queued.aiRequestId!);
 			expect(root.response).toMatchObject({ providerFinalized: true, finalOutput: 'Done' });
+			expect((await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'admin' })).run).toMatchObject({ status: 'waiting', attempt: 1 });
+			expect(root.status).toBe('pending');
 		} finally { await database.db.raw('DROP TRIGGER stream_settlement_failure'); }
 		await QueuedJob.query().patch({ availableAt: 0 });
 		expect((await application.queue.workNextJob('settlement'))?.status).toBe('succeeded');
 		expect(fetch).toHaveBeenCalledTimes(1);
 		expect((await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'admin' })).run?.status).toBe('completed');
+	});
+
+	it('fences delayed retry notifications from newer attempts and stopped turns', async () => {
+		const queued = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Hello');
+		await application.ai.conversations.settleQueuedRetry(queued.aiRequestId!, 2);
+		const sequence = (await AiConversation.findOrFail(queued.conversationId)).streamSequence;
+		await application.ai.conversations.settleQueuedRetry(queued.aiRequestId!, 1);
+		await application.ai.conversations.settleQueuedRetry(queued.aiRequestId!, 2);
+		expect((await AiConversation.findOrFail(queued.conversationId)).streamSequence).toBe(sequence);
+		await application.ai.conversations.stop(reader, { conversationId: queued.conversationId, aiRequestId: queued.aiRequestId! });
+		await application.ai.conversations.settleQueuedRetry(queued.aiRequestId!, 3);
+		expect((await AiConversation.findOrFail(queued.conversationId)).streamState?.run.status).toBe('cancelled');
 	});
 
 	it('denies unknown users and mismatched scope and keeps status replay free of transcript', async () => {
