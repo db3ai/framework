@@ -108,6 +108,53 @@ describe('best-effort conversation client', () => {
 		} finally { h.client.dispose(); }
 	});
 
+	it.each([50, null])('walks contiguous history after a large reconnect gap through boundary %s', async boundary => {
+		/** Creates one ordered database page; the cursor describes the whole saved-message range. */
+		const page = (ids: number[], older: number | null) => ({ ...snapshot('thread', ids.map(id => message(String(id), `Saved ${id}`))), older });
+		const load = vi.fn().mockResolvedValueOnce(page([70, 80], 70)).mockResolvedValue(page([150, 160], 150));
+		const history = vi.fn(async (_id: string, before: number) => {
+			if (before === 150) return page([110, 120, 130, 140], 110);
+			if (before === 110) return page([70, 80, 90, 100], 70);
+			if (before === 70) return page([50, 60], boundary);
+			throw new Error(`Unexpected history boundary ${before}`);
+		});
+		const h = harness({ load, history });
+		try {
+			await h.client.open('thread'); await h.client.loadOlder(); await connect(h);
+			expect(h.client.getState().snapshot?.timeline.map(item => item.id)).toEqual(['50', '60', '70', '80', '90', '100', '110', '120', '130', '140', '150', '160']);
+			expect(h.client.getState().snapshot?.older).toBe(boundary);
+			expect(history.mock.calls.map(([, before]) => before)).toEqual([70, 150, 110, 70]);
+		} finally { h.client.dispose(); }
+	});
+
+	it('retries an older read against the new boundary when refresh overtakes it', async () => {
+		const stale = pending<stream.AgentConversationSnapshot>();
+		const load = vi.fn().mockResolvedValueOnce({ ...snapshot('thread', [message('90', 'Original latest')]), older: 90 }).mockResolvedValue({ ...snapshot('thread', [message('190', 'Latest after refresh')]), older: 190 });
+		const history = vi.fn().mockImplementationOnce(() => stale.promise).mockResolvedValue({ ...snapshot('thread', [message('150', 'Contiguous older')]), older: 150 });
+		const h = harness({ load, history });
+		try {
+			await h.client.open('thread');
+			const older = h.client.loadOlder(); const samePage = h.client.loadOlder();
+			await vi.waitFor(() => expect(history).toHaveBeenCalledTimes(1));
+			await h.client.refresh();
+			stale.resolve({ ...snapshot('thread', [message('50', 'Stale detached range')]), older: 50 });
+			await older; await samePage;
+			expect(h.client.getState().snapshot?.timeline.map(item => item.id)).toEqual(['150', '190']);
+			expect(h.client.getState().snapshot?.older).toBe(150);
+			expect(history.mock.calls.map(([, before]) => before)).toEqual([90, 190]);
+		} finally { h.client.dispose(); }
+	});
+
+	it('rejects repeated history boundaries without looping or replacing saved state', async () => {
+		const history = vi.fn(async () => ({ ...snapshot(), older: 50 }));
+		const h = harness({ load: async () => ({ ...snapshot('thread', [message('latest', 'Saved')]), older: 50 }), history });
+		try {
+			await h.client.open('thread'); await h.client.loadOlder();
+			expect(history).toHaveBeenCalledOnce();
+			expect(h.client.getState()).toMatchObject({ error: 'Invalid conversation history boundary.', snapshot: { older: 50, timeline: [{ id: 'latest' }] } });
+		} finally { h.client.dispose(); }
+	});
+
 	it('stops a restored running conversation by ID and fences the late acknowledgement', async () => {
 		const completion = pending<stream.AgentStopResult>();
 		const stop = vi.fn(() => completion.promise);

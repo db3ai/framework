@@ -15,7 +15,10 @@ export class AgentConversationClient {
 	#unsubscribe: (() => void) | undefined;
 	readonly #listeners = new Set<(state: Readonly<stream.AgentClientState>) => void>();
 	readonly #notices = new Set<(notice: stream.AgentStreamNotice) => void>();
-	readonly #olderPages = new Map<number, stream.AgentConversationSnapshot>();
+	/** Oldest loaded database boundary; undefined means the viewer has not paged back. */
+	#historyBoundary: number | null | undefined;
+	#historyRevision = 0;
+	#loadingOlder: Promise<void> | undefined;
 	#opening: Promise<void> | undefined;
 	#refreshing: Promise<void> | undefined;
 	#refreshAgain = false;
@@ -118,23 +121,34 @@ export class AgentConversationClient {
 
 	/** Prepends a saved page in database order. Newer visible items win any overlap. */
 	async loadOlder(): Promise<void> {
+		if (this.#loadingOlder) return this.#loadingOlder;
 		const generation = this.#generation;
-		await this.#opening;
-		await this.#refreshing;
-		if (!this.#current(generation)) return;
-		const snapshot = this.#state.snapshot;
-		if (!snapshot || snapshot.older === null || !this.options.http.history || this.#disposed) return;
-		const before = snapshot.older;
-		try {
-			const page = this.#validate(await this.options.http.history(snapshot.conversationId, before, this.#abort.signal), snapshot.conversationId);
-			if (!this.#current(generation) || !this.#state.snapshot) return;
-			if (this.#olderPages.has(before)) return;
-			this.#olderPages.set(before, page);
-			const existing = new Set(this.#state.snapshot.timeline.map(item => item.id));
-			this.#state.snapshot.timeline.unshift(...page.timeline.filter(item => !existing.has(item.id)));
-			this.#state.snapshot.older = page.older;
-			this.#notify();
-		} catch (error) { if (this.#current(generation)) this.#error(error); }
+		const loading = (async () => {
+			try {
+				for (;;) {
+					await this.#opening;
+					await this.#refreshing;
+					if (!this.#current(generation)) return;
+					const snapshot = this.#state.snapshot;
+					if (!snapshot || snapshot.older === null || !this.options.http.history) return;
+					const revision = this.#historyRevision;
+					const before = snapshot.older;
+					const response = await this.options.http.history(snapshot.conversationId, before, this.#abort.signal);
+					if (!this.#current(generation) || !this.#state.snapshot) return;
+					// A concurrent refresh replaced the range this page would extend. Read its new boundary instead.
+					if (revision !== this.#historyRevision) continue;
+					const page = this.#validatePage(response, snapshot.conversationId, before);
+					this.#historyBoundary = page.older;
+					const existing = new Set(this.#state.snapshot.timeline.map(item => item.id));
+					this.#state.snapshot.timeline.unshift(...page.timeline.filter(item => !existing.has(item.id)));
+					this.#state.snapshot.older = page.older;
+					this.#notify();
+					return;
+				}
+			} catch (error) { if (this.#current(generation)) this.#error(error); }
+		})();
+		this.#loadingOlder = loading;
+		try { await loading; } finally { if (this.#loadingOlder === loading) this.#loadingOlder = undefined; }
 	}
 
 	/** Releases reads and subscriptions, leaving the shared socket and server execution alive. */
@@ -203,13 +217,14 @@ export class AgentConversationClient {
 		void this.#refresh().catch(() => undefined);
 	}
 
-	/** Refreshes retained page boundaries so old pending tools receive their saved outcomes too. */
+	/** Rebuilds a contiguous range through the oldest loaded boundary, including newly saved gap items. */
 	async #refresh(): Promise<void> {
 		if (this.#refreshing) return this.#refreshing;
 		if (!this.#id || this.#disposed) return;
 		const generation = this.#generation;
 		const id = this.#id;
 		const signal = this.#abort.signal;
+		this.#historyRevision++;
 		this.#state.synchronizing = true; this.#notify();
 		const refreshing = (async () => {
 			try {
@@ -217,16 +232,18 @@ export class AgentConversationClient {
 					this.#refreshAgain = false;
 					const snapshot = this.#validate(await this.options.http.load(id, signal), id);
 					if (!this.#current(generation)) return;
-					for (const before of this.#olderPages.keys()) {
-						const page = this.#validate(await this.options.http.history!(id, before, signal), id);
+					const pages: stream.AgentConversationSnapshot[] = [];
+					let before = snapshot.older;
+					while (this.#historyBoundary !== undefined && before !== null && (this.#historyBoundary === null || before > this.#historyBoundary)) {
+						const page = this.#validatePage(await this.options.http.history!(id, before, signal), id, before);
 						if (!this.#current(generation)) return;
-						this.#olderPages.set(before, page);
+						pages.unshift(page);
+						before = page.older;
 					}
-					const pages = [...this.#olderPages.entries()].sort(([left], [right]) => left - right).map(([, page]) => page);
 					const timeline = new Map<string, stream.AgentTimelineEntry>();
 					for (const page of [...pages, snapshot]) for (const item of page.timeline) timeline.set(item.id, item);
 					snapshot.timeline = [...timeline.values()];
-					if (pages.length) snapshot.older = pages[0]!.older;
+					if (this.#historyBoundary !== undefined) { snapshot.older = before; this.#historyBoundary = before; }
 					this.#state.snapshot = snapshot; this.#state.error = null;
 					this.#notice({ type: 'snapshot', snapshot }); this.#notify();
 				} while (this.#refreshAgain && this.#current(generation));
@@ -244,11 +261,19 @@ export class AgentConversationClient {
 		return snapshot;
 	}
 
+	/** Requires strict backward progress so malformed history cannot create a repeated-page read loop. */
+	#validatePage(value: unknown, id: string, before: number): stream.AgentConversationSnapshot {
+		const page = this.#validate(value, id);
+		if (page.older !== null && page.older >= before) throw new Error('Invalid conversation history boundary.');
+		return page;
+	}
+
 	/** Cancels only viewer-owned work and discards submissions when changing selection. */
 	#detach(): void {
 		this.#generation++; this.#abort.abort(); this.#abort = new AbortController();
 		this.#unsubscribe?.(); this.#unsubscribe = undefined;
-		this.#olderPages.clear(); this.#opening = undefined; this.#refreshing = undefined;
+		this.#historyBoundary = undefined; this.#loadingOlder = undefined; this.#historyRevision++;
+		this.#opening = undefined; this.#refreshing = undefined;
 		this.#subscribed = false; this.#refreshAgain = false; this.#submission = undefined;
 	}
 
