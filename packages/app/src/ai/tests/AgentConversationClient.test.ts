@@ -59,6 +59,7 @@ describe('best-effort conversation client', () => {
 			read.resolve(snapshot('thread', [message('6', 'Saved in the gap')]));
 			await vi.waitFor(() => expect(h.client.getState().synchronizing).toBe(false));
 			h.live().update(update({ type: 'text.delta', delta: 'Partial ' }, '7'));
+			expect(h.client.getState().snapshot?.activity?.code).toBe('responding');
 			h.live().update(update({ type: 'item.changed', item: message('7', 'Complete reply') }, '7'));
 			h.live().update(update({ type: 'text.delta', delta: 'late duplicate' }, '7'));
 			expect(h.client.getState().snapshot?.timeline).toMatchObject([{ id: '6', content: 'Saved in the gap' }, { id: '7', content: 'Complete reply', streaming: false }]);

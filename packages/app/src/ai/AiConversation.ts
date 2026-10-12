@@ -43,14 +43,10 @@ export class AiConversation extends ActiveRecord {
 	/** Shared stream columns for applications that override their ownership fields. */
 	static streamFields(field: FieldBuilder) {
 		return {
-			streamSequence: field.integer({ column: 'stream_sequence', required: true, default: 0, unsigned: true, comment: 'Last atomically committed conversation update.' }),
-			streamPublishedSequence: field.integer({ column: 'stream_published_sequence', required: true, default: 0, unsigned: true, comment: 'Last update accepted by the live transport; not a browser receipt.' }),
 			streamState: field.json<AgentStreamState>({ column: 'stream_state', comment: 'Latest run and conditional stream-writer ownership.' }),
 		};
 	}
 
-	declare streamSequence: number;
-	declare streamPublishedSequence: number;
 	declare streamState: AgentStreamState | null;
 
 	declare id: string | null;

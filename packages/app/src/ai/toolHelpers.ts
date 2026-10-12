@@ -143,3 +143,13 @@ function parseJson(value: string): unknown | null {
 		return null;
 	}
 }
+
+/**
+ * Normalizes both SDK hook strings and structured tool output to the display result.
+ * Model-only attachments stay out of saved/live history. Historical rows containing
+ * the old serialized attachment array are normalized by the same read boundary.
+ */
+export function normalizeAgentToolResult(value: unknown): unknown {
+	const decoded = typeof value === 'string' ? parseJson(value) ?? value : value;
+	return agentToolResultFromStructuredOutput(decoded) ?? decoded;
+}

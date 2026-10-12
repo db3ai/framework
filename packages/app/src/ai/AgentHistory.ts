@@ -1,3 +1,4 @@
+import { normalizeAgentToolResult } from './toolHelpers';
 
 
 import { AI_MESSAGE_ROLE, AI_MESSAGE_TOOL_STATE, AiMessage } from './AiMessage.js';
@@ -180,7 +181,7 @@ function toolCallFromMessage(
 		state,
 		definition: toolDefinitions.find(definition => definition.name === toolName) ?? null,
 		progressUpdates: [...existing?.progressUpdates ?? [], ...Array.isArray(message.metadata?.streamProgress) ? message.metadata.streamProgress as import('./contracts/Agent').AgentToolProgressUpdate[] : []].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index).slice(-100),
-		result: content?.result ?? existing?.result ?? null,
+		result: normalizeAgentToolResult(content?.result ?? existing?.result ?? null),
 		error,
 	};
 }

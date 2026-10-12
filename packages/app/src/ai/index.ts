@@ -36,8 +36,6 @@ export * from './AIProviderRetryError';
 export * from './AIProviderStoppedError';
 
 export * from './contracts/AgentConversationStream';
-export * from './AiStreamEvent';
 export { AgentConversations, AgentConversationReadError } from './AgentConversations';
-export { PublishAgentStreamsJob } from './PublishAgentStreamsJob';
 
 export type * from './contracts/AgentStreamingOptions';

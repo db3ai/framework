@@ -1,3 +1,4 @@
+import { ActiveRecord } from '@db3.ai/app/db';
 import { agentAdmission } from './agentAdmission';
 import type { AgentQueueOptions } from './contracts/AgentStreamingOptions';
 import { AgentStreamRecorder } from './AgentStreamRecorder';
@@ -25,7 +26,7 @@ import { AgentRunJob } from './AgentRunJob.js';
 import { withoutOpenAIQuotaRetryMetadata } from './OpenAIQuotaRetry.js';
 import { agentCitationFromStreamRecord, agentCitationsFromFinalModelResponse, rememberAgentCitation } from './agentCitations.js';
 import { serializeQueuedAgent } from './registry.js';
-import { agentToolResultFromStructuredOutput } from './toolHelpers.js';
+import { normalizeAgentToolResult } from './toolHelpers.js';
 import { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCallRecovery.js';
 import type * as agent from './contracts/Agent';
 
@@ -386,36 +387,53 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			throw new Error(`Queued payload for "${payload.agentName}" cannot run on "${this.agentName}".`);
 		}
 
-		const prepared = await this.preparedRunFromQueuedPayload(payload);
+		let state: agent.AgentPersistenceState | null = null;
 		try {
-			if (app().ai.conversations.enabled) {
-				this.#recorder = new AgentStreamRecorder(prepared.state, context);
-				await this.#recorder.begin('running');
-			}
-			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) {
-				return await this.resumeFinalizedTrackedRun(prepared);
-			}
-
+			const prepared = await this.preparedRunFromQueuedPayload(payload, async restored => {
+				state = restored;
+				if (app().ai.conversations.enabled) {
+					this.#recorder = new AgentStreamRecorder(restored, context);
+					await this.#recorder.begin('running');
+				}
+				restored.conversation = await app().ai.models.conversation.findOrFail(restored.conversation.id);
+				restored.rootAiRequest = await app().ai.models.request.findOrFail(restored.rootAiRequest.id);
+				restored.aiRequest = restored.rootAiRequest;
+				await this.beforeQueuedRun(restored.rootAiRequest, restored.conversation);
+			});
+			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) return await this.resumeFinalizedTrackedRun(prepared);
 			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
 			return await this.executePreparedRun(prepared, event => this.#recorder?.emit(event));
 		} catch (error) {
 			const stopped = this.#recorder?.signal.reason;
 			if (error instanceof JobRunStoppedError || stopped instanceof JobRunStoppedError) {
 				const stop = error instanceof JobRunStoppedError ? error : stopped as JobRunStoppedError;
-				await app().ai.conversations.settleQueuedStop(String(prepared.state.rootAiRequest.id), stop.message, stop.status);
+				if (payload.aiRequestId) await app().ai.conversations.settleQueuedStop(payload.aiRequestId, stop.message, stop.status);
 				throw stop;
 			}
-			if (isQueueRetryLaterError(error)) { await this.recordRunStatus('waiting'); throw error; }
+			if (isQueueRetryLaterError(error)) { if (this.#recorder?.claimed) await this.recordRunStatus('waiting'); throw error; }
 			const providerError = openAIProviderError(error);
-
 			const message = error instanceof Error ? error.message : `Unable to run ${this.agentName}.`;
-			await this.recordRunStatus('failed', () => this.failTrackedRun(prepared.state, message, providerError.code), message);
+			if (state && (!this.#recorder || this.#recorder.claimed)) {
+				if (context && context.willRetry?.(error) !== false && this.#recorder) {
+					await context.assertOwnership?.();
+					await app().ai.conversations.settleQueuedRetry(payload.aiRequestId!, context.job.attempts);
+				} else await this.recordRunStatus('failed', () => this.failTrackedRun(state!, message, providerError.code), message);
+			}
 			throw error;
 		} finally {
 			await this.#recorder?.close();
 			this.#recorder = undefined;
 		}
 	}
+
+	/**
+	 * Refreshes app context after FIFO ownership is acquired, before instructions,
+	 * history and credit allowance are evaluated. Apps can claim their domain work
+	 * here; retries must recognize the same root request without repeating effects.
+	 * Runs for settlement-only retries too: restore pinned product policy, but skip
+	 * domain activation when root.response.providerFinalized is already true.
+	 */
+	protected async beforeQueuedRun(_root: AiRequest, _conversation: AiConversation): Promise<void> {}
 
 	/**
 	 * Resumes only settlement for a queued run whose provider output is durable.
@@ -883,8 +901,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @returns Prepared run state ready for stream or queue execution.
 	 */
 	private async prepareRun(message: string, transport: string, traceId: string): Promise<PreparedAgentRun> {
+		if (app().ai.conversations.enabled && transport !== 'queue') {
+			return app().ai.models.request.getDb().transaction(transaction => ActiveRecord.withDb(transaction, () => this.prepareRunRecords(message, transport, traceId)));
+		}
+		return this.prepareRunRecords(message, transport, traceId);
+	}
+
+	/** Prepares admission under the caller's transaction so rejected turns leave no pending rows. */
+	private async prepareRunRecords(message: string, transport: string, traceId: string): Promise<PreparedAgentRun> {
 		const model = this.resolvedModel();
 		const conversation = await this.resolveConversation(message, traceId, transport);
+		if (app().ai.conversations.enabled) await app().ai.models.conversation.where('id', conversation.id).forUpdate().firstOrFail();
 		const previousMessages = await this.previousMessages(conversation);
 		const invocation = await this.prepareAgentInvocation(message, previousMessages);
 		const state = await this.startTrackedRun({
@@ -929,7 +956,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @param payload - Queued run payload.
 	 * @returns Prepared run state for worker execution.
 	 */
-	private async preparedRunFromQueuedPayload(payload: agent.QueuedAgentRunPayload): Promise<PreparedAgentRun> {
+	private async preparedRunFromQueuedPayload(payload: agent.QueuedAgentRunPayload, activate: (state: agent.AgentPersistenceState) => Promise<void>): Promise<PreparedAgentRun> {
 		if (!payload.aiRequestId) {
 			throw new Error('Queued agent run is missing an AI request id.');
 		}
@@ -939,34 +966,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 		this.assertConversationAccess(conversation);
 
-		const previousMessages = await this.previousMessages(conversation, aiRequest.id ? String(aiRequest.id) : null);
-		const invocation = await this.prepareAgentInvocation(payload.message, previousMessages);
-
-		const prepared: PreparedAgentRun = {
-			message: payload.message,
-			model: payload.model,
-			serviceTier: payload.serviceTier ?? 'default',
-			traceId: payload.traceId,
-			previousMessages,
-			invocation,
-			state: {
-				conversation,
-				rootAiRequest: aiRequest,
-				aiRequest,
-				nextSequence: await nextMessageSequence(conversation),
-				model: payload.model,
-				traceId: payload.traceId,
-				startTimeMs: Date.now(),
-				metadata: {},
-				toolDefinitions: invocation.toolDefinitions,
-				hostedToolUsage: {},
-				hostedToolCallIds: new Set(),
-				citations: [],
-				toolArgumentsByCallId: {},
-			},
+		const state: agent.AgentPersistenceState = {
+			conversation, rootAiRequest: aiRequest, aiRequest,
+			nextSequence: await nextMessageSequence(conversation),
+			model: payload.model, traceId: payload.traceId, startTimeMs: Date.now(),
+			metadata: {}, toolDefinitions: [], hostedToolUsage: {}, hostedToolCallIds: new Set(), citations: [], toolArgumentsByCallId: {},
 		};
-
-		return prepared;
+		await activate(state);
+		const previousMessages = await this.previousMessages(conversation, String(aiRequest.id));
+		const invocation = await this.prepareAgentInvocation(payload.message, previousMessages);
+		state.toolDefinitions = invocation.toolDefinitions;
+		return { message: payload.message, model: payload.model, serviceTier: payload.serviceTier ?? 'default', traceId: payload.traceId, previousMessages, invocation, state };
 	}
 
 	/**
@@ -1091,7 +1101,16 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					});
 					const sdkAgent = this.sdkAgent(invocation, attempt.model);
 					const sdkContext = this.sdkContext(executionState, emit);
-					toolEvents = new AgentToolEvents(runner, { calling: item => this.toolCalledEvent(executionState, item), output: item => this.toolOutputEvent(executionState, item) }, emit);
+					toolEvents = new AgentToolEvents(runner, { calling: item => this.toolCalledEvent(executionState, item),
+						rawItem: event => {
+							const outer = event.type === 'raw_model_stream_event' ? recordValue(event.data) : null;
+							const raw = outer?.type === 'model' ? recordValue(outer.event) : outer;
+							const item = recordValue(raw?.item);
+							if (!hostedToolNameFromRawItem(item)) return null;
+							if (raw?.type === 'response.output_item.added') return { phase: 'calling', item: { rawItem: item } };
+							if (raw?.type === 'response.output_item.done') return { phase: 'output', item: { rawItem: item } };
+							return null;
+						}, output: item => this.toolOutputEvent(executionState, item) }, emit);
 					const stream = await runner.run(sdkAgent, modelInput, {
 						stream: true,
 						signal: AbortSignal.any([toolEvents.signal, ...this.#recorder ? [this.#recorder.signal] : []]),
@@ -1679,9 +1698,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @returns Normalized stream event, or null when ignored.
 	 */
 	private async rawModelStreamEvent(state: agent.AgentPersistenceState, data: unknown): Promise<agent.AgentStreamEvent | null> {
-		const record = recordValue(data);
-
-		if (!record) return null;
+		const outer = recordValue(data);
+		const wrapped = outer?.type === 'model' && recordValue(outer.providerData)?.rawModelEventSource === 'openai-responses';
+		const record = wrapped ? recordValue(outer.event) : outer;
+		if (!record || wrapped && record.type === 'response.output_text.delta') return null;
 
 		const citation = agentCitationFromStreamRecord(record);
 
@@ -1878,16 +1898,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			model: state.model,
 			metadata: input.metadata,
 		};
-		/** Updates the stable partial row when final output arrives, preserving its order. */
+		/** Creates the saved message using its live identity when one was allocated. */
 		const save = async (id?: string): Promise<AiMessage> => {
-			let message: AiMessage;
-			if (id) {
-				message = await app().ai.models.message.findOrFail(id);
-				await message.assign({ ...values, sequence: message.sequence }).save();
-			} else {
-				message = await new (app().ai.models.message)({ ...values, sequence: state.nextSequence }).save();
-				state.nextSequence += 1;
-			}
+			const message = await new (app().ai.models.message)({ ...values, ...(id ? { id } : {}), sequence: state.nextSequence }).save();
+			state.nextSequence += 1;
 			return message;
 		};
 		return this.#recorder ? this.#recorder.message(state, input, save) : save();
@@ -1944,14 +1958,22 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			metadata: withoutOpenAIQuotaRetryMetadata(state.rootAiRequest.metadata),
 		});
 
-		await state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
+		/** Provider finalization cannot overwrite a concurrent stop or newer writer. */
+		const save = () => state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
+		if (this.#recorder) await this.#recorder.checkpoint(save); else await save();
 
 		return await this.settleFinalizedTrackedRun(state);
 	}
 
 	/** Commits persisted run state and the reconnectable lifecycle event together. */
 	private async recordRunStatus(status: import('./contracts/AgentConversationStream').AgentRunState['status'], save?: () => Promise<unknown>, error?: string): Promise<void> {
-		if (this.#recorder) await this.#recorder.status(status, save, error);
+		if (this.#recorder) {
+			try { await this.#recorder.status(status, save, error); }
+			catch (failure) {
+				if (status !== 'failed') throw failure;
+				await this.#recorder.fail(error ?? 'Agent run failed.');
+			}
+		}
 		else await save?.();
 	}
 
@@ -2101,9 +2123,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			.orderBy('sequence', 'desc')
 			.limit((this.maxPreviousMessages * 2) + 12)
 			.all();
+		const pending = app().ai.conversations.enabled ? (await app().ai.models.conversation.findOrFail(conversation.id)).streamState?.pending ?? [] : [];
 		const replayMessages = messages
 			.reverse()
-			.filter(message => !excludeAiRequestId || entityRefId(message.aiRequest) !== excludeAiRequestId);
+			.filter(message => (!excludeAiRequestId || entityRefId(message.aiRequest) !== excludeAiRequestId) && !pending.includes(entityRefId(message.aiRequest) ?? ''));
+		const roots = [...new Set(replayMessages.map(message => entityRefId(message.aiRequest)).filter((id): id is string => Boolean(id)))];
+		const Message = app().ai.models.message;
+		const requestColumn = Message.getField('aiRequest').column;
+		const sequenceColumn = Message.getField('sequence').column;
+		const order: Array<Record<string, unknown>> = roots.length ? await Message.where('conversation', conversation.id).whereIn('aiRequest', roots).toKnex().select(requestColumn).min({ firstSequence: sequenceColumn }).groupBy(requestColumn) : [];
+		const starts = new Map<string, number>(order.map(row => [String(row[requestColumn]), Number(row.firstSequence)]));
+		replayMessages.sort((left, right) => (starts.get(entityRefId(left.aiRequest) ?? '') ?? left.sequence ?? 0) - (starts.get(entityRefId(right.aiRequest) ?? '') ?? right.sequence ?? 0) || (left.sequence ?? 0) - (right.sequence ?? 0));
 		const unresolvedCallIds = unresolvedToolCallIds(replayMessages);
 		const seenToolCallIds = new Set<string>();
 
@@ -2642,14 +2672,7 @@ function parseToolArguments(value: unknown): unknown {
  * @param value - Unknown tool output value.
  * @returns Parsed tool output value.
  */
-function parseToolOutput(value: unknown): unknown {
-	const structuredResult = agentToolResultFromStructuredOutput(value);
-
-	if (structuredResult !== null) return structuredResult;
-	if (typeof value !== 'string') return value;
-
-	return parseJson(value) ?? value;
-}
+function parseToolOutput(value: unknown): unknown { return normalizeAgentToolResult(value); }
 
 /**
  * Returns a tool-level error message when the tool result reports one.

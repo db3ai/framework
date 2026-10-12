@@ -467,9 +467,9 @@ if (suspended.suspension?.suspensionId !== 'example-occurrence' || new PasswordS
 import { InApp, InAppRecord, InAppError } from '@db3.ai/app/in-app';
 import { Notifications } from '@db3.ai/app/notifications';
 import { defineChannel, defineWebSocket } from '@db3.ai/app/websocket';
-import { createAgentConversation } from '@db3.ai/app/ai/client';
-import { AiStreamEvent, PublishAgentStreamsJob } from '@db3.ai/app/ai';
-if (typeof createAgentConversation !== 'function' || AiStreamEvent.table !== 'ai_stream_events' || PublishAgentStreamsJob.jobName !== 'PublishAgentStreamsJob') throw new Error('Durable conversation exports failed.');
+import { createAgentConversation, createAgentConversationHttp } from '@db3.ai/app/ai/client';
+import { AgentConversations } from '@db3.ai/app/ai';
+if (typeof createAgentConversation !== 'function' || typeof createAgentConversationHttp !== 'function' || typeof AgentConversations !== 'function') throw new Error('Conversation exports failed.');
 import { WebSocketClient } from '@db3.ai/app/websocket/client';
 const pushApp = new App({ webSockets: { publish: { url: 'http://127.0.0.1:8001/_internal/realtime/publish', token: 'a'.repeat(64) } } });
 await pushApp.close();

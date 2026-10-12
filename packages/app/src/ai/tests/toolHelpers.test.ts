@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RunContext } from '@openai/agents';
-import { agentToolContext, emitAgentToolProgress, agentToolOutputWithModelAttachments, agentToolResultFromStructuredOutput, agentToolErrorResult, type AgentToolProgressInput } from '@db3.ai/app/ai';
+import { normalizeAgentToolResult, agentToolContext, emitAgentToolProgress, agentToolOutputWithModelAttachments, agentToolResultFromStructuredOutput, agentToolErrorResult, type AgentToolProgressInput } from '@db3.ai/app/ai';
 
 describe('shared agent tool helpers', () => {
 	it('preserves application context and emits progress through its own sink', async () => {
@@ -24,6 +24,9 @@ describe('shared agent tool helpers', () => {
 		const output = agentToolOutputWithModelAttachments(result, [{ type: 'image', image: { data: 'aW1hZ2U=', mediaType: 'image/png' } }]);
 		expect(output).toHaveLength(2);
 		expect(agentToolResultFromStructuredOutput(output)).toEqual(result);
+		expect(normalizeAgentToolResult(JSON.stringify(output))).toEqual(result);
+		expect(normalizeAgentToolResult(output)).toEqual(result);
+		expect(normalizeAgentToolResult('plain tool output')).toBe('plain tool output');
 		expect(agentToolResultFromStructuredOutput([{ type: 'text', text: 'not json' }])).toBeNull();
 		expect(agentToolResultFromStructuredOutput(null)).toBeNull();
 	});

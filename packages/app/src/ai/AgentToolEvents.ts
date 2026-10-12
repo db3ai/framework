@@ -12,7 +12,7 @@ export class AgentToolEvents {
 	#closed = false;
 
 	/** Uses the existing normalizers, persistence and stream sink for every tool. */
-	constructor(readonly runner: Runner, readonly normalize: { calling(item: unknown): Promise<AgentStreamEvent | null>; output(item: unknown): Promise<AgentStreamEvent | null> }, readonly emit: AgentEventSink) {
+	constructor(readonly runner: Runner, readonly normalize: { calling(item: unknown): Promise<AgentStreamEvent | null>; output(item: unknown): Promise<AgentStreamEvent | null>; rawItem?(event: RunStreamEvent): { phase: 'calling' | 'output'; item: unknown } | null }, readonly emit: AgentEventSink) {
 		runner.on('agent_tool_start', this.#start);
 		runner.on('agent_tool_end', this.#end);
 	}
@@ -34,6 +34,8 @@ export class AgentToolEvents {
 
 	/** Deduplicates the SDK's later batch items against the same lifecycle writes. */
 	async consume(event: RunStreamEvent): Promise<boolean> {
+		const raw = this.normalize.rawItem?.(event);
+		if (raw) { await this.#record(raw.phase, raw.item); return true; }
 		if (event.type !== 'run_item_stream_event') return false;
 		if (event.name === 'tool_called' || event.name === 'tool_search_called') {
 			await this.#record('calling', event.item); return true;

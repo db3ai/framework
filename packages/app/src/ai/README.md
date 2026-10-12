@@ -51,25 +51,20 @@ at boot in both web and worker processes before using `agent.queue(message)`.
 Its constructor context must be serializable. Queued agents require the normal
 queue models and a worker listening on the selected queue.
 
-## Durable background conversations
+## Background conversations
 
-Enable `ai.streaming.enabled` after adding `AiStreamEvent` to your migration
-registry and applying the schema migration. The existing `AiConversation` gains
-`streamSequence`, `streamPublishedSequence` and `streamState`; `AiRequest` gains
-nullable unique admission fields. Subclasses that replace `fields()` must include
-`AiConversation.streamFields(field)` and `AiRequest.admissionFields(field)`.
-Keep `AiMessage.content` untrimmed so streamed whitespace survives persistence.
+Enable `ai.streaming.enabled` with the existing conversation, message and request
+models. Subclasses replacing model fields include `AiConversation.streamFields(field)`
+and `AiRequest.admissionFields(field)`. Apply an application migration for these
+fields. There is no stream-event table, delta journal, replay cursor or publisher
+maintenance job. Apps upgrading from the earlier journal implementation should
+drop `ai_stream_events`, `stream_sequence` and `stream_published_sequence` after
+stopping old API/worker processes; retain `stream_state` and admission fields.
 
-Register `AgentRunJob` and your agents as above. Register `PublishAgentStreamsJob`
-and schedule it on your existing maintenance queue, for example once per minute.
-It repairs missed publication wakeups and expires terminal replay; it never calls
-an AI provider. Configure the existing [WebSockets worker HTTP bridge](../websocket/README.md)
-when the worker and API run in separate processes. No per-token queue jobs or
-second worker runtime are involved. Queue pickup remains the worker's configured
-interval (for example, 1000 ms). Text writes coalesce for 100 ms by default **only
-while output is pending**; this is not database polling.
-
-A normal job or authenticated HTTP send handler starts work with the existing API:
+Register `AgentRunJob` and your agents in API and worker processes. Configure the
+existing [WebSockets worker bridge](../websocket/README.md) for separate processes.
+An authenticated send route validates input, derives ownership and returns HTTP
+202 from the same API a scheduled job uses:
 
 ```ts
 const run = await new HelpAgent({
@@ -78,116 +73,102 @@ const run = await new HelpAgent({
 	guidePath: 'help/guide.md',
 	conversationId: body.conversationId ?? undefined,
 }).queue(body.message, { idempotencyKey: body.idempotencyKey });
-// Return HTTP 202 with run: { conversationId, aiRequestId, jobId, traceId }.
+// { conversationId, aiRequestId, jobId, traceId }
 ```
 
-The application validates the body and derives user, scope, agent and tools from
-trusted server code. A scheduled job can omit `idempotencyKey`. An interactive
-client creates one UUID **per intentional send**, retains it with the exact body,
-and reuses it if the admission response is lost. `conversation.send(message)`
-does this; `retrySend()` retries that same submission. A key is scoped to actor,
-scope and agent. Reusing it with different input returns 409. Admission commits
-the root request, initial messages and SQL queue job together. Another active
-turn on the same conversation returns 409. Redis/broker admission with durable
-recording is currently rejected until a transactional outbox is supplied.
+Admission commits request, user message and SQL queue job together. A followup
+on an active conversation joins its FIFO queue; it does not interrupt the active
+provider call. Each turn loads fresh saved history when execution begins. Future
+queued messages are excluded from the current turn's provider input. The existing
+queue defers followers without spending attempts. Apps can refresh domain context
+in `beforeQueuedRun(root, conversation)`, after ownership is claimed but before
+instructions and credit allowance are evaluated. The hook must recognize same-root
+retries. It also restores product policy for settlement-only retries; skip domain
+activation when `root.response.providerFinalized` is true. Pin state-dependent
+product decisions on the root so a retry cannot change the original charge.
 
-The worker owns the provider/tool loop. Ordinary `Agent` subclasses and tools need
-no socket code. Existing messages and request records hold current output; a
-bounded journal records committed deltas, tool/progress changes and lifecycle.
-Queue ownership and a conversation writer token fence stale writes. Final text
-updates the same display item as partial text. A recorded provider completion is
-settled on retry without another provider call. The shared SDK lifecycle bridge
-records each tool result as soon as that tool finishes, even while other tools in
-the same model turn are still running. Later SDK batch events are deduplicated by
-call ID. No application tool needs completion or WebSocket glue. The next model
-turn still waits for its full tool batch. Recording transactions lock the
-conversation and use READ COMMITTED for fresh foreign-key checks while other
-workers update referenced records; an enclosing caller transaction retains its
-own isolation. No provider or tool execution is retried by this recording path.
+The browser client creates one submission UUID per intentional send and keeps it
+for `retrySend()` after an uncertain HTTP response. A key is scoped to actor, scope
+and agent; changed input with the same key returns 409. Scheduled jobs can omit it.
+Atomic admission requires the database queue. Broker admission is unsupported.
 
-This does not make arbitrary tool side effects exactly once: tools still own
-their existing idempotency/checkpoints. Queue adapters delegate `onRetry` to
-`AgentRunJob.onRetry()` (or `conversations.settleQueuedRetry(requestId, attempt)`)
-so a released attempt shows `waiting`, even after its stream recorder fails.
-The retry callback cannot replace a stopped or newer attempt. Terminal failures
-use `onFinalFailure`.
+Workers emit live events without knowing whether anyone is watching. Text deltas
+coalesce in memory (100 ms by default) and never write SQL. Existing message/tool
+save boundaries publish complete canonical items. Final assistant output uses the
+same identity as its live partial. Transport failures do not fail or retry provider
+work. Bounded in-memory delivery can drop updates; there is no delivery guarantee.
+
+The conversation record owns current run state and writer fencing. Existing queue
+claims and retries handle worker failure. Provider completion is durable before
+billing settlement, so settlement retries do not call the provider again. Individual
+tool completions are saved as they finish, including parallel tools. Tools still own
+their idempotency/checkpoints for external effects. Applications with custom queue
+adapters delegate retry/failure hooks to `AgentRunJob`; released attempts show
+`waiting`, and terminal failure clears the active state through a fresh writer.
 
 ### Reading and attaching
 
-The server entry point is `app().ai.conversations`. These methods do not start or
-resume execution. Every public read requires trusted `{ userId, scopeId? }` and an
-explicit view. Set `ai.streaming.authorize` to your resource policy; missing policy
-denies access. Register a `defineChannel('ai:conversation:{id}:conversation', …)`
-whose authorization calls `conversations.authorized({ userId }, params.id,
-'conversation')`. Reuse that check for subscription and every delivery. Socket
-policy must resolve current resource membership without HTTP-only tab headers.
+Set `ai.streaming.authorize` and `authorizeStop` to application resource policies.
+Missing policy denies access. Reads require trusted `{ userId, scopeId? }`. Register
+an app socket channel `ai:conversation:{id}:conversation` whose subscription and
+every-delivery authorization call `conversations.authorized(actor, id, view)`.
+Resolve current membership in socket policy; a known ID never grants access.
 
-| Operation | Contract |
+Map ordinary authenticated JSON routes to the service:
+
+| Route | Service |
 | --- | --- |
-| `load(actor, { conversationId, view })` | Recent HTTP baseline: `timeline`, `run`, `activity`, `cursor`, `older`. |
-| `load(actor, { conversationId, view, before })` | Older messages, requested explicitly using `older`. |
-| `updates(actor, after, through?)` | Bounded changes through a fixed watermark, or `snapshot_required`. |
-| `item(actor, { conversationId, view, itemId, offset?, revision? })` | Revision-pinned chunks for a large referenced item; 409 if it changes. |
+| `GET /conversations/:id/snapshot?view=conversation` | `load(actor, { conversationId, view })` |
+| `GET /conversations/:id/history?view=conversation&before=…` | `load(actor, { conversationId, view, before })` |
+| `POST /conversations/:id/stop` | `stop(actor, { conversationId })` |
 
-Map these methods to ordinary authenticated JSON routes. GET is used in the
-[complete browser HTTP adapter example](./examples/createHelpConversationClient.ts);
-a POST-based read adapter is also compatible. No provider credentials or default
-public endpoints are created by the framework.
+Snapshots contain `timeline`, `run`, `activity`, `queued` and `older`, plus
+conversation/view identity. Recent history defaults to 40 message rows (maximum
+100); `older` follows database message order. HTTP returns full display-ready
+items, including tool results. Oversized socket items cause an ordinary history
+refresh. There are no mandatory “open details” placeholders.
 
-Import browser code from `@db3.ai/app/ai/client`. Supply one `AgentHttpAdapter` and
-an `AgentRealtimeAdapter` backed by your app's existing `WebSocketClient` owner:
+Import browser APIs from `@db3.ai/app/ai/client`:
 
 ```ts
-const conversation = createAgentConversation({ view: 'conversation', http, realtime });
-const stopRendering = conversation.onChange(state => render(state));
-const detach = conversation.stream(conversationId, notice => {
-	if (notice.type === 'event') handleUpdate(notice.event);
-});
-// On view disposal: detach(); stopRendering(); conversation.dispose();
+const http = createAgentConversationHttp({ baseUrl: '/api/conversations', view: 'conversation' });
+const conversation = createAgentConversation({ view: 'conversation', http: { ...http, send }, realtime });
+const detach = conversation.onChange(state => render(state));
+await conversation.open(conversationId);
+await conversation.send('Continue with the next section'); // Queues when already running.
+// On view disposal: detach(); conversation.dispose();
 ```
 
-`stream(id, callback)` loads HTTP state first. Notices are `snapshot`, committed
-`event`, `connection`, or `error`. `open(id)` is convenient when rendering through
-`onChange` alone. `refresh()` works without a healthy socket; `loadOlder()` and
-`loadItem(reference)` fetch history on demand. Dispose the handle on navigation.
-Disposal releases this view's listeners and reads; the shared socket and queued
-run remain independent. Different handles can view different conversations on
-one physical connection.
+See the [complete adapter example](./examples/createHelpConversationClient.ts).
+The app supplies its contextual send route and shared socket owner, then renders
+the returned state. `stream(id, callback)` offers observational snapshot/event/
+connection/error notices. The HTTP helper accepts injected fetch and headers.
 
-The realtime adapter registers an `updates` listener on
-`ai:conversation:<id>:<view>`. Forward `channel.subscribed` through `subscribed()`,
-transport health through `connection(state)` and access loss through `denied()`.
-Acknowledge each reconnect, not just the first subscription. The returned cleanup
-removes only these listeners. The app's singleton socket owner connects lazily or
-at authenticated app startup and closes on sign-out.
+The realtime adapter subscribes to event `updates` on
+`ai:conversation:<id>:<view>`. Forward every subscription/reconnection acknowledgement
+to `subscribed()`, frames to `update(value)`, transport health to `connection(state)`
+and access loss to `denied()`. Cleanup removes only this subscription.
 
-The cursor is `{ conversationId, view, epoch, sequence }`; it is a position, not
-a credential. After subscription acknowledgement the client recovers the
-HTTP-to-socket gap, buffers concurrent live updates, then applies each sequence
-once. Reconnect repeats recovery. An expired journal or projection change triggers
-a new HTTP baseline. Snapshots default to 40 recent messages (maximum 100);
-ordinary items over 8 KB become HTTP references. Replay is bounded to 32 records
-and approximately 24 KB per page. Terminal replay expires after one day by
-default; messages remain saved. Delivery may repeat. A failed relay retains its
-pending cursor; maintenance retries it even when the lost event was completion.
-The client has **no polling timer**. An HTTP recovery failure is displayed and
-can be retried with `refresh()` or the next socket reconnect.
+The client loads saved history, subscribes, then refreshes history again to cover
+messages saved during connection. Reconnect repeats that refresh. Canonical items
+replace live partials by identity; partial prefixes can be missing until save.
+There is no delta replay or polling timer. `refresh()` also works when the socket
+is offline. `loadOlder()` pages saved history; loaded pages are reconciled on refresh.
+Disposal aborts viewer reads and listeners; it never stops worker execution.
 
-`admin` exposes diagnostic prompts, tool arguments/results and reasoning summaries.
-`conversation` hides prompts and reasoning; tools are omitted unless an explicit
-`projectTool` policy returns a safe representation. `status` exposes only the
-allowlisted activity and lifecycle. Authorization and filtering happen on the
-server. A known conversation ID never grants access. Access loss clears the
-browser's restricted snapshot. Socket health and run outcome are separate states.
-Audio/video is a future media adapter; no binary transport, media relay or provider
-Realtime session is part of this implementation.
+`admin` exposes diagnostic prompts, tools and provider reasoning summaries.
+`conversation` hides prompts, includes provider summaries, and exposes tools only
+through an explicit `projectTool` policy. `status` contains only activity and
+lifecycle. Provider summaries are optional model output, not private chain of
+thought. `Thinking…` remains useful when no summary is emitted. Running state is
+independent of socket connection and is available immediately on reopening.
 
-For applications with retained job cancellation, call
-`conversations.settleQueuedStop(rootRequestId, message, 'cancelled' | 'blocked')`
-after the queue runtime has durably settled and fenced the attempt. Generic queue
-terminal failures use `AgentRunJob.onFinalFailure`. Worker crash recovery retains
-the existing queue lease/retry semantics; the journal does not make an unfinished
-external provider response resumable.
+For legacy rejected direct-stream admissions, `repairRejectedRequests(conversationId)`
+is an explicit migration operation. It fails only pending roots without user input,
+provider work, queue identity or run ownership, preserving their audit records and
+the actual active run. Drain old processes before repair. App migrations must also
+exclude any request referenced by domain work. The runtime prevents new direct
+admission failures from leaving those rows by rolling back preparation atomically.
 
 ## Browser computer tools
 
@@ -411,35 +392,28 @@ checks application budgets separately. Override `usageCharge()` and
 
 ## Stopping one conversation
 
-Configure `ai.streaming.authorizeStop(context, conversation)` separately from
-read authorization. Missing policy denies; IDs never confer access. HTTP routes
-supply authenticated `userId` and the selected `scopeId` themselves.
+Configure `ai.streaming.authorizeStop` independently of read permission. The
+HTTP route supplies trusted user/scope identity and calls:
 
 ```ts
-const outcome = await app().ai.conversations.stop(actor, {
-	conversationId,
-	aiRequestId, // The exact currently displayed turn, not a provider response ID.
-});
+await app().ai.conversations.stop(actor, { conversationId });
 ```
 
-Stop is idempotent for the current turn. A terminal turn is unchanged; a stale
-turn ID returns 409. The transaction records `cancelled`, retains partial output
-and prevents further writes by the stopped run. The root request uses the existing
-`failed` status with `errorCode: agent_cancelled`. The conversation remains usable:
-send another message to start a new turn, with a new submission key. Stop does not
-undo completed tools or guarantee immediate cancellation of an external operation.
+Stop resolves the current turn under the conversation lock and cancels queued
+inputs too, so waiting input cannot restart work immediately. Repeated stop is
+safe. Saved messages/results remain; the root uses `failed` with
+`errorCode: agent_cancelled`. Unsaved text deltas are transient. A new intentional
+send can start another turn. Stop does not undo completed external effects.
 
-An active local execution is notified after commit. Other workers detect the
-fence at output boundaries and check it every ten seconds while running, including
-during silent provider calls. Idle conversations do not poll. Retained jobs settle
-as cancelled; lightweight queue deliveries terminate without automatic retry.
+Local execution is notified after commit. Remote workers check the writer fence
+at saved-output boundaries and every second during silent provider/tool waits.
+Only active workers check; idle conversations do not poll. Provider calls use the
+abort signal, and tools cooperate with cancellation. Queue claims fence stale
+writers. Custom retained-job adapters can report cancelled/blocked outcomes with
+`conversations.settleQueuedStop(rootId, message, status)`.
 
-Browser handles call `await conversation.stop()` through an app-owned HTTP
-adapter. The shipped help example uses `POST /:conversationId/stop` with
-`{ aiRequestId }`, delegating to the service above. The handle captures the loaded
-turn ID. `dispose()` and subscription cleanup only detach the viewer; they never
-stop server execution. `await conversation.send('Continue with ...')` starts a
-new turn after the stopped history. WebSocket updates publish the same saved state.
+Browser handles call `conversation.stop()` using the conversation ID alone, then
+refresh saved state. Navigation/disposal merely detaches the viewer.
 
 ## Provider failures and bounded retries
 

@@ -14,7 +14,7 @@ export function applyAgentUpdate(snapshot: stream.AgentConversationSnapshot, upd
 	if (event.type === 'text.delta' && update.itemId) {
 		let item = snapshot.timeline.find(item => item.id === update.itemId);
 		if (!item) { item = { kind: 'message', id: update.itemId, role: 'assistant', content: '', citations: [], createdAt: new Date().toISOString(), streaming: true }; snapshot.timeline.push(item); }
-		if (item.kind === 'message' && item.streaming === true) item.content += event.delta;
+		if (item.kind === 'message' && item.streaming === true) { item.content += event.delta; snapshot.activity = { code: 'responding', label: 'Responding…' }; }
 		return;
 	}
 	if (event.type === 'reasoning.summary.delta') {
