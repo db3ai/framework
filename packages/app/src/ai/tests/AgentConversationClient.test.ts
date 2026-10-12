@@ -240,6 +240,18 @@ describe('best-effort conversation client', () => {
 		await Promise.resolve(); await Promise.resolve();
 		expect(h.subscribe).not.toHaveBeenCalled(); h.client.dispose(); expect(stop).not.toHaveBeenCalled();
 	});
+
+	it('keeps new attachments alive when an old selection reuses the same callback', async () => {
+		const h = harness(); const listener = vi.fn();
+		try {
+			const detachFirst = h.client.stream('first', listener);
+			await vi.waitFor(() => expect(h.subscribe).toHaveBeenCalledTimes(1));
+			const detachSecond = h.client.stream('second', listener);
+			await vi.waitFor(() => expect(h.subscribe).toHaveBeenCalledTimes(2));
+			detachFirst(); expect(h.detach).toHaveBeenCalledTimes(1);
+			detachSecond(); expect(h.detach).toHaveBeenCalledTimes(2);
+		} finally { h.client.dispose(); }
+	});
 });
 
 describe('standard conversation HTTP adapter', () => {

@@ -37,9 +37,11 @@ export class AgentConversationClient {
 
 	/** Observes state, including the current baseline. The returned function removes this listener. */
 	onChange(listener: (state: Readonly<stream.AgentClientState>) => void): () => void {
-		this.#listeners.add(listener);
+		/** Keeps cleanup scoped to this attachment even when callers reuse a callback. */
+		const observer = (state: Readonly<stream.AgentClientState>) => listener(state);
+		this.#listeners.add(observer);
 		listener(this.getState());
-		return () => { this.#listeners.delete(listener); this.#detachIfUnused(); };
+		return () => { this.#listeners.delete(observer); this.#detachIfUnused(); };
 	}
 
 	/** Loads saved history before attaching to live output. Socket health does not block this read. */
@@ -48,10 +50,12 @@ export class AgentConversationClient {
 	/** Observes one conversation; detaching never stops the server's active or queued turns. */
 	stream(conversationId: string, listener: (notice: stream.AgentStreamNotice) => void): () => void {
 		const opening = this.#open(conversationId);
-		this.#notices.add(listener);
+		/** An older attachment's cleanup must not remove a later use of the same callback. */
+		const observer = (notice: stream.AgentStreamNotice) => listener(notice);
+		this.#notices.add(observer);
 		if (this.#id === conversationId && this.#state.snapshot) listener({ type: 'snapshot', snapshot: structuredClone(this.#state.snapshot) });
 		void opening.catch(() => undefined);
-		return () => { this.#notices.delete(listener); this.#detachIfUnused(); };
+		return () => { this.#notices.delete(observer); this.#detachIfUnused(); };
 	}
 
 	/** Admits a message, including while a turn is running. The server owns FIFO queueing. */
