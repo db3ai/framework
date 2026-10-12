@@ -1,4 +1,5 @@
 import { ActiveRecord, type FieldBuilder } from '@db3.ai/app/db/ActiveRecord';
+import type { AgentStreamState } from './contracts/AgentConversationStream';
 
 /** Durable conversation that applications may extend with ownership and domain fields. */
 export class AiConversation extends ActiveRecord {
@@ -9,6 +10,7 @@ export class AiConversation extends ActiveRecord {
 	/** Defines conversation identity, optional ownership and metadata. */
 	static override fields(field: FieldBuilder): ReturnType<typeof ActiveRecord.fields> {
 		return {
+			...this.streamFields(field),
 			id: field.ulid({
 				comment: 'Stable id for this AI conversation.',
 			}),
@@ -37,6 +39,19 @@ export class AiConversation extends ActiveRecord {
 			}),
 		};
 	}
+
+	/** Shared stream columns for applications that override their ownership fields. */
+	static streamFields(field: FieldBuilder) {
+		return {
+			streamSequence: field.integer({ column: 'stream_sequence', required: true, default: 0, unsigned: true, comment: 'Last atomically committed conversation update.' }),
+			streamPublishedSequence: field.integer({ column: 'stream_published_sequence', required: true, default: 0, unsigned: true, comment: 'Last update accepted by the live transport; not a browser receipt.' }),
+			streamState: field.json<AgentStreamState>({ column: 'stream_state', comment: 'Latest run and conditional stream-writer ownership.' }),
+		};
+	}
+
+	declare streamSequence: number;
+	declare streamPublishedSequence: number;
+	declare streamState: AgentStreamState | null;
 
 	declare id: string | null;
 	declare user: unknown;

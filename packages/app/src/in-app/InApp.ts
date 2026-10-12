@@ -1,3 +1,4 @@
+import { databaseTransactionCommit } from '../db/databaseTransactionCommit';
 import type { Knex } from 'knex';
 import { createHash } from 'node:crypto';
 import { ActiveRecord } from '../db';
@@ -10,7 +11,6 @@ import type * as inbox from './contracts';
 
 /** Persistent in-app inbox independent of notification classes, email and live delivery. */
 export class InApp {
-	readonly #commits = new WeakMap<Knex.Transaction, Promise<boolean>>();
 	/** Creates the service; ordinary applications use app().inApp and App's configured Auth identity model. */
 	constructor(readonly options: inbox.InAppOptions = {}, readonly identityModel: UserIdentityModel = UserIdentity) {}
 
@@ -102,26 +102,7 @@ export class InApp {
 	/** Observes all surrounding savepoints and the outer commit, including explicit rollback without an error. */
 	#committed(connection: Knex): Promise<boolean> | undefined {
 		if (!this.options.onChanged || !connection.isTransaction) return;
-		const transactions: Promise<boolean>[] = [];
-		let current: Knex.Transaction | undefined = connection as Knex.Transaction;
-		while (current) {
-			const transaction: Knex.Transaction = current;
-			let result = this.#commits.get(transaction);
-			if (!result) {
-				let rolledBack = false;
-				/** The final control statement distinguishes silent rollback from commit or savepoint release. */
-				const query = (event: { sql: string }): void => {
-					if (/^ROLLBACK/i.test(event.sql)) rolledBack = true;
-					else if (/^(COMMIT|RELEASE SAVEPOINT)/i.test(event.sql)) rolledBack = false;
-				};
-				transaction.on('query', query);
-				result = transaction.executionPromise.then(() => !rolledBack, () => false).finally(() => transaction.off('query', query));
-				this.#commits.set(transaction, result);
-			}
-			transactions.push(result);
-			current = transaction.parentTransaction;
-		}
-		return Promise.all(transactions).then(results => results.every(Boolean));
+		return databaseTransactionCommit(connection);
 	}
 
 	/** Publishes only committed recipient changes; nested transactions defer without blocking their own commit. */

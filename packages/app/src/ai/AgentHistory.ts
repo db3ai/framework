@@ -21,6 +21,7 @@ export function agentConversationTimeline(
 	messages: AiMessage[],
 	toolDefinitions: AgentToolDefinition[] = [],
 	requests: AiRequest[] = [],
+	options: { activeRequestId?: string | null } = {},
 ): AgentConversationTimelineItem[] {
 	const timeline: AgentConversationTimelineItem[] = [];
 	const toolCalls = new Map<string, AgentConversationToolCall>();
@@ -38,7 +39,9 @@ export function agentConversationTimeline(
 		}
 
 		if (isReasoningSummaryMessage(message)) {
-			timeline.push(reasoningSummaryFromMessage(message));
+			const summary = reasoningSummaryFromMessage(message);
+			if (summary.kind === 'reasoning_summary') summary.streaming = message.metadata?.streaming === true && options.activeRequestId === aiRequestId;
+			timeline.push(summary);
 			continue;
 		}
 
@@ -50,6 +53,7 @@ export function agentConversationTimeline(
 				content: message.content ?? '',
 				citations: citationsFromMessage(message),
 				createdAt: dateString(message.createdAt),
+				streaming: message.metadata?.streaming === true && options.activeRequestId === aiRequestId,
 			});
 			continue;
 		}
@@ -72,7 +76,9 @@ export function agentConversationTimeline(
 		timeline.push(promptContext);
 	}
 
-	markInterruptedToolCalls(toolCalls, unresolvedToolCallIds(messages));
+	const interrupted = unresolvedToolCallIds(messages);
+	for (const message of messages) if (entityRefId(message.aiRequest) === options.activeRequestId && message.toolCallId) interrupted.delete(message.toolCallId);
+	markInterruptedToolCalls(toolCalls, interrupted);
 
 	return timeline;
 }
@@ -173,7 +179,7 @@ function toolCallFromMessage(
 		arguments: hasToolArguments(argumentsValue) ? argumentsValue : existing?.arguments ?? {},
 		state,
 		definition: toolDefinitions.find(definition => definition.name === toolName) ?? null,
-		progressUpdates: existing?.progressUpdates ?? [],
+		progressUpdates: [...existing?.progressUpdates ?? [], ...Array.isArray(message.metadata?.streamProgress) ? message.metadata.streamProgress as import('./contracts/Agent').AgentToolProgressUpdate[] : []].filter((item, index, all) => all.findIndex(other => other.id === item.id) === index).slice(-100),
 		result: content?.result ?? existing?.result ?? null,
 		error,
 	};
@@ -487,6 +493,7 @@ function promptContextId(requestId: string): string {
  */
 function updateToolCall(target: AgentConversationToolCall, source: AgentConversationToolCall): void {
 	target.state = source.state;
+	target.progressUpdates = source.progressUpdates;
 	if (hasToolArguments(source.arguments)) {
 		target.arguments = source.arguments;
 	}

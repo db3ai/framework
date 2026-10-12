@@ -32,3 +32,10 @@ export { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCall
 export type { AIRequestErrorDiagnostics } from './contracts/AIRequestErrorDiagnostics';
 
 export * from './AIProviderAdmission';
+
+export * from './contracts/AgentConversationStream';
+export * from './AiStreamEvent';
+export { AgentConversations, AgentConversationReadError } from './AgentConversations';
+export { PublishAgentStreamsJob } from './PublishAgentStreamsJob';
+
+export type * from './contracts/AgentStreamingOptions';

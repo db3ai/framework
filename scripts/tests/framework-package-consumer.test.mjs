@@ -467,6 +467,9 @@ if (suspended.suspension?.suspensionId !== 'example-occurrence' || new PasswordS
 import { InApp, InAppRecord, InAppError } from '@db3.ai/app/in-app';
 import { Notifications } from '@db3.ai/app/notifications';
 import { defineChannel, defineWebSocket } from '@db3.ai/app/websocket';
+import { createAgentConversation } from '@db3.ai/app/ai/client';
+import { AiStreamEvent, PublishAgentStreamsJob } from '@db3.ai/app/ai';
+if (typeof createAgentConversation !== 'function' || AiStreamEvent.table !== 'ai_stream_events' || PublishAgentStreamsJob.jobName !== 'PublishAgentStreamsJob') throw new Error('Durable conversation exports failed.');
 import { WebSocketClient } from '@db3.ai/app/websocket/client';
 const pushApp = new App({ webSockets: { publish: { url: 'http://127.0.0.1:8001/_internal/realtime/publish', token: 'a'.repeat(64) } } });
 await pushApp.close();
@@ -800,6 +803,12 @@ void [config, field, driver, job, appOptions, response, ai, textResult, log, doc
 	// Browser declarations must work without automatically including Node types.
 	await writeFile(join(consumerRoot, 'browser.ts'), `
 import { WebSocketClient, type WebSocketClientState } from '@db3.ai/app/websocket/client';
+import { createAgentConversation, type AgentHttpAdapter, type AgentRealtimeAdapter } from '@db3.ai/app/ai/client';
+declare const http: AgentHttpAdapter;
+declare const realtime: AgentRealtimeAdapter;
+const conversation = createAgentConversation({ view: 'conversation', http, realtime });
+const detach = conversation.stream('example', notice => { if (notice.type === 'event') void notice.event; });
+detach(); conversation.dispose();
 let state: WebSocketClientState = 'closed';
 const client = new WebSocketClient({ url: 'wss://example.test/ws/me', token: () => null, onMessage(data: unknown) { void data; }, onState(value) { state = value; } });
 client.close();

@@ -68,6 +68,16 @@ afterAll(async () => {
 });
 
 describe('AI inside an application', () => {
+	it('retains a failed admission audit when durable recording is disabled', async () => {
+		await database.db.raw("CREATE TRIGGER reject_agent_dispatch BEFORE INSERT ON jobs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic dispatch failure'");
+		try {
+			await expect(new HelpAgent({ guidePath: 'help.md' }).queue('Read the guide.')).rejects.toThrow('Synthetic dispatch failure');
+			expect(await AiRequest.query().count()).toBe(1);
+			expect((await AiRequest.query().firstOrFail()).status).toBe('failed');
+			expect(await QueuedJob.query().count()).toBe(0);
+			expect(fetch).not.toHaveBeenCalled();
+		} finally { await database.db.raw('DROP TRIGGER reject_agent_dispatch'); }
+	});
 	it.each([
 		['flex', 0.00003],
 		['default', 0.00006],

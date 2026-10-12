@@ -1,3 +1,6 @@
+import { agentAdmission } from './agentAdmission';
+import type { AgentQueueOptions } from './contracts/AgentStreamingOptions';
+import { AgentStreamRecorder } from './AgentStreamRecorder';
 import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
 import { aiExecutionContext } from './AiExecutionContext';
 import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type FunctionCallItem, type FunctionCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
@@ -113,7 +116,7 @@ interface ResolvedQueueInput {
 	message: string;
 
 	/** Queue dispatch options supplied by the caller. */
-	options: queue.DispatchOptions;
+	options: AgentQueueOptions;
 }
 
 /**
@@ -133,6 +136,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	/** OpenAI processing tier for this agent. Override to opt into local Flex experiments. */
 	protected readonly serviceTier: AIServiceTier = 'default';
 	private currentInput: AgentRunInputPayload | null = null;
+	#recorder: AgentStreamRecorder | undefined;
 
 	/**
 	 * Creates a persisted agent runtime for the supplied app context.
@@ -179,13 +183,18 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const streamInput = this.resolveStreamInput(messageOrEmit, emit);
 		let state: agent.AgentPersistenceState | null = null;
 		const traceId = generateTraceId();
+		/** Persists progress independently of an optional directly attached transport. */
+		const emitEvent: agent.AgentEventSink = async event => {
+			await this.#recorder?.emit(event);
+			await streamInput.emit(event);
+		};
 
 		try {
 			const prepared = await this.prepareRun(streamInput.message, 'ndjson', traceId);
 
 			state = prepared.state;
 
-			await streamInput.emit({
+			await emitEvent({
 				type: 'conversation.created',
 				conversationId: String(state.conversation.id),
 				aiRequestId: state.aiRequest.id ? String(state.aiRequest.id) : null,
@@ -193,7 +202,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				toolDefinitions: state.toolDefinitions,
 			});
 
-			await streamInput.emit({
+			await emitEvent({
 				type: 'message.created',
 				id: String(state.metadata.userMessageId),
 				role: 'user',
@@ -201,9 +210,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				createdAt: state.metadata.userMessageCreatedAt,
 			});
 
-			const result = await this.executePreparedRun(prepared, streamInput.emit);
+			const result = await this.executePreparedRun(prepared, emitEvent);
 
-			await streamInput.emit({
+			await emitEvent({
 				type: 'run.completed',
 				conversationId: result.conversationId,
 				aiRequestId: result.aiRequestId,
@@ -219,10 +228,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			const payload = agentErrorPayload(error, `Unable to run ${this.agentName}.`);
 
 			if (state) {
-				await this.failTrackedRun(state, payload.message);
+				await this.recordRunStatus('failed', () => this.failTrackedRun(state!, payload.message), payload.message);
 			}
 
-			await streamInput.emit({
+			await emitEvent({
 				type: 'run.error',
 				conversationId: state?.conversation.id ? String(state.conversation.id) : null,
 				aiRequestId: state?.aiRequest.id ? String(state.aiRequest.id) : null,
@@ -231,6 +240,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			});
 
 			return null;
+		} finally {
+			await this.#recorder?.close();
+			this.#recorder = undefined;
 		}
 	}
 
@@ -262,31 +274,31 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 *
 	 * @param message - Optional user or task input shortcut for this run.
 	 * @param options - Per-dispatch queue options. `options.queue` is the named queue/channel workers listen on, not the payload data.
-	 * @returns Queued run identifiers for debug views and polling.
+	 * @returns Committed identifiers for saved-state reads and live attachment. Repeated submission keys return the same run.
 	 */
-	async queue(message: string, options?: queue.DispatchOptions): Promise<agent.QueuedAgentRunResponse>;
-	async queue(options?: queue.DispatchOptions): Promise<agent.QueuedAgentRunResponse>;
-	async queue(messageOrOptions: string | queue.DispatchOptions = {}, options: queue.DispatchOptions = {}): Promise<agent.QueuedAgentRunResponse> {
+	async queue(message: string, options?: AgentQueueOptions): Promise<agent.QueuedAgentRunResponse>;
+	async queue(options?: AgentQueueOptions): Promise<agent.QueuedAgentRunResponse>;
+	async queue(messageOrOptions: string | AgentQueueOptions = {}, options: AgentQueueOptions = {}): Promise<agent.QueuedAgentRunResponse> {
 		const queueInput = this.resolveQueueInput(messageOrOptions, options);
-		const traceId = generateTraceId();
 		const serializedAgent = await this.serializeForQueue();
-		const prepared = await this.prepareRun(queueInput.message, 'queue', traceId);
-		const payload = this.queuedRunPayload(prepared, serializedAgent);
-
 		try {
-			const jobId = await app().queue.dispatch(new AgentRunJob(payload), queueInput.options);
-
-			await this.markQueued(prepared.state, jobId);
-
-			return {
-				jobId,
-				conversationId: String(prepared.state.conversation.id),
-				aiRequestId: prepared.state.aiRequest.id ? String(prepared.state.aiRequest.id) : null,
-				traceId,
-			};
-		} catch (error) {
-			await this.failTrackedRun(prepared.state, error instanceof Error ? error.message : 'Unable to queue agent run.');
-			throw error;
+			return await agentAdmission({ key: queueInput.options.idempotencyKey, actor: this.userId(), scope: this.scopeId(), agent: this.agentName, payload: { agent: serializedAgent, message: queueInput.message } }, async binding => {
+				const traceId = generateTraceId();
+				const prepared = await this.prepareRun(queueInput.message, 'queue', traceId);
+				if (binding) await prepared.state.rootAiRequest.assign(binding).setDb(app().ai.models.request.getDb()).save();
+				try {
+					const jobId = await app().queue.dispatch(new AgentRunJob(this.queuedRunPayload(prepared, serializedAgent)), queueInput.options);
+					await this.markQueued(prepared.state, jobId);
+					return { jobId, conversationId: String(prepared.state.conversation.id), aiRequestId: String(prepared.state.rootAiRequest.id), traceId };
+				} catch (error) {
+					// Atomic admission rolls back its audit rows; ordinary queue use retains the existing failure audit.
+					if (!app().ai.conversations.enabled && queueInput.options.idempotencyKey === undefined) await this.failTrackedRun(prepared.state, error instanceof Error ? error.message : String(error));
+					throw error;
+				}
+			});
+		} finally {
+			await this.#recorder?.close();
+			this.#recorder = undefined;
 		}
 	}
 
@@ -325,7 +337,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @param options - Optional dispatch options when a message shortcut is supplied.
 	 * @returns Resolved message and dispatch options for this queued run.
 	 */
-	private resolveQueueInput(messageOrOptions: string | queue.DispatchOptions, options: queue.DispatchOptions): ResolvedQueueInput {
+	private resolveQueueInput(messageOrOptions: string | AgentQueueOptions, options: AgentQueueOptions): ResolvedQueueInput {
 		if (typeof messageOrOptions === 'string') {
 			this.input(messageOrOptions);
 
@@ -360,33 +372,38 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @param payload - Queued agent run payload.
 	 * @returns Completed run metadata and final output.
 	 */
-	async runQueued(payload: agent.QueuedAgentRunPayload): Promise<agent.AgentRunResult> {
+	async runQueued(payload: agent.QueuedAgentRunPayload, context?: queue.QueueableJobContext): Promise<agent.AgentRunResult> {
 		if (payload.agentName !== this.agentName) {
 			throw new Error(`Queued payload for "${payload.agentName}" cannot run on "${this.agentName}".`);
 		}
 
 		const prepared = await this.preparedRunFromQueuedPayload(payload);
+		if (app().ai.conversations.enabled) {
+			this.#recorder = new AgentStreamRecorder(prepared.state, context);
+			await this.#recorder.begin('running');
+		}
 
 		try {
 			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) {
 				return await this.resumeFinalizedTrackedRun(prepared);
 			}
 
-			return await this.executePreparedRun(prepared, async () => {});
+			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
+			return await this.executePreparedRun(prepared, event => this.#recorder?.emit(event));
 		} catch (error) {
 			if (error instanceof AIProviderDeferredError) {
-				await this.deferTrackedRun(prepared.state, error);
+				await this.recordRunStatus('waiting', () => this.deferTrackedRun(prepared.state, error), error.message);
 				throw error;
 			}
-			if (isQueueRetryLaterError(error)) throw error;
+			if (isQueueRetryLaterError(error)) { await this.recordRunStatus('waiting'); throw error; }
 			const providerError = openAIProviderError(error);
 
-			await this.failTrackedRun(
-				prepared.state,
-				error instanceof Error ? error.message : `Unable to run ${this.agentName}.`,
-				providerError.code,
-			);
+			const message = error instanceof Error ? error.message : `Unable to run ${this.agentName}.`;
+			await this.recordRunStatus('failed', () => this.failTrackedRun(prepared.state, message, providerError.code), message);
 			throw error;
+		} finally {
+			await this.#recorder?.close();
+			this.#recorder = undefined;
 		}
 	}
 
@@ -868,6 +885,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			traceId,
 			transport,
 		});
+		if (app().ai.conversations.enabled) {
+			this.#recorder = new AgentStreamRecorder(state);
+			await this.#recorder.begin(transport === 'queue' ? 'queued' : 'running');
+		}
 		const userMessage = await this.saveMessage(state, {
 			role: AI_MESSAGE_ROLE.user,
 			content: message,
@@ -934,9 +955,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				toolArgumentsByCallId: {},
 			},
 		};
-		if (recordValue(aiRequest.response)?.providerFinalized !== true) {
-			invocation.input.push(...await this.queuedRunContinuation(prepared.state));
-		}
+
 		return prepared;
 	}
 
@@ -994,12 +1013,13 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		for (const attempt of attempts) assertAIServiceTier(attempt.provider, prepared.serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
 
-		await this.attachPromptRequestPayload(state, {
+		const savePrompt = () => this.attachPromptRequestPayload(state, {
 			instructions,
 			input: modelInput,
 			message: prepared.message,
 			previousMessages: prepared.previousMessages,
 		});
+		if (this.#recorder) await this.#recorder.prompt(savePrompt); else await savePrompt();
 		await emit(this.promptContextEvent(state, {
 			instructions,
 			input: modelInput,
@@ -1062,6 +1082,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					const sdkContext = this.sdkContext(executionState, emit);
 					const stream = await runner.run(sdkAgent, modelInput, {
 						stream: true,
+						signal: this.#recorder?.signal,
 						context: sdkContext,
 						maxTurns: this.maxTurns,
 						reasoningItemIdPolicy: 'preserve',
@@ -1303,7 +1324,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			errorMessage: null,
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -1362,7 +1383,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -1382,7 +1403,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -1456,7 +1477,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			rateLimitBucket: lease.bucket,
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -1485,7 +1506,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -1831,7 +1852,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			metadata: Record<string, unknown> | null;
 		},
 	): Promise<AiMessage> {
-		const message = await new (app().ai.models.message)({
+		const values = {
 			conversation: state.conversation,
 			aiRequest: state.rootAiRequest,
 			user: entityRefId(state.rootAiRequest.user),
@@ -1846,11 +1867,20 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			provider: state.aiRequest.provider ?? AI_PROVIDER.openai,
 			model: state.model,
 			metadata: input.metadata,
-		}).save();
-
-		state.nextSequence += 1;
-
-		return message;
+		};
+		/** Updates the stable partial row when final output arrives, preserving its order. */
+		const save = async (id?: string): Promise<AiMessage> => {
+			let message: AiMessage;
+			if (id) {
+				message = await app().ai.models.message.findOrFail(id);
+				await message.assign({ ...values, sequence: message.sequence }).save();
+			} else {
+				message = await new (app().ai.models.message)({ ...values, sequence: state.nextSequence }).save();
+				state.nextSequence += 1;
+			}
+			return message;
+		};
+		return this.#recorder ? this.#recorder.message(state, input, save) : save();
 	}
 
 	/**
@@ -1904,9 +1934,15 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			metadata: withoutOpenAIQuotaRetryMetadata(state.rootAiRequest.metadata),
 		});
 
-		await state.rootAiRequest.save();
+		await state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
 
 		return await this.settleFinalizedTrackedRun(state);
+	}
+
+	/** Commits persisted run state and the reconnectable lifecycle event together. */
+	private async recordRunStatus(status: import('./contracts/AgentConversationStream').AgentRunState['status'], save?: () => Promise<unknown>, error?: string): Promise<void> {
+		if (this.#recorder) await this.#recorder.status(status, save, error);
+		else await save?.();
 	}
 
 	/** Controls whether streamed events expose provider costs to this viewer. */
@@ -1964,14 +2000,16 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.rootAiRequest.save();
-		await this.touchConversation(state, {
-			lastTraceId: state.traceId,
-			lastResponseId,
-			lastStatus: AI_REQUEST_STATUS.completed,
-			lastError: null,
-			nextRetryAt: null,
-			retryUntil: null,
+		await this.recordRunStatus('completed', async () => {
+			await state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
+			await this.touchConversation(state, {
+				lastTraceId: state.traceId,
+				lastResponseId,
+				lastStatus: AI_REQUEST_STATUS.completed,
+				lastError: null,
+				nextRetryAt: null,
+				retryUntil: null,
+			});
 		});
 
 		return {
@@ -1986,7 +2024,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		state.rootAiRequest.assign({ status: AI_REQUEST_STATUS.pending, completedAt: null, errorCode: 'ai_provider_deferred', errorMessage: error.message,
 			metadata: { ...(state.rootAiRequest.metadata ?? {}), providerAdmission: { retryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() } },
 		});
-		await state.rootAiRequest.save();
+		await state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
 		await this.touchConversation(state, { lastTraceId: state.traceId, lastStatus: AI_REQUEST_STATUS.pending, lastError: error.message, nextRetryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() });
 	}
 
@@ -2015,7 +2053,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 		await this.touchConversation(state, {
 			lastTraceId: state.traceId,
 			lastStatus: AI_REQUEST_STATUS.failed,
@@ -2043,7 +2081,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.conversation.save();
+		await state.conversation.setDb(app().ai.models.conversation.getDb()).save();
 	}
 
 	/**
@@ -2114,7 +2152,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			},
 		});
 
-		await state.aiRequest.save();
+		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
 	}
 
 	/**
@@ -2900,6 +2938,7 @@ function agentInputItemsFromAiMessage(
 	seenToolCallIds: Set<string>,
 	unresolvedCallIds: Set<string>,
 ): AgentInputItem[] {
+	if (message.metadata?.streamPartial === true) return [];
 	if (message.role === AI_MESSAGE_ROLE.assistant) {
 		return [assistantInputMessage(message.content ?? '')];
 	}

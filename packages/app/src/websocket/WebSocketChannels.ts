@@ -72,11 +72,21 @@ export class WebSocketChannels {
 	async publishEvent(name: string, event: string, data: unknown): Promise<number> {
 		if (!event || event.length > 256) throw new Error('Invalid channel event.');
 		const members = this.#subscriptions.get(name);
-		const results = await Promise.all([...members?.values() ?? []].map(member => member.context.send({ type: 'channel.event', channel: name, event, data }, async context => {
-			if (members?.get(context.id) !== member) return false;
-			if (!context.user || !context.userId || !await member.definition.authorize({ ...context, userId: context.userId, channel: name, params: member.params })) { member.leave(); return false; }
-			return members?.get(context.id) === member;
-		})));
+		const results = await Promise.all([...members?.values() ?? []].map(async member => {
+			let revoked = false;
+			try {
+				const sent = await member.context.send({ type: 'channel.event', channel: name, event, data }, async context => {
+					if (members?.get(context.id) !== member) return false;
+					if (!context.user || !context.userId || !await member.definition.authorize({ ...context, userId: context.userId, channel: name, params: member.params })) { revoked = true; member.leave(); return false; }
+					return members?.get(context.id) === member;
+				});
+				// A lost final event must force reconciliation, even if no later events arrive.
+				if (revoked) {
+					if (!await member.context.send({ type: 'channel.denied', channel: name })) member.context.close();
+				} else if (!sent && members?.get(member.context.id) === member) member.context.close();
+				return sent;
+			} catch { member.context.close(); return false; }
+		}));
 		return results.filter(Boolean).length;
 	}
 

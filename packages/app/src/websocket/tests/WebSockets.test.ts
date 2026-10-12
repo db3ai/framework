@@ -176,9 +176,10 @@ describe('authenticated WebSocket endpoints', () => {
 	});
 
 	it('rejects revoked sessions on idle revalidation', async () => {
-		await start({ heartbeatMs: 40 }); const client = await connect(); await ready(client);
+		// Real SQL authorization must fit within the heartbeat under concurrent test load.
+		await start({ heartbeatMs: 500 }); const client = await connect(); await ready(client);
 		await application.auth.revokeAllTokens(user);
-		await expect.poll(client.closed).toBe(4401);
+		await expect.poll(client.closed, { timeout: 5000 }).toBe(4401);
 	});
 
 	it('rejects expired sessions and resource policies before opening', async () => {

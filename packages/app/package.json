@@ -86,7 +86,8 @@
 		"./websocket/fastify": "./src/websocket/fastify.ts",
 		"./websocket/client": "./src/websocket/client/index.ts",
 		"./websocket/contracts": "./src/websocket/contracts/index.ts",
-		"./apps/vite": "./src/apps/vite.ts"
+		"./apps/vite": "./src/apps/vite.ts",
+		"./ai/client": "./src/ai/client/index.ts"
 	},
 	"scripts": {
 		"build": "tsc -p tsconfig.json",

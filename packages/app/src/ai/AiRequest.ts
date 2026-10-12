@@ -134,6 +134,7 @@ export class AiRequest extends ActiveRecord {
 	/** Defines the durable request, response, rate-limit and measured usage fields. */
 	static override fields(field: FieldBuilder): ReturnType<typeof ActiveRecord.fields> {
 		return {
+			...this.admissionFields(field),
 			id: field.ulid({
 				comment: 'Stable id for this AI request/response log entry.',
 			}),
@@ -314,6 +315,17 @@ export class AiRequest extends ActiveRecord {
 			}),
 		};
 	}
+
+	/** Shared atomic-admission fields for applications that replace ownership links. */
+	static admissionFields(field: FieldBuilder) {
+		return {
+			admissionKey: field.string({ column: 'admission_key', maxLength: 64, unique: true, comment: 'Hashed actor, scope, agent and submission key; null for provider requests.' }),
+			admissionHash: field.string({ column: 'admission_hash', maxLength: 64, comment: 'Canonical admitted input digest; rejects a reused key with different input.' }),
+		};
+	}
+
+	declare admissionKey: string | null;
+	declare admissionHash: string | null;
 
 	declare id: string | null;
 	declare conversation: EntityRef<AiConversation> | null;

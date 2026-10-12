@@ -51,6 +51,131 @@ at boot in both web and worker processes before using `agent.queue(message)`.
 Its constructor context must be serializable. Queued agents require the normal
 queue models and a worker listening on the selected queue.
 
+## Durable background conversations
+
+Enable `ai.streaming.enabled` after adding `AiStreamEvent` to your migration
+registry and applying the schema migration. The existing `AiConversation` gains
+`streamSequence`, `streamPublishedSequence` and `streamState`; `AiRequest` gains
+nullable unique admission fields. Subclasses that replace `fields()` must include
+`AiConversation.streamFields(field)` and `AiRequest.admissionFields(field)`.
+Keep `AiMessage.content` untrimmed so streamed whitespace survives persistence.
+
+Register `AgentRunJob` and your agents as above. Register `PublishAgentStreamsJob`
+and schedule it on your existing maintenance queue, for example once per minute.
+It repairs missed publication wakeups and expires terminal replay; it never calls
+an AI provider. Configure the existing [WebSockets worker HTTP bridge](../websocket/README.md)
+when the worker and API run in separate processes. No per-token queue jobs or
+second worker runtime are involved. Queue pickup remains the worker's configured
+interval (for example, 1000 ms). Text writes coalesce for 100 ms by default **only
+while output is pending**; this is not database polling.
+
+A normal job or authenticated HTTP send handler starts work with the existing API:
+
+```ts
+const run = await new HelpAgent({
+	user: authenticatedUserId,
+	scope: authorizedTeamId,
+	guidePath: 'help/guide.md',
+	conversationId: body.conversationId ?? undefined,
+}).queue(body.message, { idempotencyKey: body.idempotencyKey });
+// Return HTTP 202 with run: { conversationId, aiRequestId, jobId, traceId }.
+```
+
+The application validates the body and derives user, scope, agent and tools from
+trusted server code. A scheduled job can omit `idempotencyKey`. An interactive
+client creates one UUID **per intentional send**, retains it with the exact body,
+and reuses it if the admission response is lost. `conversation.send(message)`
+does this; `retrySend()` retries that same submission. A key is scoped to actor,
+scope and agent. Reusing it with different input returns 409. Admission commits
+the root request, initial messages and SQL queue job together. Another active
+turn on the same conversation returns 409. Redis/broker admission with durable
+recording is currently rejected until a transactional outbox is supplied.
+
+The worker owns the provider/tool loop. Ordinary `Agent` subclasses and tools need
+no socket code. Existing messages and request records hold current output; a
+bounded journal records committed deltas, tool/progress changes and lifecycle.
+Queue ownership and a conversation writer token fence stale writes. Final text
+updates the same display item as partial text. A recorded provider completion is
+settled on retry without another provider call. This does not make arbitrary tool
+side effects exactly once: tools still own their existing idempotency/checkpoints.
+
+### Reading and attaching
+
+The server entry point is `app().ai.conversations`. These methods do not start or
+resume execution. Every public read requires trusted `{ userId, scopeId? }` and an
+explicit view. Set `ai.streaming.authorize` to your resource policy; missing policy
+denies access. Register a `defineChannel('ai:conversation:{id}:conversation', …)`
+whose authorization calls `conversations.authorized({ userId }, params.id,
+'conversation')`. Reuse that check for subscription and every delivery. Socket
+policy must resolve current resource membership without HTTP-only tab headers.
+
+| Operation | Contract |
+| --- | --- |
+| `load(actor, { conversationId, view })` | Recent HTTP baseline: `timeline`, `run`, `activity`, `cursor`, `older`. |
+| `load(actor, { conversationId, view, before })` | Older messages, requested explicitly using `older`. |
+| `updates(actor, after, through?)` | Bounded changes through a fixed watermark, or `snapshot_required`. |
+| `item(actor, { conversationId, view, itemId, offset?, revision? })` | Revision-pinned chunks for a large referenced item; 409 if it changes. |
+
+Map these methods to ordinary authenticated JSON routes. GET is used in the
+[complete browser HTTP adapter example](./examples/createHelpConversationClient.ts);
+a POST-based read adapter is also compatible. No provider credentials or default
+public endpoints are created by the framework.
+
+Import browser code from `@db3.ai/app/ai/client`. Supply one `AgentHttpAdapter` and
+an `AgentRealtimeAdapter` backed by your app's existing `WebSocketClient` owner:
+
+```ts
+const conversation = createAgentConversation({ view: 'conversation', http, realtime });
+const stopRendering = conversation.onChange(state => render(state));
+const detach = conversation.stream(conversationId, notice => {
+	if (notice.type === 'event') handleUpdate(notice.event);
+});
+// On view disposal: detach(); stopRendering(); conversation.dispose();
+```
+
+`stream(id, callback)` loads HTTP state first. Notices are `snapshot`, committed
+`event`, `connection`, or `error`. `open(id)` is convenient when rendering through
+`onChange` alone. `refresh()` works without a healthy socket; `loadOlder()` and
+`loadItem(reference)` fetch history on demand. Dispose the handle on navigation.
+Disposal releases this view's listeners and reads; the shared socket and queued
+run remain independent. Different handles can view different conversations on
+one physical connection.
+
+The realtime adapter registers an `updates` listener on
+`ai:conversation:<id>:<view>`. Forward `channel.subscribed` through `subscribed()`,
+transport health through `connection(state)` and access loss through `denied()`.
+Acknowledge each reconnect, not just the first subscription. The returned cleanup
+removes only these listeners. The app's singleton socket owner connects lazily or
+at authenticated app startup and closes on sign-out.
+
+The cursor is `{ conversationId, view, epoch, sequence }`; it is a position, not
+a credential. After subscription acknowledgement the client recovers the
+HTTP-to-socket gap, buffers concurrent live updates, then applies each sequence
+once. Reconnect repeats recovery. An expired journal or projection change triggers
+a new HTTP baseline. Snapshots default to 40 recent messages (maximum 100);
+ordinary items over 8 KB become HTTP references. Replay is bounded to 32 records
+and approximately 24 KB per page. Terminal replay expires after one day by
+default; messages remain saved. Delivery may repeat. A failed relay retains its
+pending cursor; maintenance retries it even when the lost event was completion.
+The client has **no polling timer**. An HTTP recovery failure is displayed and
+can be retried with `refresh()` or the next socket reconnect.
+
+`admin` exposes diagnostic prompts, tool arguments/results and reasoning summaries.
+`conversation` hides prompts and reasoning; tools are omitted unless an explicit
+`projectTool` policy returns a safe representation. `status` exposes only the
+allowlisted activity and lifecycle. Authorization and filtering happen on the
+server. A known conversation ID never grants access. Access loss clears the
+browser's restricted snapshot. Socket health and run outcome are separate states.
+Audio/video is a future media adapter; no binary transport, media relay or provider
+Realtime session is part of this implementation.
+
+For applications with retained job cancellation, call
+`conversations.settleQueuedStop(rootRequestId, message, 'cancelled' | 'blocked')`
+after the queue runtime has durably settled and fenced the attempt. Generic queue
+terminal failures use `AgentRunJob.onFinalFailure`. Worker crash recovery retains
+the existing queue lease/retry semantics; the journal does not make an unfinished
+external provider response resumable.
+
 ## Browser computer tools
 
 `computerTool` and the `Computer` type are exported from `@db3.ai/app/ai`.

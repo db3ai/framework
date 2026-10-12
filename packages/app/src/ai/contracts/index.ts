@@ -8,3 +8,7 @@ export * from './RateLimits';
 export * from './ResponsesProviderCall';
 export * from './QuotaRetry';
 export type { AIRequestErrorDiagnostics } from './AIRequestErrorDiagnostics';
+
+export * from './AgentConversationStream';
+
+export type * from './AgentStreamingOptions';

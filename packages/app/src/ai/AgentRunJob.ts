@@ -1,4 +1,5 @@
-import { QueueableJob } from '@db3.ai/app/queue';
+import { app } from '../server/appContext';
+import { QueueableJob, type QueueableJobFailureContext, type QueueableJobContext } from '@db3.ai/app/queue';
 import { queuedAgentFromPayload } from './registry.js';
 import type { QueuedAgentRunPayload } from './contracts/Agent';
 
@@ -24,11 +25,16 @@ export class AgentRunJob extends QueueableJob<QueuedAgentRunPayload> {
 	 *
 	 * @returns Promise that resolves after the queued run completes.
 	 */
-	async handle(): Promise<void> {
+	async handle(context?: QueueableJobContext): Promise<void> {
 		const agent = await queuedAgentFromPayload(this.data);
 
-		await agent.runQueued(this.data);
+		await agent.runQueued(this.data, context);
 	}
+	/** Records terminal reconstruction failures using the same durable view as worker output. */
+	override async onFinalFailure(context: QueueableJobFailureContext): Promise<void> {
+		if (this.data.aiRequestId) await app().ai.conversations.settleQueuedStop(this.data.aiRequestId, context.error instanceof Error ? context.error.message : 'Agent job failed.');
+	}
+
 }
 
 /**

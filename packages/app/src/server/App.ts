@@ -326,6 +326,7 @@ export class App<TApps extends AppDefinitions = {}> {
 			try { await cleanup(); } catch (error) { errors.push(error); }
 		};
 		await release(() => (this.services.get('apps') as Apps | undefined)?.close());
+		await release(() => (this.services.get('ai') as Ai | undefined)?.conversations.drain());
 		await release(() => (this.services.get('webSockets') as WebSockets | undefined)?.close());
 		clearActiveApp(this);
 

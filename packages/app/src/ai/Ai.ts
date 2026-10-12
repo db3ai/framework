@@ -1,4 +1,5 @@
 /// <reference path="./sdkNodeCompatibility.d.ts" preserve="true" />
+import { AgentConversations } from './AgentConversations';
 import type { GenerateEmbeddingOptions } from './contracts/AI';
 import { AIProviderAdmission, AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
 import { isQueueRetryLaterError } from '@db3.ai/app/queue';
@@ -95,6 +96,8 @@ const TERMINAL_AI_REQUEST_SAVE_ATTEMPTS = 3;
  * and estimated request cost.
  */
 export class Ai {
+	/** Authorized durable conversation views and their live delivery. */
+	readonly conversations: AgentConversations;
 	/** Configured model constructors for app-owned schema extensions. */
 	readonly models: AIModels;
 	/** Logical ownership field used by this application. */
@@ -117,6 +120,7 @@ export class Ai {
 		if ((options.providerAdmission?.recoveryLeaseSeconds ?? Infinity) * 1000 <= (options.timeoutMs ?? 60_000)) throw new AIConfigurationError('Recovery lease must exceed provider timeout.');
 		this.models = { conversation: AiConversation, request: AiRequest, message: AiMessage, ...options.models };
 		this.scopeField = options.scopeField ?? 'scope';
+		this.conversations = new AgentConversations(this, options.streaming);
 		this.rateLimiter = options.rateLimiter === false
 			? null
 			: options.rateLimiter ?? new AIRateLimiter();

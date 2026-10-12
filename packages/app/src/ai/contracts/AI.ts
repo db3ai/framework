@@ -122,6 +122,8 @@ export type AIAllowanceChecker = (input: AIAllowanceCheckInput) => void | Promis
  * easy to test with a fake fetch implementation or alternate API endpoint.
  */
 export interface AIOptions {
+	/** Durable background viewing; disabled until the stream models/columns are installed. */
+	streaming?: import('./AgentStreamingOptions').AgentStreamingOptions;
 	/** Maximum duration of each provider HTTP request, including SDK model turns. */
 	timeoutMs?: number;
 	/** Persisted logical scope field. Apps may map this to an existing domain field. */

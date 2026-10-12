@@ -59,6 +59,7 @@ export class AiMessage extends ActiveRecord {
 				comment: 'Monotonic message order within the conversation.',
 			}),
 			content: field.text({
+				trim: false,
 				required: false,
 				comment: 'Text content for this AI message.',
 			}),
