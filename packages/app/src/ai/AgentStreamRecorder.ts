@@ -1,7 +1,7 @@
 import { databaseTransactionCommit } from '../db/databaseTransactionCommit';
 import { randomUUID } from 'node:crypto';
 import { ActiveRecord } from '@db3.ai/app/db';
-import { RunnableJob, type QueueableJobContext } from '@db3.ai/app/queue';
+import { JobRunStoppedError, RunnableJob, type QueueableJobContext } from '@db3.ai/app/queue';
 import { app } from '../server/appContext';
 import { AiStreamEvent } from './AiStreamEvent';
 import { agentConversationTimeline } from './AgentHistory';
@@ -25,6 +25,8 @@ export class AgentStreamRecorder {
 	#attempt = 0;
 	#closed = false;
 	readonly #stop = new AbortController();
+	#controlTimer: ReturnType<typeof setTimeout> | undefined;
+	#unsubscribeStop: (() => void) | undefined;
 
 	/** Cancels provider streaming when durable recording or ownership fails. */
 	get signal(): AbortSignal { return this.#job ? AbortSignal.any([this.#stop.signal, this.#job.signal]) : this.#stop.signal; }
@@ -35,8 +37,12 @@ export class AgentStreamRecorder {
 	/** Claims recording before provider/tool execution; admission refuses a different active turn. */
 	async begin(status: 'queued' | 'running'): Promise<void> {
 		await this.#assertOwnership();
+		const root = await app().ai.models.request.findOrFail(this.state.rootAiRequest.id);
+		if (root.errorCode === 'agent_cancelled') throw new JobRunStoppedError('cancelled', 'Conversation stopped.');
 		await this.#serialize(() => this.#write(async conversation => {
+			if (this.#job?.id) await app().ai.models.request.where('id', this.state.rootAiRequest.id).patch({ metadata: { ...root.metadata, jobRunId: String(this.#job.id) } });
 			const prior = conversation.streamState;
+			if (prior?.run.aiRequestId === this.state.rootAiRequest.id && ['cancelled', 'blocked'].includes(prior.run.status)) throw new JobRunStoppedError(prior.run.status as 'cancelled' | 'blocked', 'Conversation stopped.');
 			if (prior && prior.run.aiRequestId !== this.state.rootAiRequest.id && ['queued', 'running', 'waiting'].includes(prior.run.status)) throw new AgentConversationReadError(409, 'This conversation already has an active turn.');
 			// A new delivery owns fresh output; old interrupted partials remain visible without live spinners.
 			const interrupted = prior ? await app().ai.models.message.where('conversation', conversation.id).where('aiRequest', prior.run.aiRequestId).all() : [];
@@ -51,6 +57,11 @@ export class AgentStreamRecorder {
 			await this.#append(conversation, { type: 'run.state', run }, null);
 			await this.#append(conversation, { type: 'status.changed', activity: conversation.streamState.activity }, null);
 		}, false));
+		if (status === 'running') {
+			this.#unsubscribeStop = this.#service.onStop(String(this.state.rootAiRequest.id), () => { void this.#checkStop().catch(error => this.#abort(error)); });
+			await this.#checkStop();
+			this.#watchStop();
+		}
 	}
 
 	/** Atomically writes an existing message and its live change; final text reuses its partial row. */
@@ -161,7 +172,37 @@ export class AgentStreamRecorder {
 	}
 
 	/** Releases timer ownership even after recording failure; no rejected detached promises escape. */
-	async close(): Promise<void> { try { await this.flush(); } finally { this.#closed = true; if (this.#timer) clearTimeout(this.#timer); this.#timer = undefined; } }
+	async close(): Promise<void> {
+		try { await this.flush(); } catch (error) { if (!(error instanceof JobRunStoppedError)) throw error; }
+		finally { this.#closed = true; if (this.#timer) clearTimeout(this.#timer); if (this.#controlTimer) clearTimeout(this.#controlTimer); this.#timer = undefined; this.#unsubscribeStop?.(); this.#unsubscribeStop = undefined; }
+	}
+
+	/** Observes remote cancellation even while a provider/tool is silent; only active workers check. */
+	#watchStop(): void {
+		if (this.#closed || this.#stop.signal.aborted) return;
+		this.#controlTimer = setTimeout(() => { void this.#checkStop().then(() => this.#watchStop(), error => this.#abort(error)); }, 10_000);
+		this.#controlTimer.unref();
+	}
+
+	/** Checks durable state after a local wakeup or the cross-process heartbeat. */
+	async #checkStop(): Promise<void> {
+		if (this.#closed) return;
+		const conversation = await app().ai.models.conversation.findOrFail(this.state.conversation.id);
+		await this.#assertRun(conversation);
+	}
+
+	/** Aborts only this provider execution and discards deltas arriving after its durable stop. */
+	#abort(error: unknown): void { this.#failure = error; this.#pending = []; this.#stop.abort(error); }
+
+	/** Validates the current turn and writer while the conversation is locked or freshly read. */
+	async #assertRun(conversation: AiConversation): Promise<void> {
+		const run = conversation.streamState?.run;
+		if (run?.aiRequestId === this.state.rootAiRequest.id && (run.status === 'cancelled' || run.status === 'blocked')) throw new JobRunStoppedError(run.status, 'Conversation stopped.');
+		if (conversation.streamState?.owner === this.#owner) return;
+		const root = await app().ai.models.request.findOrFail(this.state.rootAiRequest.id);
+		if (root.errorCode === 'agent_cancelled') throw new JobRunStoppedError('cancelled', 'Conversation stopped.');
+		throw new Error('Agent stream writer ownership was lost.');
+	}
 
 	/** Runs writes in order when SDK tools report progress concurrently with model events. */
 	async #serialize<T>(work: () => Promise<T>): Promise<T> {
@@ -177,7 +218,7 @@ export class AgentStreamRecorder {
 		const database = app().db.knex;
 		const result = await app().ai.models.conversation.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const conversation = await app().ai.models.conversation.where('id', this.state.conversation.id).forUpdate().firstOrFail();
-			if (fenced && conversation.streamState?.owner !== this.#owner) throw new Error('Agent stream writer ownership was lost.');
+			if (fenced) await this.#assertRun(conversation);
 			await this.#assertOwnership();
 			const result = await work(conversation);
 			await app().ai.models.conversation.where('id', conversation.id).patch({ streamSequence: conversation.streamSequence, streamState: conversation.streamState });

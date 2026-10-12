@@ -31,7 +31,9 @@ export { tool, computerTool, type Computer, webSearchTool, fileSearchTool, image
 export { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCallRecovery';
 export type { AIRequestErrorDiagnostics } from './contracts/AIRequestErrorDiagnostics';
 
-export * from './AIProviderAdmission';
+export * from './AIProviderTransport';
+export * from './AIProviderRetryError';
+export * from './AIProviderStoppedError';
 
 export * from './contracts/AgentConversationStream';
 export * from './AiStreamEvent';

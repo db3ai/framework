@@ -12,6 +12,8 @@ export interface AgentStreamingOptions {
 	replayRetentionMs?: number;
 	/** Rechecked for every HTTP read, subscription and socket delivery. Missing policy denies. */
 	authorize?(context: AgentReadContext, conversation: AiConversation, view: AgentView): boolean | Promise<boolean>;
+	/** Separate mutation policy; read permission alone never permits stopping a run. Missing policy denies. */
+	authorizeStop?(context: AgentReadContext, conversation: AiConversation): boolean | Promise<boolean>;
 	/** Explicit presentation policy for normal-user tool payloads. Omitted tools remain private. */
 	projectTool?(item: Extract<AgentConversationTimelineItem, { kind: 'tool' }>): Extract<AgentConversationTimelineItem, { kind: 'tool' }> | null;
 }

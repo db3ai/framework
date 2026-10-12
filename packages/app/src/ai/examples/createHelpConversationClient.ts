@@ -22,6 +22,8 @@ export function createHelpConversationClient(options: HelpConversationClientOpti
 	return createAgentConversation({ view: 'conversation', realtime: options.realtime, http: {
 		/** The route authenticates, authorizes and calls HelpAgent.queue with this submission key. */
 		send: (input, signal) => request('/send', signal, input),
+		/** The route authenticates and calls conversations.stop with these exact turn identifiers. */
+		stop: (input, signal) => request(`/${encodeURIComponent(input.conversationId)}/stop`, signal, { aiRequestId: input.aiRequestId }),
 		/** Returns app().ai.conversations.load for the authenticated user and scope. */
 		load: (id, signal) => request(`/${encodeURIComponent(id)}/snapshot`, signal),
 		/** Returns app().ai.conversations.updates through the supplied fixed watermark. */

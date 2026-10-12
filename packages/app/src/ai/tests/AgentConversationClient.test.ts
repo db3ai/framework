@@ -31,6 +31,22 @@ function pending<T>() {
 }
 
 describe('HTTP-first conversation client', () => {
+	it('stops the captured turn through HTTP without detaching and ignores an acknowledgement after switching conversations', async () => {
+		const completion = pending<{ conversationId: string; aiRequestId: string; status: 'cancelled' }>();
+		const stop = vi.fn(() => completion.promise);
+		const h = harness({ stop, load: async id => ({ ...snapshot(id), run: { aiRequestId: `${id}-run`, status: 'running', attempt: 1, startedAt: null, completedAt: null, error: null } }) });
+		try {
+			await h.client.open('first');
+			const stopping = h.client.stop();
+			expect(stop).toHaveBeenCalledWith({ conversationId: 'first', aiRequestId: 'first-run' }, expect.any(AbortSignal));
+			expect(h.detach).not.toHaveBeenCalled();
+			await h.client.open('second');
+			completion.resolve({ conversationId: 'first', aiRequestId: 'first-run', status: 'cancelled' }); await stopping;
+			expect(h.client.getState().snapshot?.run?.aiRequestId).toBe('second-run');
+			expect(h.http.updates).not.toHaveBeenCalled();
+		} finally { h.client.dispose(); }
+	});
+
 	it('loads before subscribing and reconciles overlapping live output exactly once', async () => {
 		const recovery = pending<AgentUpdatePage>();
 		const h = harness({ updates: vi.fn(() => recovery.promise) });

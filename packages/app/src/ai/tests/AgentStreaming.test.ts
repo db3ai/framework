@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { App } from '@db3.ai/app/server';
 import { ActiveRecord } from '@db3.ai/app/db';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
-import { Agent, AgentRunJob, AiConversation, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AiStreamEvent, registerQueuedAgent, agentConversationTimeline, tool, emitAgentToolProgress, type AgentRunContext, type AgentTool } from '@db3.ai/app/ai';
+import { Agent, AgentConversations, AgentRunJob, AiConversation, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AiStreamEvent, registerQueuedAgent, agentConversationTimeline, tool, emitAgentToolProgress, type AgentRunContext, type AgentTool } from '@db3.ai/app/ai';
 import { QueuedJob, FailedJob } from '@db3.ai/app/queue';
 
 /** Minimal registered agent; real provider protocol is supplied by the test boundary. */
@@ -37,6 +37,8 @@ function controlledResponse() {
 	send({ type: 'response.created', response });
 	send({ type: 'response.output_item.added', output_index: 0, item });
 	return {
+		/** Models fetch cancellation at the external provider boundary. */
+		abort(reason: unknown): void { if (!finished) { finished = true; controller.error(reason); } },
 		response: new Response(body, { headers: { 'content-type': 'text/event-stream' } }),
 		/** Advances provider output while the worker remains running. */
 		delta(text: string): void { send({ type: 'response.output_text.delta', item_id: item.id, output_index: 0, content_index: 0, delta: text }); },
@@ -63,7 +65,7 @@ beforeAll(async () => {
 	await new Promise<void>(resolve => receiver.listen(0, '127.0.0.1', resolve));
 	const port = (receiver.address() as { port: number }).port;
 	database = await createGeneratedTestDatabase('agent_stream');
-	application = new App({ db: database.db, webSockets: { publish: { url: `http://127.0.0.1:${port}/publish`, token: 'x'.repeat(64) } }, ai: { apiKey: 'synthetic-test-key', model: 'test-model', rateLimiter: false, fetch, streaming: { enabled: true, flushIntervalMs: 5, authorize: context => context.userId === 'viewer' } }, queue: { driver: 'database', queueMonitor: false } });
+	application = new App({ db: database.db, webSockets: { publish: { url: `http://127.0.0.1:${port}/publish`, token: 'x'.repeat(64) } }, ai: { apiKey: 'synthetic-test-key', model: 'test-model', rateLimiter: false, fetch, streaming: { enabled: true, flushIntervalMs: 5, authorize: context => context.userId === 'viewer', authorizeStop: (context, conversation) => context.userId === conversation.user } }, queue: { driver: 'database', queueMonitor: false } });
 	await application.db.install(AiConversation, AiRateLimitBucket, AiRequest, AiMessage, AiRateLimitReservation, AiStreamEvent, QueuedJob, FailedJob);
 	application.queue.registerJob(AgentRunJob);
 	registerQueuedAgent('StreamingAgent', StreamingAgent);
@@ -76,6 +78,97 @@ beforeEach(async () => {
 afterAll(async () => { try { await application?.close(); } finally { await database?.destroy(); await new Promise<void>(resolve => receiver?.close(() => resolve())); vi.unstubAllEnvs(); } });
 
 describe('durable agent streaming', () => {
+	it('cancels a queued turn idempotently, rejects unauthorized controls, and fences old delivery after a new turn', async () => {
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First', { queue: 'stop-test' });
+		const input = { conversationId: first.conversationId, aiRequestId: first.aiRequestId! };
+		await expect(application.ai.conversations.stop({ userId: 'stranger' }, input)).rejects.toMatchObject({ statusCode: 404 });
+		await expect(application.ai.conversations.stop({ ...reader, scopeId: 'wrong' }, input)).rejects.toMatchObject({ statusCode: 404 });
+		await expect(application.ai.conversations.stop(reader, input)).resolves.toMatchObject({ status: 'cancelled' });
+		const sequence = (await AiConversation.findOrFail(first.conversationId)).streamSequence;
+		await expect(application.ai.conversations.stop(reader, input)).resolves.toMatchObject({ status: 'cancelled' });
+		expect((await AiConversation.findOrFail(first.conversationId)).streamSequence).toBe(sequence);
+		const second = await new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: first.conversationId }).queue('Continue', { queue: 'stop-test' });
+		await expect(application.ai.conversations.stop(reader, input)).rejects.toMatchObject({ statusCode: 409 });
+		expect((await application.queue.workNextJob('stop-test'))?.status).toBe('failed');
+		expect(fetch).not.toHaveBeenCalled();
+		expect((await AiConversation.findOrFail(first.conversationId)).streamState?.run).toMatchObject({ aiRequestId: second.aiRequestId, status: 'queued' });
+		const provider = controlledResponse(); provider.finish('Continued.'); fetch.mockResolvedValueOnce(provider.response);
+		expect((await application.queue.workNextJob('stop-test'))?.status).toBe('succeeded');
+		await expect(application.ai.conversations.stop(reader, { ...input, aiRequestId: second.aiRequestId! })).resolves.toMatchObject({ status: 'completed' });
+	});
+
+	it('stops a running provider, retains partial output, and leaves a sibling run unaffected', async () => {
+		const provider = controlledResponse();
+		let providerSignal: AbortSignal | undefined;
+		fetch.mockImplementationOnce(async (_url, init) => { providerSignal = init?.signal ?? undefined; providerSignal?.addEventListener('abort', () => provider.abort(providerSignal!.reason), { once: true }); return provider.response; });
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First', { queue: 'stop-running' });
+		const sibling = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Sibling', { queue: 'sibling' });
+		const work = application.queue.workNextJob('stop-running');
+		try {
+			provider.delta('Keep this partial.');
+			await vi.waitFor(async () => expect(await AiMessage.where('conversation', first.conversationId).where('content', 'Keep this partial.').count()).toBe(1));
+			await application.ai.conversations.stop(reader, { conversationId: first.conversationId, aiRequestId: first.aiRequestId! });
+			expect((await work)?.status).toBe('failed');
+			expect(providerSignal?.aborted).toBe(true);
+			const saved = await application.ai.conversations.load(reader, { conversationId: first.conversationId, view: 'admin' });
+			expect(saved.run).toMatchObject({ status: 'cancelled', error: null });
+			expect(saved.timeline).toContainEqual(expect.objectContaining({ content: 'Keep this partial.', streaming: false }));
+			expect((await AiConversation.findOrFail(sibling.conversationId)).streamState?.run.status).toBe('queued');
+			const next = controlledResponse(); next.finish('Sibling complete.'); fetch.mockResolvedValueOnce(next.response);
+			expect((await application.queue.workNextJob('sibling'))?.status).toBe('succeeded');
+		} finally { provider.finish('Finished.'); await work; }
+	});
+
+	it('observes a stop from another service instance during a silent provider wait', async () => {
+		const provider = controlledResponse();
+		fetch.mockImplementationOnce(async (_url, init) => { init?.signal?.addEventListener('abort', () => provider.abort(init.signal!.reason), { once: true }); return provider.response; });
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First', { queue: 'remote-stop' });
+		const work = application.queue.workNextJob('remote-stop');
+		try {
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			const remote = new AgentConversations(application.ai, { enabled: true, authorizeStop: context => context.userId === 'viewer' });
+			await remote.stop(reader, { conversationId: first.conversationId, aiRequestId: first.aiRequestId! });
+			expect((await work)?.status).toBe('failed');
+			expect((await AiConversation.findOrFail(first.conversationId)).streamState?.run.status).toBe('cancelled');
+			await remote.drain();
+		} finally { provider.finish('Finished'); await work; }
+	}, 20_000);
+
+	it('stops an interactive stream and then accepts a fresh turn in the same conversation', async () => {
+		const provider = controlledResponse();
+		fetch.mockImplementationOnce(async (_url, init) => { init?.signal?.addEventListener('abort', () => provider.abort(init.signal!.reason), { once: true }); return provider.response; });
+		let identity: { conversationId: string; aiRequestId: string } | undefined;
+		const events: string[] = [];
+		const work = new StreamingAgent({ user: 'viewer', scope: 'team' }).stream('Hello', event => {
+			if (event.type === 'conversation.created' && event.aiRequestId) identity = { conversationId: event.conversationId, aiRequestId: event.aiRequestId };
+			if (event.type === 'run.error') events.push(event.error.code ?? 'unknown');
+		});
+		try {
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			await application.ai.conversations.stop(reader, identity!);
+			expect(await work).toBeNull();
+			expect(events).toEqual(['agent_cancelled']);
+			const next = controlledResponse(); next.finish('Continued.'); fetch.mockResolvedValueOnce(next.response);
+			const result = await new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: identity!.conversationId }).run('Continue');
+			expect(result.finalOutput).toBe('Continued.');
+			expect(result.conversationId).toBe(identity!.conversationId);
+			expect(result.aiRequestId).not.toBe(identity!.aiRequestId);
+		} finally { provider.finish('Finished'); await work; }
+	});
+
+	it('does not signal or persist a stop rolled back by the caller', async () => {
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First');
+		const notified = vi.fn(); const unsubscribe = application.ai.conversations.onStop(first.aiRequestId!, notified);
+		try {
+			await expect(database.db.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+				await application.ai.conversations.stop(reader, { conversationId: first.conversationId, aiRequestId: first.aiRequestId! });
+				throw new Error('rollback');
+			}))).rejects.toThrow('rollback');
+			expect((await AiConversation.findOrFail(first.conversationId)).streamState?.run.status).toBe('queued');
+			expect(notified).not.toHaveBeenCalled();
+		} finally { unsubscribe(); }
+	});
+
 	it('records partial output without viewers and completes the same message after reattachment', async () => {
 		const provider = controlledResponse();
 		fetch.mockResolvedValue(provider.response);

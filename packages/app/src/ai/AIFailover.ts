@@ -1,4 +1,5 @@
-import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
+import { AIProviderRetryError } from './AIProviderRetryError';
+import { AIProviderStoppedError } from './AIProviderStoppedError';
 import { AIRateLimitDeferredError } from './AIRateLimiter.js';
 import { openAIProviderError, isOpenAIQuotaError } from './OpenAIProviderError.js';
 
@@ -69,7 +70,7 @@ export function isFailoverableResponse(status: number, payload: unknown): boolea
  * @returns True when the next provider in the chain should be attempted.
  */
 export function isFailoverableFailure(error: unknown): boolean {
-	if (error instanceof AIRateLimitDeferredError || error instanceof AIProviderDeferredError || error instanceof AIProviderStoppedError) return true;
+	if (error instanceof AIRateLimitDeferredError || error instanceof AIProviderRetryError || error instanceof AIProviderStoppedError) return true;
 	if (isNetworkFailure(error)) return true;
 
 	const details = openAIProviderError(error);

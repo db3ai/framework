@@ -1,10 +1,11 @@
 import { agentAdmission } from './agentAdmission';
 import type { AgentQueueOptions } from './contracts/AgentStreamingOptions';
 import { AgentStreamRecorder } from './AgentStreamRecorder';
-import { AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
+import { AIProviderRetryError } from './AIProviderRetryError';
+import { AIProviderStoppedError } from './AIProviderStoppedError';
 import { aiExecutionContext } from './AiExecutionContext';
 import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type FunctionCallItem, type FunctionCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
-import { isQueueRetryLaterError } from '@db3.ai/app/queue';
+import { JobRunStoppedError, isQueueRetryLaterError } from '@db3.ai/app/queue';
 import type * as queue from '@db3.ai/app/queue';
 import type { Serializable, SerializedValueEnvelope } from '@db3.ai/app/serialization';
 import { agentMarkdownWithCitations, normalizedAgentCitations, type AgentCitation } from '@db3.ai/pure';
@@ -225,6 +226,13 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 			return result;
 		} catch (error) {
+			const stopped = this.#recorder?.signal.reason;
+			if (error instanceof JobRunStoppedError || stopped instanceof JobRunStoppedError) {
+				const stop = error instanceof JobRunStoppedError ? error : stopped as JobRunStoppedError;
+				if (state) await app().ai.conversations.settleQueuedStop(String(state.rootAiRequest.id), stop.message, stop.status);
+				await streamInput.emit({ type: 'run.error', conversationId: state?.conversation.id ? String(state.conversation.id) : null, aiRequestId: state?.rootAiRequest.id ? String(state.rootAiRequest.id) : null, traceId, error: { code: 'agent_cancelled', message: stop.message } });
+				return null;
+			}
 			const payload = agentErrorPayload(error, `Unable to run ${this.agentName}.`);
 
 			if (state) {
@@ -378,12 +386,11 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 
 		const prepared = await this.preparedRunFromQueuedPayload(payload);
-		if (app().ai.conversations.enabled) {
-			this.#recorder = new AgentStreamRecorder(prepared.state, context);
-			await this.#recorder.begin('running');
-		}
-
 		try {
+			if (app().ai.conversations.enabled) {
+				this.#recorder = new AgentStreamRecorder(prepared.state, context);
+				await this.#recorder.begin('running');
+			}
 			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) {
 				return await this.resumeFinalizedTrackedRun(prepared);
 			}
@@ -391,9 +398,11 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
 			return await this.executePreparedRun(prepared, event => this.#recorder?.emit(event));
 		} catch (error) {
-			if (error instanceof AIProviderDeferredError) {
-				await this.recordRunStatus('waiting', () => this.deferTrackedRun(prepared.state, error), error.message);
-				throw error;
+			const stopped = this.#recorder?.signal.reason;
+			if (error instanceof JobRunStoppedError || stopped instanceof JobRunStoppedError) {
+				const stop = error instanceof JobRunStoppedError ? error : stopped as JobRunStoppedError;
+				await app().ai.conversations.settleQueuedStop(String(prepared.state.rootAiRequest.id), stop.message, stop.status);
+				throw stop;
 			}
 			if (isQueueRetryLaterError(error)) { await this.recordRunStatus('waiting'); throw error; }
 			const providerError = openAIProviderError(error);
@@ -1066,7 +1075,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 								/** Retains completed tools in this SDK run; never restarts the whole agent. */
 								policy: ({ error }) => {
 									if (!completedModelTurn) return false;
-									const delayMs = app().ai.providerAdmission.requestRetryDelay(attempt, agentRateLimitError(error));
+									const delayMs = app().ai.providerTransport.requestRetryDelay(attempt, agentRateLimitError(error));
 									return delayMs === null ? false : { retry: true, delayMs };
 								},
 							},
@@ -1114,7 +1123,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					}
 
 					await stream.completed;
-					const streamFailure = app().ai.providerAdmission?.requestFailure(attempt, null);
+					const streamFailure = app().ai.providerTransport?.requestFailure(attempt, null);
 					if (streamFailure) throw streamFailure;
 					const rawFinalOutput = this.finalOutputText(stream.finalOutput, assistantText);
 					const finalResponseCitations = agentCitationsFromFinalModelResponse(stream.rawResponses);
@@ -1182,11 +1191,11 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					};
 				});
 			} catch (caught) {
-				const restored = agentRateLimitError(caught);
-				const failure = app().ai.providerAdmission?.requestFailure(attempt, restored) ?? restored;
+				const restored = this.#recorder?.signal.reason instanceof JobRunStoppedError ? this.#recorder.signal.reason : agentRateLimitError(caught);
+				const failure = restored instanceof JobRunStoppedError ? restored : app().ai.providerTransport.requestFailure(attempt, restored);
 				// Restarting a turn after streamed output/tools can repeat completed work.
-				const error = failure instanceof AIProviderDeferredError && sawStreamEvent ? new AIProviderStoppedError('outage', failure.providerCode, { ...failure.diagnostics, stopStage: 'stream-output' }) : failure;
-				if (failure instanceof AIProviderDeferredError && error instanceof AIProviderStoppedError) error.providerStarted = failure.providerStarted;
+				const error = failure instanceof AIProviderRetryError && sawStreamEvent ? new AIProviderStoppedError('outage', failure.providerCode, { ...failure.diagnostics, stopStage: 'stream-output' }) : failure;
+				if (failure instanceof AIProviderRetryError && error instanceof AIProviderStoppedError) error.providerStarted = failure.providerStarted;
 				if (attemptState && !attemptSettled) {
 					await this.failTrackedAttempt(
 						attemptState,
@@ -1200,7 +1209,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				// Failover is only safe before the SDK has streamed anything: once
 				// events arrive, tool calls and partial output may already be
 				// persisted or visible, and replaying them would duplicate work.
-				if (hasFallback && !sawStreamEvent && isFailoverableFailure(error)) {
+				if (!(error instanceof JobRunStoppedError) && hasFallback && !sawStreamEvent && isFailoverableFailure(error)) {
 					const details = openAIProviderError(error);
 
 					attemptFailures.push({
@@ -2019,14 +2028,6 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		};
 	}
 
-	/** Keeps unstarted queued work visibly pending on the shared account deadline. */
-	private async deferTrackedRun(state: agent.AgentPersistenceState, error: AIProviderDeferredError): Promise<void> {
-		state.rootAiRequest.assign({ status: AI_REQUEST_STATUS.pending, completedAt: null, errorCode: 'ai_provider_deferred', errorMessage: error.message,
-			metadata: { ...(state.rootAiRequest.metadata ?? {}), providerAdmission: { retryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() } },
-		});
-		await state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
-		await this.touchConversation(state, { lastTraceId: state.traceId, lastStatus: AI_REQUEST_STATUS.pending, lastError: error.message, nextRetryAt: error.retryAt.toISOString(), retryUntil: error.retryUntil.toISOString() });
-	}
 
 	/**
 	 * Marks the tracked AI request as failed.

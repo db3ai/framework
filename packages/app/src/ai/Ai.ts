@@ -1,7 +1,9 @@
 /// <reference path="./sdkNodeCompatibility.d.ts" preserve="true" />
 import { AgentConversations } from './AgentConversations';
 import type { GenerateEmbeddingOptions } from './contracts/AI';
-import { AIProviderAdmission, AIProviderDeferredError, AIProviderStoppedError } from './AIProviderAdmission';
+import { AIProviderTransport } from './AIProviderTransport';
+import { AIProviderRetryError } from './AIProviderRetryError';
+import { AIProviderStoppedError } from './AIProviderStoppedError';
 import { isQueueRetryLaterError } from '@db3.ai/app/queue';
 import OpenAI from 'openai';
 import { OpenAIProvider, type ModelProvider } from '@openai/agents';
@@ -103,7 +105,8 @@ export class Ai {
 	/** Logical ownership field used by this application. */
 	readonly scopeField: string;
 	private readonly rateLimiter: AIRateLimiter | null;
-	readonly providerAdmission: AIProviderAdmission;
+	/** Request-local provider diagnostics and bounded SDK retry timing. */
+	readonly providerTransport = new AIProviderTransport();
 
 	/**
 	 * Create an AI service instance.
@@ -116,8 +119,6 @@ export class Ai {
 		private readonly modelConfig: AIConfig = defaultAIConfig,
 	) {
 		if (options.timeoutMs !== undefined && (!Number.isFinite(options.timeoutMs) || options.timeoutMs <= 0)) throw new AIConfigurationError('timeoutMs must be positive.');
-		this.providerAdmission = new AIProviderAdmission({ recoveryLeaseSeconds: (options.timeoutMs ?? 60_000) / 1000 + 30, ...options.providerAdmission });
-		if ((options.providerAdmission?.recoveryLeaseSeconds ?? Infinity) * 1000 <= (options.timeoutMs ?? 60_000)) throw new AIConfigurationError('Recovery lease must exceed provider timeout.');
 		this.models = { conversation: AiConversation, request: AiRequest, message: AiMessage, ...options.models };
 		this.scopeField = options.scopeField ?? 'scope';
 		this.conversations = new AgentConversations(this, options.streaming);
@@ -260,7 +261,6 @@ export class Ai {
 		const result = await this.generateTextResult({
 			model: input.model,
 			provider: input.provider,
-			transientFailureScope: input.transientFailureScope,
 			serviceTier: input.serviceTier,
 			instructions: input.instructions,
 			input: input.input,
@@ -330,7 +330,7 @@ export class Ai {
 		}
 
 		for (let index = 0; index < attempts.length; index++) {
-			const attempt = { ...attempts[index]!, transientFailureScope: input.transientFailureScope };
+			const attempt = attempts[index]!;
 			const hasFallback = index < attempts.length - 1;
 			const attemptStartMs = Date.now();
 			const request = {
@@ -389,15 +389,15 @@ export class Ai {
 					baseUrl: attempt.baseUrl,
 					apiKey: attempt.apiKey,
 					request,
-					fetcher: this.providerAdmission.transport(attempt, this.fetcher(timeoutMs), timeoutMs),
+					fetcher: this.providerTransport.transport(attempt, this.fetcher(timeoutMs)),
 				});
 				const { payload, metadata } = result;
-				const admissionFailure = this.providerAdmission.requestFailure(attempt, null);
+				const providerFailure = this.providerTransport.requestFailure(attempt, null);
 
-				if (!result.ok || admissionFailure) {
+				if (!result.ok || providerFailure) {
 					const message = responseErrorMessage(payload) || `AI provider ${attempt.provider} request failed with HTTP ${result.status}.`;
 
-					if (hasFallback && (isFailoverableFailure(admissionFailure) || isFailoverableResponse(result.status, payload))) {
+					if (hasFallback && (isFailoverableFailure(providerFailure) || isFailoverableResponse(result.status, payload))) {
 						const failure = providerAttemptFailure(attempt, attemptStartMs, message, result.status, responseErrorCode(payload));
 
 						attemptFailures.push(failure);
@@ -420,7 +420,7 @@ export class Ai {
 						continue;
 					}
 
-					const deferred = admissionFailure ?? (isRateLimitFailure(result.status, payload)
+					const deferred = providerFailure ?? (isRateLimitFailure(result.status, payload)
 						? rateLimitDeferredError(lease, metadata, message)
 						: null);
 
@@ -520,11 +520,11 @@ export class Ai {
 					attachProviderAttempts(tracked.aiRequest, attemptFailures);
 					await this.failTrackedRequest(
 						tracked,
-						providerAdmissionResponse(error),
+						providerFailureResponse(error),
 						errorMessage(error),
-						providerAdmissionMetadata(error),
+						providerFailureMetadata(error),
 						failedLease,
-						providerAdmissionStarted(error, providerStarted),
+						providerFailureStarted(error, providerStarted),
 					);
 				}
 
@@ -1201,7 +1201,7 @@ export class Ai {
 	 */
 	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null, timeoutMs: number): typeof fetch {
 		let pendingLease = initialLease;
-		const transport = this.providerAdmission.transport(attempt, this.fetcher(timeoutMs), timeoutMs);
+		const transport = this.providerTransport.transport(attempt, this.fetcher(timeoutMs));
 		return async (url, init) => {
 			const aiRequest = aiExecutionContext.getStore()?.aiRequest ?? null;
 			const lease = pendingLease ?? await this.acquireRateLimit({
@@ -1241,7 +1241,7 @@ export class Ai {
 	}
 
 	/** Resolves the account connection for OpenAI-only images and embeddings. */
-	private openAIAdmissionAttempt(model: string): AIProviderAttempt {
+	private openAIProviderAttempt(model: string): AIProviderAttempt {
 		return { provider: AI_PROVIDER.openai, model, apiKey: this.requireApiKey(), baseUrl: this.baseUrl(), supportsResponsesApi: true };
 	}
 
@@ -1362,7 +1362,7 @@ export class Ai {
 		const model = input.model || this.config('ImageGeneration', 'gpt-image-2');
 		const prompt = input.prompt.replace(/\s+/g, ' ').trim();
 		const outputFormat = input.outputFormat ?? 'png';
-		const admissionAttempt = this.openAIAdmissionAttempt(model);
+		const providerAttempt = this.openAIProviderAttempt(model);
 		const operation = options.operation ?? 'images.generate';
 		const request = {
 			model,
@@ -1416,7 +1416,7 @@ export class Ai {
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 
 			providerStarted = true;
-			const response = await this.providerAdmission.transport(admissionAttempt, this.fetcher())(this.imagesUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher())(this.imagesUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -1427,10 +1427,10 @@ export class Ai {
 			const metadata = providerResponseMetadata(response.headers);
 			const payload = await response.json().catch(() => null) as ImageResponsePayloadWithUsage | null;
 
-			const admissionFailure = this.providerAdmission.requestFailure(admissionAttempt, null);
-			if (!response.ok || admissionFailure) {
+			const providerFailure = this.providerTransport.requestFailure(providerAttempt, null);
+			if (!response.ok || providerFailure) {
 				const message = responseErrorMessage(payload as TextResponsePayloadWithUsage | null) || `OpenAI image request failed with HTTP ${response.status}.`;
-				const deferred = admissionFailure ?? (isRateLimitFailure(response.status, payload)
+				const deferred = providerFailure ?? (isRateLimitFailure(response.status, payload)
 					? rateLimitDeferredError(lease, metadata, message)
 					: null);
 
@@ -1519,15 +1519,15 @@ export class Ai {
 			if (tracked && !trackedSettled) {
 				await this.failTrackedImageRequest(
 					tracked,
-					providerAdmissionResponse(error),
+					providerFailureResponse(error),
 					errorMessage(error),
-					providerAdmissionMetadata(error),
+					providerFailureMetadata(error),
 					lease,
-					providerAdmissionStarted(error, providerStarted),
+					providerFailureStarted(error, providerStarted),
 				);
 			}
 
-			if (isQueueRetryLaterError(error) || error instanceof AIProviderStoppedError) throw error;
+			if (isQueueRetryLaterError(error) || error instanceof AIProviderRetryError || error instanceof AIProviderStoppedError) throw error;
 			if (error instanceof AIAllowanceExceededError) throw error;
 			if (error instanceof AIRequestError) throw error;
 
@@ -1554,7 +1554,7 @@ export class Ai {
 		if (!input) throw new Error('Input is required for embedding generation.');
 
 		const apiKey = this.requireApiKey();
-		const admissionAttempt = this.openAIAdmissionAttempt(model);
+		const providerAttempt = this.openAIProviderAttempt(model);
 		const operation = options.operation ?? 'embeddings.create';
 		const request = {
 			model,
@@ -1596,7 +1596,7 @@ export class Ai {
 
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 			providerStarted = true;
-			const response = await this.providerAdmission.transport(admissionAttempt, this.fetcher())(this.embeddingsUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher())(this.embeddingsUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -1607,10 +1607,10 @@ export class Ai {
 			const metadata = providerResponseMetadata(response.headers);
 			const payload = await response.json().catch(() => null) as EmbeddingResponsePayloadWithUsage | null;
 
-			const admissionFailure = this.providerAdmission.requestFailure(admissionAttempt, null);
-			if (!response.ok || admissionFailure) {
+			const providerFailure = this.providerTransport.requestFailure(providerAttempt, null);
+			if (!response.ok || providerFailure) {
 				const message = responseErrorMessage(payload as TextResponsePayloadWithUsage | null) || `OpenAI embedding request failed with HTTP ${response.status}.`;
-				const deferred = admissionFailure ?? (isRateLimitFailure(response.status, payload)
+				const deferred = providerFailure ?? (isRateLimitFailure(response.status, payload)
 					? rateLimitDeferredError(lease, metadata, message)
 					: null);
 
@@ -1669,15 +1669,15 @@ export class Ai {
 			if (tracked && !trackedSettled && (!(error instanceof AIRequestError) || error instanceof AIProviderStoppedError) && !(error instanceof AIRateLimitDeferredError)) {
 				await this.failTrackedEmbeddingRequest(
 					tracked,
-					providerAdmissionResponse(error),
+					providerFailureResponse(error),
 					errorMessage(error),
-					providerAdmissionMetadata(error),
+					providerFailureMetadata(error),
 					lease,
-					providerAdmissionStarted(error, providerStarted),
+					providerFailureStarted(error, providerStarted),
 				);
 			}
 
-			if (isQueueRetryLaterError(error) || error instanceof AIProviderStoppedError) throw error;
+			if (isQueueRetryLaterError(error) || error instanceof AIProviderRetryError || error instanceof AIProviderStoppedError) throw error;
 			if (error instanceof AIRequestTrackingError) throw error;
 			if (error instanceof AIRequestError) throw error;
 
@@ -2221,16 +2221,16 @@ function scopeRecordId(scope: AIRecordIdentity | string | null): string | null {
 }
 
 /** Retains safe provider diagnostics for admission failures in the existing audit trail. */
-function providerAdmissionResponse(error: unknown): null | { error: { code: string | null; message: string } } {
+function providerFailureResponse(error: unknown): null | { error: { code: string | null; message: string } } {
 	return error instanceof AIProviderStoppedError ? { error: { code: error.providerCode ?? error.code, message: error.message } } : null;
 }
 
 /** Distinguishes actual provider rejection from blocked-before-provider work. */
-function providerAdmissionStarted(error: unknown, fallback: boolean): boolean {
-	return error instanceof AIProviderStoppedError || error instanceof AIProviderDeferredError ? error.providerStarted : fallback;
+function providerFailureStarted(error: unknown, fallback: boolean): boolean {
+	return error instanceof AIProviderStoppedError || error instanceof AIProviderRetryError ? error.providerStarted : fallback;
 }
 
 /** Keeps provider support identifiers without duplicating response bodies. */
-function providerAdmissionMetadata(error: unknown): AIProviderResponseMetadata {
+function providerFailureMetadata(error: unknown): AIProviderResponseMetadata {
 	return { ...emptyProviderResponseMetadata(), providerRequestId: error instanceof AIProviderStoppedError ? error.requestId : null };
 }

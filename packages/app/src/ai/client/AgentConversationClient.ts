@@ -79,6 +79,16 @@ export class AgentConversationClient {
 	/** Explicitly reloads saved state; failed socket health never prevents this read. */
 	async refresh(): Promise<void> { if (this.#id) await this.#open(this.#id, true); }
 
+	/** Stops the loaded turn through HTTP; detaching or closing this viewer never implies stop. */
+	async stop(): Promise<stream.AgentStopResult> {
+		const snapshot = this.#state.snapshot;
+		if (!this.options.http.stop || !snapshot?.run || this.#disposed) throw new Error('No stoppable conversation is loaded.');
+		const generation = this.#generation;
+		const result = await this.options.http.stop({ conversationId: snapshot.cursor.conversationId, aiRequestId: snapshot.run.aiRequestId }, this.#abort.signal);
+		if (this.#current(generation)) await this.#recover();
+		return result;
+	}
+
 	/** Adds older HTTP history after reconciling its boundary; current items always win. */
 	async loadOlder(): Promise<void> {
 		const snapshot = this.#state.snapshot;

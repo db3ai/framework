@@ -97,10 +97,18 @@ export interface AgentStreamState {
 /** One intentional browser send; its UUID is reused for transport retries. */
 export interface AgentSendInput { conversationId: string | null; message: string; idempotencyKey: string }
 
+/** Stops exactly the selected turn; a stale request cannot cancel a later turn. */
+export interface AgentStopInput { conversationId: string; aiRequestId: string }
+
+/** Acknowledges the durable outcome; an already terminal turn is unchanged. */
+export interface AgentStopResult extends AgentStopInput { status: AgentRunState['status'] }
+
 /** App-owned authenticated HTTP boundary. Read-only inspectors omit send. */
 export interface AgentHttpAdapter {
 	/** Admits work and returns IDs without waiting for generation. */
 	send?(input: AgentSendInput, signal: AbortSignal): Promise<QueuedAgentRunResponse>;
+	/** Cancels an authorized run independently of viewer/socket lifetime. */
+	stop?(input: AgentStopInput, signal: AbortSignal): Promise<AgentStopResult>;
 	/** Loads recent saved output, including in-progress text. */
 	load(conversationId: string, signal: AbortSignal): Promise<AgentConversationSnapshot>;
 	/** Recovers a bounded page, preserving the initial fixed watermark. */

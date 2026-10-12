@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { Ai, type AIServiceTier, AIRequestError, AIProviderStoppedError, AIProviderDeferredError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
+import { Ai, type AIServiceTier, AIRequestError, AIProviderStoppedError, AIProviderRetryError, Agent, tool, type AgentTool, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIRequestTrackingError, AIRateLimitDeferredError, AIRateLimiter, agentConversationTimeline, registerQueuedAgent, AgentRunJob } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { HelpAgent } from '../examples/HelpAgent';
@@ -443,15 +443,16 @@ describe('AI inside an application', () => {
 		expect(await AiRateLimitReservation.query().count()).toBe(0);
 	});
 
-	it('stops real SDK queued quota immediately and blocks independent agent turns', async () => {
+	it('stops a quota-rejected SDK run without blocking an independent agent turn', async () => {
 		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'insufficient_quota', message: 'Exhausted' } }, { status: 429 }));
 		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'quota-agent', maxTries: 5 });
 		expect((await application.queue.workNextJob('quota-agent'))?.status).toBe('failed');
+		fetch.mockResolvedValueOnce(textStream('Independent reply.'));
 		await new HelpAgent({ guidePath: 'help.md' }).queue('Other work.', { queue: 'quota-agent', maxTries: 5 });
-		expect((await application.queue.workNextJob('quota-agent'))?.status).toBe('failed');
-		expect(fetch).toHaveBeenCalledTimes(1);
+		expect((await application.queue.workNextJob('quota-agent'))?.status).toBe('succeeded');
+		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(await QueuedJob.query().count()).toBe(0);
-		expect(await FailedJob.query().count()).toBe(2);
+		expect(await FailedJob.query().count()).toBe(1);
 		expect(await AiRateLimitReservation.query().count()).toBe(0);
 	});
 
@@ -460,19 +461,21 @@ describe('AI inside an application', () => {
 		fetch.mockResolvedValueOnce(failure);
 		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'stream-quota', maxTries: 5 });
 		const result = await application.queue.workNextJob('stream-quota');
+		expect(result?.error).toBeInstanceOf(AIProviderStoppedError);
 		expect(result?.status).toBe('failed');
 		expect(await QueuedJob.query().count()).toBe(0);
 		expect(fetch).toHaveBeenCalledTimes(1);
-		await expect(application.ai.generateEmbedding('Blocked.')).rejects.toBeInstanceOf(AIProviderStoppedError);
-		expect(fetch).toHaveBeenCalledTimes(1);
+		fetch.mockResolvedValueOnce(Response.json({ data: [{ embedding: [0.2, 0.4] }], usage: { prompt_tokens: 1, total_tokens: 1 } }));
+		await expect(application.ai.generateEmbedding('Independent work.')).resolves.toMatchObject({ vector: [0.2, 0.4] });
+		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
 	it('retries only a rejected current model request after completed tools without replaying the tools', async () => {
 		const ai = application.ai;
-		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation }, providerAdmission: { initialSeconds: 0.01, maxSeconds: 0.02 } }));
+		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation } }));
 		try {
 			fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_once', call_id: 'call_once', name: 'read_help_guide', arguments: '{}' }]))
-				.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }))
+				.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503, headers: { 'retry-after-ms': '1' } }))
 				.mockResolvedValueOnce(textStream('Recovered using the saved guide.'));
 			const queued = await new HelpAgent({ guidePath: 'help.md' }).queue('Read the guide.', { queue: 'safe-current-retry', maxTries: 5 });
 			expect((await application.queue.workNextJob('safe-current-retry'))?.status).toBe('succeeded');
@@ -487,10 +490,10 @@ describe('AI inside an application', () => {
 
 	it('bounds current-request recovery attempts without replaying completed tools', async () => {
 		const ai = application.ai;
-		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation }, providerAdmission: { initialSeconds: 0.01, maxSeconds: 0.01 } }));
+		application.set('ai', new Ai({ apiKey: 'synthetic-test-key', model: 'test-model', fetch, models: { conversation: Conversation } }));
 		try {
 			fetch.mockResolvedValueOnce(streamResponse([{ type: 'function_call', id: 'fc_bounded', call_id: 'call_bounded', name: 'read_help_guide', arguments: '{}' }]))
-				.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+				.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503, headers: { 'retry-after-ms': '1' } }));
 			await new HelpAgent({ guidePath: 'help.md' }).queue('Read the guide.', { queue: 'bounded-current-retry', maxTries: 5 });
 			const result = await application.queue.workNextJob('bounded-current-retry');
 			expect(result?.status).toBe('failed');
@@ -516,10 +519,10 @@ describe('AI inside an application', () => {
 	it('preserves the typed admission failure when the SDK vetoes a stateful request after consulting retry policy', async () => {
 		const attempt = application.ai.resolveProviders()[0]!;
 		let consulted = 0;
-		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503, headers: { 'retry-after-ms': '1' } }));
 		const runner = new Runner({ modelProvider: application.ai.createAgentProvider(attempt), tracingDisabled: true, modelSettings: { retry: { maxRetries: 8,
 			/** Reads admission without consuming it before the SDK's stateful veto. */
-			policy: ({ error }) => { consulted++; const delayMs = application.ai.providerAdmission.requestRetryDelay(attempt, error); return delayMs === null ? false : { retry: true, delayMs }; },
+			policy: ({ error }) => { consulted++; const delayMs = application.ai.providerTransport.requestRetryDelay(attempt, error); return delayMs === null ? false : { retry: true, delayMs }; },
 		} } });
 		await expect((async () => {
 			const stream = await runner.run(new SdkAgent({ name: 'stateful', model: 'test-model' }), 'Help.', { stream: true, previousResponseId: 'resp_existing' });
@@ -528,7 +531,7 @@ describe('AI inside an application', () => {
 		})()).rejects.toThrow();
 		expect(consulted).toBe(1);
 		expect(fetch).toHaveBeenCalledTimes(1);
-		expect(application.ai.providerAdmission.requestFailure(attempt, null)).toBeInstanceOf(AIProviderDeferredError);
+		expect(application.ai.providerTransport.requestFailure(attempt, null)).toBeInstanceOf(AIProviderRetryError);
 	});
 
 	it('does not replay a completed SDK tool/model turn when the next model call hits an outage', async () => {
@@ -547,39 +550,31 @@ describe('AI inside an application', () => {
 		expect(result?.job.attempts).toBe(1);
 		expect(result?.error).toMatchObject({ stopStage: 'stream-output', reason: 'outage', providerCode: null, status: null, requestId: 'req_partial_outage', providerStarted: true });
 		expect(String(result?.error)).not.toMatch(/deadline|PRIVATE|Bearer|secret/);
-		await expect(application.ai.generateEmbedding('Blocked sibling')).rejects.toBeInstanceOf(AIProviderDeferredError);
+		fetch.mockResolvedValueOnce(Response.json({ data: [{ embedding: [0.1] }], usage: { prompt_tokens: 1, total_tokens: 1 } }));
+		await expect(application.ai.generateEmbedding('Independent sibling')).resolves.toMatchObject({ vector: [0.1] });
 		expect(await QueuedJob.query().count()).toBe(0);
 		expect(await FailedJob.query().count()).toBe(1);
-		expect(fetch).toHaveBeenCalledTimes(2);
+		expect(fetch).toHaveBeenCalledTimes(3);
 		expect((await AiMessage.query().all()).some(message => message.role === 'tool')).toBe(true);
 	});
 
-	it('reports a true durable deadline separately from streamed-output stops without another provider request', async () => {
-		fetch.mockResolvedValueOnce(Response.json({ error: { code: 'server_error' } }, { status: 503 }));
-		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'deadline-agent', maxTries: 10 });
-		expect((await application.queue.workNextJob('deadline-agent'))?.status).toBe('deferred');
-		const bucket = (await AiRateLimitBucket.query().all()).find(row => row.limitKey === 'account-admission')!;
-		const metadata = bucket.metadata!;
-		(metadata.admission as { deadline: number }).deadline = Date.now() - 1;
-		bucket.metadata = metadata;
-		await bucket.save();
+	it('spends ordinary queue attempts for pre-output outages without blocking another run', async () => {
+		fetch.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'bounded-outage', maxTries: 2, backoff: 0 });
+		expect((await application.queue.workNextJob('bounded-outage'))?.status).toBe('released');
 		await QueuedJob.query().patch({ availableAt: Math.floor(Date.now() / 1000) - 1 });
-		const result = await application.queue.workNextJob('deadline-agent');
-		expect(result?.status).toBe('failed');
-		expect(result?.error).toMatchObject({ stopStage: 'deadline', reason: 'outage', providerStarted: false, providerCode: null, status: null, requestId: null });
-		expect(String(result?.error)).toContain('failure deadline reached');
+		expect((await application.queue.workNextJob('bounded-outage'))?.status).toBe('failed');
+		expect(fetch).toHaveBeenCalledTimes(2);
 		expect(await QueuedJob.query().count()).toBe(0);
-		expect(await FailedJob.query().count()).toBe(1);
-		expect(fetch).toHaveBeenCalledTimes(1);
+		fetch.mockResolvedValueOnce(textStream('Available.'));
+		expect((await new HelpAgent({ guidePath: 'help.md' }).run('Independent work.')).finalOutput).toBe('Available.');
+		expect(fetch).toHaveBeenCalledTimes(3);
 	});
 
 	it('releases agent reservations after a transport failure so the next run can start', async () => {
 		fetch.mockRejectedValueOnce(new TypeError('fetch failed'));
 		await expect(new HelpAgent({ guidePath: 'help.md' }).run('Help.')).rejects.toThrow();
 		expect(await AiRateLimitReservation.query().count()).toBe(0);
-		await expect(new HelpAgent({ guidePath: 'help.md' }).run('Still blocked.')).rejects.toThrow('temporarily unavailable');
-		expect(fetch).toHaveBeenCalledTimes(1);
-		await application.ai.providerAdmission.reset(application.ai.resolveProviders()[0]!);
 		fetch.mockResolvedValueOnce(textStream('Recovered.'));
 		expect((await new HelpAgent({ guidePath: 'help.md' }).run('Try again.')).finalOutput).toBe('Recovered.');
 		expect(fetch).toHaveBeenCalledTimes(2);
@@ -664,7 +659,7 @@ describe('AI inside an application', () => {
 	});
 
 	it('records failed provider work and fails over a text request to its next configured provider', async () => {
-		fetch.mockResolvedValueOnce(Response.json({ error: { message: 'Temporarily unavailable' } }, { status: 503 }))
+		fetch.mockResolvedValueOnce(Response.json({ error: { message: 'Temporarily unavailable' } }, { status: 503, headers: { 'retry-after-ms': '1' } }))
 			.mockResolvedValueOnce(Response.json({ output_text: 'Recovered.', usage: { input_tokens: 5, output_tokens: 2, total_tokens: 7 } }));
 		const result = await application.ai.generateTextWithResponse({ instructions: 'Reply.', input: 'Hello.', provider: { openai: 'test-model', openrouter: 'test-model' } });
 		expect(result.text).toBe('Recovered.');
@@ -710,7 +705,7 @@ describe('AI inside an application', () => {
 		const requests = await AiRequest.query().all();
 		expect(requests.some(request => request.status === 'failed' && request.provider === 'openai' && request.totalTokens === 5)).toBe(true);
 		expect(requests.some(request => request.status === 'completed' && request.provider === 'openrouter')).toBe(true);
-		await expect(application.ai.providerAdmission.acquire({ provider: 'openai', apiKey: 'synthetic-test-key', baseUrl: 'https://api.openai.com/v1', model: 'another-model', supportsResponsesApi: true })).rejects.toBeInstanceOf(code === 'insufficient_quota' ? AIProviderStoppedError : AIProviderDeferredError);
+		expect((await AiRateLimitBucket.query().all()).some(bucket => bucket.limitKey === 'account-admission')).toBe(false);
 	});
 
 });

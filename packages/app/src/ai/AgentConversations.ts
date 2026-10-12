@@ -1,6 +1,8 @@
 import type { AgentStreamingOptions } from './contracts/AgentStreamingOptions';
 import { createHash } from 'node:crypto';
 import { ActiveRecord } from '@db3.ai/app/db';
+import { RunnableJob } from '@db3.ai/app/queue';
+import { databaseTransactionCommit } from '../db/databaseTransactionCommit';
 import { app } from '../server/appContext';
 import { agentConversationTimeline } from './AgentHistory';
 import { AiStreamEvent } from './AiStreamEvent';
@@ -18,6 +20,7 @@ const ITEM_BYTES = 8000;
 export class AgentConversations {
 	readonly #publishing = new Map<string, Promise<void>>();
 	readonly #dirty = new Set<string>();
+	readonly #stopListeners = new Map<string, Set<() => void>>();
 	#pruneAfter: string | undefined;
 	/** Binds model subclasses and policy without creating another execution service. */
 	constructor(readonly ai: Ai, readonly options?: AgentStreamingOptions) {
@@ -27,6 +30,34 @@ export class AgentConversations {
 
 	/** Whether this application has installed and enabled durable recording. */
 	get enabled(): boolean { return this.options?.enabled === true; }
+
+	/**
+	 * Cancels one authorized turn and fences further output in the same transaction.
+	 * Existing history is retained. A new send creates a new turn in this conversation.
+	 * Already completed work is not undone; external tools stop cooperatively.
+	 */
+	async stop(context: stream.AgentReadContext, input: stream.AgentStopInput): Promise<stream.AgentStopResult> {
+		if (!input.conversationId || !input.aiRequestId) throw new AgentConversationReadError(400, 'A conversation and run are required.');
+		if (!this.enabled || !context.userId || !this.options?.authorizeStop) throw new AgentConversationReadError(404, 'Conversation not found.');
+		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		const result = await this.#transaction(async () => {
+			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().first();
+			const scope = conversation?.get(this.ai.scopeField) as string | { id?: string } | null;
+			if (!conversation || context.scopeId !== undefined && context.scopeId !== (typeof scope === 'string' ? scope : scope?.id) || !await this.options!.authorizeStop!(context, conversation)) throw new AgentConversationReadError(404, 'Conversation not found.');
+			if (conversation.streamState?.run.aiRequestId !== input.aiRequestId) throw new AgentConversationReadError(409, 'This conversation has a different current run.');
+			if (['queued', 'running', 'waiting'].includes(conversation.streamState.run.status)) await this.#settleStop(conversation, 'Conversation stopped.', 'cancelled');
+			return { ...input, status: conversation.streamState.run.status };
+		});
+		this.#afterStop(input.conversationId, input.aiRequestId, committed);
+		return result;
+	}
+
+	/** Registers a local execution wakeup; workers in other processes observe the durable fence. */
+	onStop(aiRequestId: string, listener: () => void): () => void {
+		const listeners = this.#stopListeners.get(aiRequestId) ?? new Set<() => void>();
+		listeners.add(listener); this.#stopListeners.set(aiRequestId, listeners);
+		return () => { listeners.delete(listener); if (!listeners.size) this.#stopListeners.delete(aiRequestId); };
+	}
 
 	/** Uses the same fail-closed policy for HTTP reads and every socket delivery. */
 	async authorized(context: stream.AgentReadContext, conversationId: string, view: stream.AgentView): Promise<boolean> {
@@ -165,21 +196,53 @@ export class AgentConversations {
 		const request = await this.ai.models.request.find(aiRequestId);
 		if (!request?.conversation?.id) return;
 		const id = String(request.conversation.id);
+		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
 		await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', id).forUpdate().firstOrFail();
 			if (!conversation.streamState || conversation.streamState.run.aiRequestId !== aiRequestId) return;
-			const root = await this.ai.models.request.findOrFail(aiRequestId);
-			if (root.status === 'completed' || ['completed', 'cancelled', 'blocked'].includes(conversation.streamState.run.status) || conversation.streamState.run.status === status && conversation.streamState.owner === null) return;
-			await this.ai.models.request.where('id', aiRequestId).where('status', 'pending').patch({ status: 'failed', completedAt: new Date(), errorMessage: message });
-			const run: stream.AgentRunState = { ...conversation.streamState.run, status, completedAt: new Date().toISOString(), error: { message: message.slice(0, 512) } };
-			conversation.streamState = { owner: null, run, activity: { code: status, label: status.charAt(0).toUpperCase() + status.slice(1) } };
-			for (const event of [{ type: 'run.state', run }, { type: 'status.changed', activity: conversation.streamState.activity }] as stream.AgentConversationEvent[]) {
-				conversation.streamSequence++;
-				await AiStreamEvent.create({ conversation: id, sequence: conversation.streamSequence, aiRequestId, attempt: run.attempt, itemId: null, event }).save();
-			}
-			await conversation.save();
+			await this.#settleStop(conversation, message, status);
 		});
-		this.kick(id);
+		this.#afterStop(id, aiRequestId, committed);
+	}
+
+	/** Settles under the caller's conversation lock, preserving output and idempotency. */
+	async #settleStop(conversation: AiConversation, message: string, status: 'failed' | 'blocked' | 'cancelled'): Promise<void> {
+		const previous = conversation.streamState!;
+		const aiRequestId = previous.run.aiRequestId;
+		const root = await this.ai.models.request.findOrFail(aiRequestId);
+		if (root.status === 'completed' || ['completed', 'cancelled', 'blocked'].includes(previous.run.status) || previous.run.status === status && previous.owner === null) return;
+		const jobRunId = root.metadata?.jobRunId;
+		if (status === 'cancelled' && typeof jobRunId === 'string') {
+			const job = await RunnableJob.where('id', jobRunId).forUpdate().first();
+			const input = job?.input as { aiRequestId?: string; conversationId?: string } | null;
+			// Only the retained job owning this exact turn may propagate cancellation to its children.
+			if (job && input?.aiRequestId === aiRequestId && input.conversationId === conversation.id && (job.status === 'waiting' || job.status === 'running')) await RunnableJob.where('id', jobRunId).patch({ cancelRequestedAt: new Date() });
+		}
+		await this.ai.models.request.where('id', aiRequestId).where('status', 'pending').patch({ status: 'failed', completedAt: new Date(), errorMessage: message, ...(status === 'cancelled' ? { errorCode: 'agent_cancelled' } : {}) });
+		const run: stream.AgentRunState = { ...previous.run, status, completedAt: new Date().toISOString(), error: status === 'cancelled' ? null : { message: message.slice(0, 512) } };
+		conversation.streamState = { owner: null, run, activity: { code: status, label: status === 'cancelled' ? 'Stopped' : status.charAt(0).toUpperCase() + status.slice(1) } };
+		const events: Array<{ event: stream.AgentConversationEvent; itemId: string | null }> = [];
+		for (const partial of await this.ai.models.message.where('conversation', conversation.id).where('aiRequest', aiRequestId).all()) {
+			if (!partial.metadata?.streaming) continue;
+			await partial.assign({ metadata: { ...partial.metadata, streaming: false } }).save();
+			const item = agentConversationTimeline([partial], [], [], { activeRequestId: null })[0];
+			const projected = item && this.projectItem(item, `message:${partial.id}`, 'admin');
+			if (projected) events.push({ event: { type: 'item.changed', item: projected }, itemId: item.id });
+		}
+		events.push({ event: { type: 'run.state', run }, itemId: null }, { event: { type: 'status.changed', activity: conversation.streamState.activity }, itemId: null });
+		for (const entry of events) {
+			conversation.streamSequence++;
+			await AiStreamEvent.create({ conversation: conversation.id, sequence: conversation.streamSequence, aiRequestId, attempt: run.attempt, ...entry }).save();
+		}
+		await conversation.save();
+	}
+
+	/** Publishes and wakes local execution only after all enclosing transactions commit. */
+	#afterStop(conversationId: string, aiRequestId: string, committed?: Promise<boolean>): void {
+		const database = app().db.knex;
+		/** Re-enters the ordinary database scope after the mutation's transaction closes. */
+		const notify = (): void => ActiveRecord.withDb(database, () => { this.kick(conversationId); for (const listener of this.#stopListeners.get(aiRequestId) ?? []) listener(); });
+		if (committed) void committed.then(success => { if (success) notify(); }); else notify();
 	}
 
 	/** Expires only terminal replay, retaining current messages and all active streams. */

@@ -493,8 +493,8 @@ import { createSsrRenderContext, renderSsrDocument, SSR_APP_MARKER, SSR_STATE_MA
 
 import { ActiveRecord, mariaDbDialect, rememberDatabaseDialect } from '@db3.ai/app/db';
 if (ActiveRecord.getScopedDb() !== undefined) throw new Error('Unexpected database scope.');
-import { AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
-const admissionDeferral = new AIProviderDeferredError(new Date(), new Date(), 'server_error', { status: 503, requestId: 'req_consumer' });
+import { AIProviderRetryError, AIProviderStoppedError, AIRequestTrackingError, Agent, calculateAIRequestCostUSD, calculateAIImageRequestCostUSD, chunkEmbeddingText } from '@db3.ai/app/ai';
+const admissionDeferral = new AIProviderRetryError(1000, 'server_error', { status: 503, requestId: 'req_consumer' });
 const streamStop = new AIProviderStoppedError('outage', admissionDeferral.providerCode, { ...admissionDeferral.diagnostics, stopStage: 'stream-output' });
 if (streamStop.stopStage !== 'stream-output' || streamStop.status !== 503 || streamStop.requestId !== 'req_consumer' || streamStop.message.includes('deadline')) throw new Error('Installed provider stop diagnostics failed.');
 const passages = chunkEmbeddingText('Unicode 🪵 text '.repeat(1000), { context: 'Page title', maxTokens: 256 });
@@ -657,10 +657,10 @@ registerBrowserJsonFormatting(Fastify());
 const safeErrorMessage: string = publicServerErrorMessage(new Error('secret'), 'production');
 void safeErrorMessage;
 import type { TextResponsePayload } from '@db3.ai/pure/ai';
-import { Ai, AIProviderDeferredError, AIProviderStoppedError, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput, type AIServiceTier } from '@db3.ai/app/ai';
-const typedDeferral = new AIProviderDeferredError(new Date(), new Date(), 'server_error', { status: 503, requestId: 'req_consumer' });
+import { Ai, AIProviderRetryError, AIProviderStoppedError, AIRequestTrackingError, Agent, AiConversation, AiMessage, AiRequest, agentToolContext, emitAgentToolProgress, type AgentToolProgressInput, type AIServiceTier } from '@db3.ai/app/ai';
+const typedDeferral = new AIProviderRetryError(1000, 'server_error', { status: 503, requestId: 'req_consumer' });
 const typedStop = new AIProviderStoppedError('outage', typedDeferral.providerCode, { ...typedDeferral.diagnostics, stopStage: 'stream-output' });
-const stopStage: 'quota' | 'deadline' | 'stream-output' = typedStop.stopStage;
+const stopStage: 'quota' | 'stream-output' = typedStop.stopStage;
 void stopStage;
 import { chunkEmbeddingText, type EmbeddingTextChunk, type GenerateTextResult } from '@db3.ai/app/ai';
 const preparedChunks: EmbeddingTextChunk[] = chunkEmbeddingText('A document', { context: 'Title', maxTokens: 8000 });

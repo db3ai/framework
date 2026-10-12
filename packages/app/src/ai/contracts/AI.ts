@@ -143,8 +143,6 @@ export interface AIOptions {
 	fetch?: typeof fetch;
 	/** Rate limiter used before provider requests. Pass false only in isolated tests. */
 	rateLimiter?: AIRateLimiter | false;
-	/** Durable account admission policy; capacity limiter disabling never bypasses it. */
-	providerAdmission?: import('../AIProviderAdmission').AIProviderAdmissionOptions;
 	/** Optional customer allowance hook. Defaults to no-op until billing limits exist. */
 	allowance?: AIAllowanceChecker | false;
 }
@@ -153,8 +151,6 @@ export interface AIOptions {
  * Plain text request sent to the Responses API.
  */
 export interface GenerateTextInput {
-	/** Keep transient failures local to optional work; account quota and existing admission stops still apply. */
-	transientFailureScope?: 'account' | 'request';
 	/** Explicit OpenAI processing tier; defaults to Standard. No automatic tier fallback. */
 	serviceTier?: AIServiceTier;
 	/** Optional per-call model override for the OpenAI provider entry. */

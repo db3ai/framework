@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+import { createHash } from 'node:crypto';
 import { App } from '@db3.ai/app/server';
 import { Ai, AiConversation, AiMessage, AiRequest, AiRateLimitBucket, AiRateLimitReservation, AIProviderStoppedError } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
@@ -25,10 +26,19 @@ afterAll(async () => { try { await application?.close(); } finally { await datab
 
 /** Executes optional structured work through the actual tracked provider boundary. */
 function optionalRequest() {
-	return ai.generateStructured({ instructions: 'Extract.', input: 'Evidence.', schemaName: 'optional-test', schema: z.object({ answer: z.string() }), transientFailureScope: 'request' });
+	return ai.generateStructured({ instructions: 'Extract.', input: 'Evidence.', schemaName: 'optional-test', schema: z.object({ answer: z.string() }) });
 }
 
 describe('optional structured request failure isolation', () => {
+	it('ignores a previously stopped account row without a reset or migration', async () => {
+		const digest = createHash('sha256').update('openai\nhttps://synthetic.invalid/v1\nsynthetic-isolation').digest('hex');
+		const legacy = await AiRateLimitBucket.create({ bucketKey: `openai:account:${digest}`, provider: 'openai', endpoint: 'responses', limitKey: 'account-admission', metadata: { admission: { generation: 'old', failures: 1, deadline: Date.now() - 1000, retryAt: 0, stopped: true, reason: 'outage', probe: null, probeUntil: 0 } } }).save();
+		fetcher.mockResolvedValueOnce(Response.json({ output_text: 'Available' }));
+		await expect(ai.generateText({ instructions: '', input: 'New work' })).resolves.toBe('Available');
+		expect(fetcher).toHaveBeenCalledOnce();
+		expect((await AiRateLimitBucket.findOrFail(legacy.id)).metadata).toEqual(legacy.metadata);
+	});
+
 	it.each(['timeout', 'server', 'invalid-output'])('keeps %s failures local and admits a later normal request', async kind => {
 		fetcher.mockImplementationOnce(async () => {
 			if (kind === 'timeout') throw new DOMException('Request expired.', 'TimeoutError');
@@ -41,17 +51,17 @@ describe('optional structured request failure isolation', () => {
 		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 
-	it('preserves shared exhausted-credit protection', async () => {
-		fetcher.mockResolvedValue(Response.json({ error: { code: 'insufficient_quota' } }, { status: 429 }));
+	it('isolates exhausted credits to each attempted request', async () => {
+		fetcher.mockImplementation(async () => Response.json({ error: { code: 'insufficient_quota' } }, { status: 429 }));
 		await expect(optionalRequest()).rejects.toBeInstanceOf(AIProviderStoppedError);
 		await expect(ai.generateText({ instructions: '', input: 'Other work' })).rejects.toBeInstanceOf(AIProviderStoppedError);
-		expect(fetcher).toHaveBeenCalledTimes(1);
+		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 
-	it('honours an existing account outage rather than bypassing admission', async () => {
-		fetcher.mockResolvedValue(Response.json({ error: { code: 'server_error' } }, { status: 503 }));
+	it('attempts independent work after a transient outage', async () => {
+		fetcher.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
 		await expect(ai.generateText({ instructions: '', input: 'Ordinary work' })).rejects.toThrow();
 		await expect(optionalRequest()).rejects.toThrow();
-		expect(fetcher).toHaveBeenCalledTimes(1);
+		expect(fetcher).toHaveBeenCalledTimes(2);
 	});
 });

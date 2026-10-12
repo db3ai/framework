@@ -396,64 +396,60 @@ Capacity deferrals integrate with queue retries. The `allowance` hook
 checks application budgets separately. Override `usageCharge()` and
 `settleUsage()` in an agent when your app needs an idempotent commercial ledger.
 
-## Provider account admission and recovery
+## Stopping one conversation
 
-`AIProviderAdmission` shares account availability through a dedicated existing
-`ai_rate_limit_buckets` row. Its metadata is keyed by provider, normalized base
-URL and a one-way key digest, across models/endpoints and workers. Separate API keys are separate identities even if the provider funds them from the same billing account; the framework cannot infer that relationship. Raw keys,
-provider messages and prompts are never stored in this account state. Capacity
-limiting can be disabled without disabling account admission.
-
-Explicit `insufficient_quota`, `billing_hard_limit_reached` or “no credits
-remaining” responses immediately stop the account. Ordinary 429 capacity stays
-with the existing limiter. Network/timeouts/408/5xx and explicit overload/server
-errors start one continuous outage episode. Explicit caller cancellation does not
-trip an account outage or prove recovery; an existing recovery lease remains
-bounded. This lets independently authorized cleanup and later runs continue. `ai.providerAdmission` configures
-`initialSeconds` (30), `maxSeconds` (300), `failureWindowSeconds` (900) and
-`recoveryLeaseSeconds` (request timeout plus 30). Values must be positive; the
-recovery lease must exceed the request timeout. These conservative defaults
-limit a fifteen-minute outage to a few real recovery attempts, without assuming
-that credits will return automatically or using paid background probes.
-
-After cooldown only one real waiting request owns recovery. A crash leaves a
-bounded lease; generations and lease tokens prevent stale successes from
-clearing a newer outage or credit stop. The fixed episode deadline also stops
-newly dispatched jobs. Expired episodes and exhausted accounts remain stopped
-across restarts. `AIProviderDeferredError` releases queue reservations without
-spending a try; `AIProviderStoppedError` terminates immediately with a failed-job
-record and normal final-failure hooks, even when more tries were configured.
-After a completed model/tool turn, agents retry only the current model request
-when the SDK has emitted no event for that request. The SDK retains completed
-tools and exact current input, waits for shared admission, and allows at most
-eight retries inside the existing fifteen-minute episode deadline. Each retry
-reacquires capacity and exclusive recovery admission. Queue lease renewal remains
-active while this bounded in-process wait occupies the worker; it is not a durable
-checkpoint and a worker crash cannot promise continuation. Cancellation, exhausted
-quota, stateful requests and any current-request SDK event veto this recovery.
-Failures after such events still stop instead of replaying the whole agent.
-Saved attempts and results remain.
-Terminal errors expose `stopStage`: `quota` for exhausted admission, `deadline`
-for expired outage admission, and `stream-output` for an individual run stopped
-while the account may still be in cooldown. A streamed-output stop does not
-establish that the account deadline elapsed or require resetting the account.
-Observed deferrals carry recognized provider codes, rejection HTTP status and
-bounded support request IDs into the terminal error; blocked siblings retain
-unknown fields. Raw provider messages and payloads are not attached.
-
-After independently repairing availability or credits, an authorized server
-operator can select the configured account and reset its admission state:
+Configure `ai.streaming.authorizeStop(context, conversation)` separately from
+read authorization. Missing policy denies; IDs never confer access. HTTP routes
+supply authenticated `userId` and the selected `scopeId` themselves.
 
 ```ts
-const attempt = app().ai.resolveProviders()[0];
-if (!attempt) throw new Error('No configured provider account.');
-await app().ai.providerAdmission.reset(attempt);
+const outcome = await app().ai.conversations.stop(actor, {
+	conversationId,
+	aiRequestId, // The exact currently displayed turn, not a provider response ID.
+});
 ```
 
-This executes no HTTP, changes no key/model/billing setting and dispatches or
-replays no job. Failed jobs require a separately authorized retry. The reset
-must run on the deployed app/database with trusted server-side configuration;
-never expose credentials or this operation to an unscoped client.
+Stop is idempotent for the current turn. A terminal turn is unchanged; a stale
+turn ID returns 409. The transaction records `cancelled`, retains partial output
+and prevents further writes by the stopped run. The root request uses the existing
+`failed` status with `errorCode: agent_cancelled`. The conversation remains usable:
+send another message to start a new turn, with a new submission key. Stop does not
+undo completed tools or guarantee immediate cancellation of an external operation.
+
+An active local execution is notified after commit. Other workers detect the
+fence at output boundaries and check it every ten seconds while running, including
+during silent provider calls. Idle conversations do not poll. Retained jobs settle
+as cancelled; lightweight queue deliveries terminate without automatic retry.
+
+Browser handles call `await conversation.stop()` through an app-owned HTTP
+adapter. The shipped help example uses `POST /:conversationId/stop` with
+`{ aiRequestId }`, delegating to the service above. The handle captures the loaded
+turn ID. `dispose()` and subscription cleanup only detach the viewer; they never
+stop server execution. `await conversation.send('Continue with ...')` starts a
+new turn after the stopped history. WebSocket updates publish the same saved state.
+
+## Provider failures and bounded retries
+
+Provider failures are local to the request or agent run. There is no persistent
+account outage guard, fifteen-minute failure deadline, or operator reset. Old
+account-admission rows are ignored; removing this policy requires no migration.
+Capacity rate limits, application allowances and usage accounting still apply.
+
+`AIProviderTransport` retains safe HTTP/SSE diagnostics for the resolved request.
+Quota errors terminate that run with `AIProviderStoppedError` (`stopStage: quota`).
+Transient transport/408/5xx errors use `AIProviderRetryError`; ordinary queue
+retries consume the configured job attempt budget. They do not defer forever or
+block later requests using the same credential. Independent requests may still
+fail if the provider itself remains unavailable or out of credit.
+
+After completed model/tool turns, the SDK can retry only the current model
+request, at most eight times, with bounded exponential delays from 1 to 30
+seconds (or a bounded provider retry hint). It retains completed tools and exact
+input. Each request reacquires normal capacity. Cancellation, quota, stateful
+requests, and output from the current request veto recovery. A transient failure
+after streamed output terminates that run (`stopStage: stream-output`) to avoid
+replaying tools. Saved history and usage remain. These are bounded in-process
+retries, not a promise of exactly-once external side effects after a worker crash.
 
 `generateEmbedding(..., { retainResult: true })` opts into retaining the completed
 vector in the existing request response. Applications may use this for partial
@@ -511,10 +507,6 @@ oversized events, incomplete EOF and cancellation retain the bounded recovery
 lease rather than asserting success. Retained lines/events are limited to one
 MiB of decoded characters; oversized events are discarded only by the observer
 until their blank boundary, and later valid quota events still stop the account.
-
-### Optional request failure isolation
-
-Text and structured calls may set `transientFailureScope: "request"` for optional work. Timeouts, transport failures and server errors then fail that request without opening the shared account outage circuit. Existing account admission stops and explicit quota exhaustion remain shared. Capacity limits, allowance checks and usage tracking still apply. This does not guarantee provider availability or remove the cost of a request.
 
 ### Queued tool continuation
 
