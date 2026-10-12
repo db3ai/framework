@@ -173,8 +173,8 @@ one available job and returns `null` when idle. Its statuses are `succeeded`,
 
 `startWorker()` starts a polling loop. `workerEnabled: false` or
 `QUEUE_WORKER=false` disables it unless forced. `maxJobsPerTick` bounds sequential
-work per tick; it is not concurrency. Use more supervised worker processes for
-parallelism. Polling defaults to 1000 ms and valid intervals are clamped to at
+work per tick; it is not concurrency. Set selection `concurrency` for bounded asynchronous slots within one process,
+or use more supervised worker processes for process isolation. Polling defaults to 1000 ms and valid intervals are clamped to at
 least 100 ms. `queue:work --once` checks once and exits, even if delayed work exists.
 
 ### Share worker capacity
@@ -195,7 +195,7 @@ await Promise.all([general?.stopAndDrain(), shared?.stopAndDrain()]);
 
 Exclusions win before claiming. Names are exact, without patterns; duplicates
 are removed. Empty names/arrays and fully excluded explicit selections fail.
-Omitting selection retains the configured default. Each worker executes one
+Omitting selection retains the configured default. Each execution slot runs one
 job at a time, rotates after a claim and skips unavailable queues. Round-robin
 shares claim opportunities, not processing time; running jobs are not preempted.
 
@@ -507,3 +507,17 @@ queue selections are shared capacity, not additional worker processes.
 App queues report listener/hook exceptions and job identity through `app.log`;
 `onLifecycleError` overrides this. Standalone queues use stderr. Committed queue
 transitions remain unchanged: essential settlement must be idempotent and recoverable.
+
+### Concurrent I/O slots
+
+`queue.startWorker({ queues: ['images'], concurrency: 4 })` starts four independent
+polling slots in one Node process. The default is one; integers from 1 to 32 are
+accepted. Each slot has its own claims, lease renewal, fairness and presence
+record, so queue administration may show several slots with the same PID.
+`maxJobsPerTick` remains a sequential per-slot batch limit. Provider rate limits
+still apply across all slots. CPU-bound JavaScript still shares the event loop.
+
+`stop()` prevents new claims in every slot; `stopAndDrain()` waits for every active
+job. `workOnce()` always executes at most one job and cannot run alongside a
+started pool. Configure concurrency in a console worker selection to retain the
+same lifecycle behavior with `--pool`; `--once` still processes a single job.

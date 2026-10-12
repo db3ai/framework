@@ -636,7 +636,7 @@ import { databaseCommands } from '@db3.ai/app/db/commands';
 import { StringField } from '@db3.ai/app/db/fields/StringField';
 import type { FieldConfig } from '@db3.ai/app/db/FieldType';
 import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueSelection } from '@db3.ai/app/queue';
-const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'] };
+const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'], concurrency: 4 };
 declare const consumingQueue: Queue;
 const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsPerTick: 1 });
 const boundedWorker = new QueueWorker(consumingQueue, { queues: ['default', 'articles'] });

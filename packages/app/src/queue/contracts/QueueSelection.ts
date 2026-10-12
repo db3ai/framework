@@ -8,4 +8,6 @@ export interface QueueSelection {
 	queues?: readonly string[] | '*';
 	/** Exact names that this worker must never claim, including when using '*'. */
 	excludeQueues?: readonly string[];
+	/** Independent in-process polling slots (1–32). Each slot owns its lease and presence; one-shot work still processes one job. */
+	concurrency?: number;
 }

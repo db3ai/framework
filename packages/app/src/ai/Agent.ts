@@ -911,7 +911,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const previousMessages = await this.previousMessages(conversation, aiRequest.id ? String(aiRequest.id) : null);
 		const invocation = await this.prepareAgentInvocation(payload.message, previousMessages);
 
-		return {
+		const prepared: PreparedAgentRun = {
 			message: payload.message,
 			model: payload.model,
 			serviceTier: payload.serviceTier ?? 'default',
@@ -934,6 +934,48 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				toolArgumentsByCallId: {},
 			},
 		};
+		if (recordValue(aiRequest.response)?.providerFinalized !== true) {
+			invocation.input.push(...await this.queuedRunContinuation(prepared.state));
+		}
+		return prepared;
+	}
+
+	/**
+	 * Reconciles an interrupted tool against application-owned durable work.
+	 * Return its final tool result only when the operation is safe to recover;
+	 * undefined retains the normal interrupted-call result. Never blindly rerun side effects.
+	 * Recovery happens before provider admission, so waiting consumes no model capacity.
+	 */
+	protected async recoverQueuedToolCall(_message: AiMessage, _root: AiRequest): Promise<unknown | undefined> {
+		return undefined;
+	}
+
+	/**
+	 * Restores the current queued run after its original task input, without truncating
+	 * completed research or replaying tools. Historical conversation limits apply only
+	 * to earlier runs. Known durable tools may repair missing results after a crash.
+	 */
+	private async queuedRunContinuation(state: agent.AgentPersistenceState): Promise<agent.AgentModelInput> {
+		const messages = await app().ai.models.message.where('conversation', state.conversation.id)
+			.where('aiRequest', state.rootAiRequest.id).orderBy('sequence', 'asc').all();
+		const unresolved = unresolvedToolCallIds(messages);
+		for (const message of [...messages]) {
+			if (!message.toolCallId || !unresolved.delete(message.toolCallId)) continue;
+			const result = await this.recoverQueuedToolCall(message, state.rootAiRequest);
+			if (result === undefined) continue;
+			const error = toolResultErrorMessage(result);
+			const toolState = error ? AI_MESSAGE_TOOL_STATE.error : AI_MESSAGE_TOOL_STATE.success;
+			messages.push(await this.saveMessage(state, {
+				role: AI_MESSAGE_ROLE.tool, content: `${message.toolName} ${error ? 'failed' : 'completed'}.`,
+				toolName: message.toolName, toolCallId: message.toolCallId, toolState,
+				contentJson: { state: toolState, arguments: recordValue(message.contentJson)?.arguments, result },
+				metadata: { eventType: error ? 'tool_error' : 'tool_success', traceId: state.traceId, recovered: true },
+			}));
+		}
+		const unresolvedIds = unresolvedToolCallIds(messages);
+		const seen = new Set<string>();
+		return messages.filter(message => message.role !== AI_MESSAGE_ROLE.system && message.role !== AI_MESSAGE_ROLE.user)
+			.flatMap(message => agentInputItemsFromAiMessage(message, seen, unresolvedIds));
 	}
 
 	/**

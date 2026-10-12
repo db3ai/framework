@@ -12,13 +12,16 @@ const DEFAULT_MAX_JOBS_PER_TICK = 5;
 const MIN_MAX_JOBS_PER_TICK = 1;
 
 /**
- * Polls eligible named queues in round-robin order, executing one job at a time.
+ * Polls eligible named queues in round-robin order, executing one job per configured slot at a time.
  *
  * The worker intentionally owns only timer and lifecycle behavior. It delegates claims,
  * handler execution, retries, and failure recording back to Queue.
  */
 export class QueueWorker implements queue.QueueWorkerLifecycle {
 	readonly #presence: QueueWorkerReporter;
+	/** Independent slots preserve existing claim, lease, fairness and presence semantics. */
+	readonly #slots: QueueWorker[];
+	#slotsStarted = false;
 	#activeTick: Promise<void> | null = null;
 	#activeJob: Promise<queue.QueueProcessResult | null> | null = null;
 	#lastQueue: string | null = null;
@@ -40,6 +43,9 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		private readonly verbose = false,
 	) {
 		const requested = typeof selection === 'string' ? { queues: [selection] } : selection;
+		const concurrency = requested.concurrency ?? 1;
+		if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) throw new Error('Worker concurrency must be an integer between 1 and 32.');
+		this.#slots = concurrency === 1 ? [] : Array.from({ length: concurrency }, () => new QueueWorker(queueManager, { ...requested, concurrency: 1 }, intervalMs, maxJobsPerTick, logger, verbose));
 		this.#queues = requested.queues === '*' ? '*' : normalizeQueueNames(requested.queues ?? ['default']);
 		if (this.#queues !== '*' && this.#queues.length === 0) throw new Error('A worker must select at least one queue.');
 		this.#excludeQueues = new Set(normalizeQueueNames(requested.excludeQueues ?? []));
@@ -55,6 +61,13 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 * Starts the worker with an immediate tick followed by interval-based polling.
 	 */
 	start(): void {
+		if (this.#slots.length) {
+			if (this.#activeJob) throw new Error('This queue worker is already processing a job.');
+			this.#stopping = false;
+			this.#slotsStarted = true;
+			for (const slot of this.#slots) slot.start();
+			return;
+		}
 		if (this.timer) return;
 		this.#stopping = false;
 
@@ -73,6 +86,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	stop(): void {
 		this.#stopping = true;
+		if (this.#slotsStarted) { for (const slot of this.#slots) slot.stop(); return; }
 		if (this.#activeJob) this.#presence.update('stopping'); else void this.#presence.stop();
 		if (!this.timer) return;
 
@@ -86,6 +100,11 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	async stopAndDrain(): Promise<void> {
 		this.stop();
+		if (this.#slotsStarted) {
+			await Promise.all(this.#slots.map(slot => slot.stopAndDrain()));
+			this.#slotsStarted = false;
+			return;
+		}
 
 		if (this.#activeTick) {
 			await this.#activeTick;
@@ -100,7 +119,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 * Concurrent calls are rejected so one worker cannot occupy multiple execution slots.
 	 */
 	async workOnce(options: queue.QueueWorkOptions = {}): Promise<queue.QueueProcessResult | null> {
-		if (this.#activeJob) throw new Error('This queue worker is already processing a job.');
+		if (this.#activeJob || this.#slotsStarted) throw new Error('This queue worker is already processing a job.');
 		if (this.#stopping) return null;
 		this.#presence.start();
 		const pending = this.#workOnce(options);

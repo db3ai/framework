@@ -390,3 +390,17 @@ until their blank boundary, and later valid quota events still stop the account.
 ### Optional request failure isolation
 
 Text and structured calls may set `transientFailureScope: "request"` for optional work. Timeouts, transport failures and server errors then fail that request without opening the shared account outage circuit. Existing account admission stops and explicit quota exhaustion remain shared. Capacity limits, allowance checks and usage tracking still apply. This does not guarantee provider availability or remove the cost of a request.
+
+### Queued tool continuation
+
+A queued retry restores the current run's persisted tools and results after its
+original task input. The earlier-conversation history limit does not truncate
+that run's research. Completed tools are supplied as history, not executed again.
+Applications can override `recoverQueuedToolCall(message, rootRequest)` to resolve
+an interrupted tool against a durable operation and return its final tool result.
+The runtime persists that result under the original call id before contacting the
+model. Returning `undefined` retains the normal interrupted-tool error; arbitrary
+side effects are never replayed automatically. Recovery runs before model capacity
+admission. The application must validate operation ownership and await or recover
+only work it can safely identify. This is history continuation, not a guarantee
+that an external provider side effect occurs exactly once.

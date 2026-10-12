@@ -609,6 +609,25 @@ describe('AI inside an application', () => {
 		expect(fetch).toHaveBeenCalledTimes(2);
 	});
 
+	it('preserves all current-run research on queued recovery, beyond the earlier-conversation limit', async () => {
+		const queued = await new HelpAgent({ guidePath: 'help.md' }).queue('Continue research.', { queue: 'continuation' });
+		for (let index = 0; index < 60; index++) {
+			for (const state of ['calling', 'success'] as const) {
+				await AiMessage.create({ conversation: queued.conversationId, aiRequest: queued.aiRequestId, role: 'tool',
+					sequence: 3 + index * 2 + (state === 'success' ? 1 : 0), toolCallId: `research_${index}`, toolName: 'read_help_guide', toolState: state,
+					contentJson: { state, arguments: {}, result: state === 'success' ? `Evidence ${index}` : undefined } }).save();
+			}
+		}
+		fetch.mockResolvedValueOnce(textStream('Recovered without repeating research.'));
+		expect((await application.queue.workNextJob('continuation'))?.status).toBe('succeeded');
+		const input = JSON.parse(String(fetch.mock.calls[0][1]?.body)).input;
+		const outputs = input.filter((item: { type: string }) => item.type === 'function_call_output');
+		expect(outputs).toHaveLength(60);
+		expect(outputs[0]).toMatchObject({ call_id: 'research_0', output: 'Evidence 0' });
+		expect(outputs[59]).toMatchObject({ call_id: 'research_59', output: 'Evidence 59' });
+		expect(input.filter((item: { role?: string }) => item.role === 'user')).toHaveLength(1);
+	});
+
 	it('restores a queued agent and saves its completed result', async () => {
 		const queued = await new HelpAgent({ user: 'ada', scope: 'team-a', guidePath: 'help.md' }).queue('Help me.', { queue: 'help' });
 		expect(fetch).not.toHaveBeenCalled();
