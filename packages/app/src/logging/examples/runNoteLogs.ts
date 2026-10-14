@@ -1,6 +1,5 @@
-import { Writable } from 'node:stream';
 import { pathToFileURL } from 'node:url';
-import { Log, PinoLoggerDriver } from '@db3.ai/app/logging';
+import { Log } from '@db3.ai/app/logging';
 
 /**
  * Captures real structured logs and demonstrates child context and redaction.
@@ -9,11 +8,15 @@ import { Log, PinoLoggerDriver } from '@db3.ai/app/logging';
  */
 export async function runNoteLogs() {
 	const chunks: string[] = [];
-	const destination = new Writable({
-		/** Captures complete Pino output using a real writable stream. */
-		write(chunk, _encoding, callback) { chunks.push(chunk.toString()); callback(); },
+	const log = new Log({
+		level: 'info', environment: 'test', source: 'notes', redact: ['integration.apiKey'],
+		transports: [{ type: 'custom', level: 'trace', create: () => ({
+			/** Receives complete redacted JSON lines; a provider may enqueue bounded asynchronous delivery. */
+			write(line: string): void { chunks.push(line); },
+			/** Memory writes finish synchronously; network providers drain accepted records here. */
+			async flush(): Promise<void> {},
+		}) }],
 	});
-	const log = new Log({ driver: new PinoLoggerDriver({ level: 'info', environment: 'test', source: 'notes', console: false, devtools: false, redact: ['integration.apiKey'] }, destination) });
 	try {
 		const request = log.child({ requestId: 'request-1', ownerId: 'ada' });
 		request.debug('Filtered diagnostic');
@@ -31,7 +34,6 @@ export async function runNoteLogs() {
 		});
 	} finally {
 		await log.close();
-		destination.end();
 	}
 }
 

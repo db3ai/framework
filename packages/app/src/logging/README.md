@@ -80,3 +80,16 @@ log explicit safe fields and test application-specific redaction.
 Logs must not trigger application behavior. Database, queue and flow events keep their
 own typed contracts; correlate them using request/job/website/flow IDs and component fields.
 See the [API](https://db3.ai/docs/logging-api) for contracts.
+
+## Custom transports
+
+Use `{ type: 'custom', level: 'error', create: () => new MyTransport(options) }`
+for provider destinations. The exported `LogTransport` contract receives complete
+Pino JSON lines after redaction, including child bindings and serialized exceptions.
+The factory runs lazily when the logger is constructed, once per logger; silent
+routes do not construct a destination. Removing the entry disables the provider.
+The logger owns flush and optional close. Implement bounded delivery buffering and
+timeouts in the transport. Write/flush/close failures report a generic stderr diagnostic
+and do not suppress other destinations; factory errors fail logger construction.
+Provider SDKs and credentials remain in the consuming application or provider package.
+See [the runnable custom transport example](examples/runNoteLogs.ts).

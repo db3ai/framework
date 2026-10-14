@@ -6,3 +6,4 @@ export * from './EmailLogOptions';
 export * from './DevelopmentConsoleOptions';
 export * from './HttpExchangeMonitorOptions';
 export * from './LogTransportOptions';
+export * from './LogTransport';

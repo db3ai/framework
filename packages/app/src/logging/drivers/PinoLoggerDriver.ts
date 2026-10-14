@@ -58,7 +58,7 @@ const defaultRedactions = [
 export class PinoLoggerDriver implements logging.LoggerDriver {
 	readonly logger: PinoLogger;
 	readonly #transport: ManagedPinoTransport | null;
-	readonly #emails: { level: logging.LogLevel; stream: EmailLogTransport }[] = [];
+	readonly #streams: { level: logging.LogLevel; stream: logging.LogTransport }[] = [];
 	readonly #console?: ReturnType<typeof acquireDevelopmentConsole>;
 	#closed = false;
 	#closing = false;
@@ -80,11 +80,14 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 		const level = resolveLogLevel(options, process.env);
 		if ((options.transports?.filter(transport => transport.type === 'console').length ?? 0) > 1) throw new Error('Configure at most one console log transport.');
 		for (const transport of options.transports ?? []) {
-			if (!['console', 'file', 'email', 'devtools'].includes(transport.type)) throw new Error('Unknown logging transport type.');
+			if (!['console', 'file', 'email', 'devtools', 'custom'].includes(transport.type)) throw new Error('Unknown logging transport type.');
 			if (transport.level !== undefined && !isLogLevel(transport.level)) throw new Error('Invalid logging transport level.');
+			if (transport.type === 'custom' && transport.level !== 'silent' && level !== 'silent') {
+				this.#streams.push({ level: transport.level ?? level, stream: transport.create() });
+			}
 			if (transport.type === 'email' && transport.level !== 'silent') {
 				if (!mail) throw new Error('Email logging requires an application Mail resolver.');
-				this.#emails.push({ level: transport.level ?? 'error', stream: new EmailLogTransport(transport, mail) });
+				this.#streams.push({ level: transport.level ?? 'error', stream: new EmailLogTransport(transport, mail) });
 			}
 		}
 
@@ -135,8 +138,8 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 			this.#transport = null;
 			this.logger = pino({
 				...pinoOptions,
-				level: this.#emails.length ? level : 'silent',
-			}, this.#emails.length ? this.#destinations({ /** Discards the disabled console destination. */ write() {} }) : undefined);
+				level: this.#streams.length ? level : 'silent',
+			}, this.#streams.length ? this.#destinations({ /** Discards the disabled console destination. */ write() {} }) : undefined);
 			return;
 		}
 
@@ -153,11 +156,16 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 		this.logger = pino(pinoOptions, this.#destinations(this.#transport));
 	}
 
-	/** Fans already serialized and redacted records out to ordinary destinations and operator email. */
+	/** Fans already serialized and redacted records out to ordinary and custom destinations. */
 	#destinations(destination: DestinationStream): DestinationStream {
-		return this.#emails.length ? pino.multistream([
+		return this.#streams.length ? pino.multistream([
 			{ level: 'trace', stream: destination },
-			...this.#emails,
+			...this.#streams.map(({ level, stream }) => ({ level, stream: {
+				/** Isolates destination failures so remaining destinations still receive the record. */
+				write(line: string): void {
+					try { stream.write(line); } catch { reportCustomTransportFailure(); }
+				},
+			} })),
 		]) : destination;
 	}
 
@@ -187,7 +195,9 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 				});
 			});
 			await this.#console?.console.flush();
-			await Promise.all(this.#emails.map(email => email.stream.flush()));
+			await Promise.all(this.#streams.map(async ({ stream }) => {
+				try { await stream.flush(); } catch { reportCustomTransportFailure(); }
+			}));
 		} finally {
 			if (!this.#closing) {
 				this.#transport?.unref();
@@ -213,6 +223,9 @@ export class PinoLoggerDriver implements logging.LoggerDriver {
 		this.#console?.release();
 		await this.flush();
 		this.#closed = true;
+		await Promise.all(this.#streams.map(async ({ stream }) => {
+			try { await stream.close?.(); } catch { reportCustomTransportFailure(); }
+		}));
 
 		if (!this.#transport) return;
 
@@ -425,4 +438,9 @@ async function waitForTransportReady(
 		transport.once('close', onClose);
 		transport.once('error', onError);
 	});
+}
+
+/** Reports provider failures without exposing payloads or recursively using the logger. */
+function reportCustomTransportFailure(): void {
+	process.stderr.write('[logging] Custom transport failed; consult other configured log destinations.\n');
 }
