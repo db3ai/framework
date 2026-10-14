@@ -560,7 +560,7 @@ describe('AI inside an application', () => {
 
 	it('spends ordinary queue attempts for pre-output outages without blocking another run', async () => {
 		fetch.mockImplementation(async () => Response.json({ error: { code: 'server_error' } }, { status: 503 }));
-		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'bounded-outage', maxTries: 2, backoff: 0 });
+		await new HelpAgent({ guidePath: 'help.md' }).queue('Help.', { queue: 'bounded-outage', maxTries: 2 });
 		expect((await application.queue.workNextJob('bounded-outage'))?.status).toBe('released');
 		await QueuedJob.query().patch({ availableAt: Math.floor(Date.now() / 1000) - 1 });
 		expect((await application.queue.workNextJob('bounded-outage'))?.status).toBe('failed');
