@@ -47,6 +47,14 @@
 					"comment": "Application-owned scope identifier, such as a team or project."
 				},
 				{
+					"name": "stream_state",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Latest run and conditional stream-writer ownership."
+				},
+				{
 					"name": "title",
 					"type": "varchar(255)",
 					"nullable": true,
@@ -766,6 +774,22 @@
 			"name": "ai_requests",
 			"comment": "Audit log of AI provider requests and responses, used for debugging generated analysis and content features.",
 			"columns": [
+				{
+					"name": "admission_hash",
+					"type": "varchar(64)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Canonical admitted input digest; rejects a reused key with different input."
+				},
+				{
+					"name": "admission_key",
+					"type": "varchar(64)",
+					"nullable": true,
+					"primary": false,
+					"unique": true,
+					"comment": "Hashed actor, scope, agent and submission key; null for provider requests."
+				},
 				{
 					"name": "cache_write_tokens",
 					"type": "int unsigned",
