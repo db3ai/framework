@@ -39,3 +39,4 @@ export * from './contracts/AgentConversationStream';
 export { AgentConversations, AgentConversationReadError } from './AgentConversations';
 
 export type * from './contracts/AgentStreamingOptions';
+export type * from './contracts/AgentConversationAttention';

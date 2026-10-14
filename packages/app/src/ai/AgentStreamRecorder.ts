@@ -59,7 +59,7 @@ export class AgentStreamRecorder {
 			if (this.#job?.id) await root.assign({ metadata: { ...root.metadata, jobRunId: String(this.#job.id) } }).save();
 			this.#attempt = status === 'queued' ? 0 : this.context?.job.attempts ?? (prior?.run.aiRequestId === id ? prior.run.attempt : 0) + 1;
 			const run: stream.AgentRunState = { aiRequestId: id, status, attempt: this.#attempt, startedAt: status === 'running' ? (prior?.run.aiRequestId === id ? prior.run.startedAt : null) ?? new Date().toISOString() : null, completedAt: null, error: null };
-			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
+			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), attention: prior?.attention, activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
 			this.#claimed = true;
 		}, false);
 		if (status === 'running') {
@@ -133,6 +133,10 @@ export class AgentStreamRecorder {
 			const previous = conversation.streamState!;
 			const terminal = ['completed', 'failed', 'cancelled', 'blocked'].includes(status);
 			conversation.streamState = { ...previous, owner: terminal ? null : this.#owner, run: { ...previous.run, status, completedAt: terminal ? new Date().toISOString() : null, error: error ? { message: error.slice(0, 512) } : null }, activity: { code: status, label: status === 'waiting' ? 'Waiting to retry' : status.charAt(0).toUpperCase() + status.slice(1) } };
+			if (status === 'completed' || status === 'failed' || status === 'blocked') {
+				const id = `${previous.run.aiRequestId}:${status}`;
+				if (previous.attention?.id !== id) conversation.streamState.attention = { id, kind: status, createdAt: new Date().toISOString(), readBy: [] };
+			}
 		}));
 	}
 
@@ -145,11 +149,17 @@ export class AgentStreamRecorder {
 		finally { this.#closed = true; if (this.#timer) clearTimeout(this.#timer); if (this.#controlTimer) clearTimeout(this.#controlTimer); this.#unsubscribeStop?.(); this.#pending = []; }
 	}
 
-	/** Observes cross-process stop while a provider or tool is silent. */
+	/**
+	 * Polls silent runs every five seconds; saved writes and local Stop still check
+	 * immediately. The timer must inherit the app connection because direct stream
+	 * admission starts this watcher inside a transaction that soon commits.
+	 */
 	#watchStop(): void {
 		if (this.#closed || this.#stop.signal.aborted) return;
-		this.#controlTimer = setTimeout(() => { void this.#checkStop().then(() => this.#watchStop(), error => this.#abort(error)); }, 1000);
-		this.#controlTimer.unref();
+		ActiveRecord.withDb(app().db.knex, () => {
+			this.#controlTimer = setTimeout(() => { void this.#checkStop().then(() => this.#watchStop(), error => this.#abort(error)); }, 5000);
+			this.#controlTimer.unref();
+		});
 	}
 	/** Checks the writer fence without holding a lock during provider work. */
 	async #checkStop(): Promise<void> { if (!this.#closed) await this.#assertRun(await app().ai.models.conversation.findOrFail(this.state.conversation.id)); }
@@ -175,11 +185,17 @@ export class AgentStreamRecorder {
 		const committed = databaseTransactionCommit(connection);
 		const database = app().db.knex;
 		let frames: Array<{ event: stream.AgentConversationEvent; itemId: string | null }> = [];
+		let attentionChanged = false;
+		let runStateChanged = false;
 		const result = await connection.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const conversation = await app().ai.models.conversation.where('id', this.state.conversation.id).forUpdate().firstOrFail();
+			const attentionId = conversation.streamState?.attention?.id;
+			const previousRun = JSON.stringify([conversation.streamState?.run, conversation.streamState?.pending ?? []]);
 			if (fenced) await this.#assertRun(conversation);
 			await this.#assertOwnership();
 			const result = await work(conversation);
+			attentionChanged = conversation.streamState?.attention?.id !== attentionId;
+			runStateChanged = JSON.stringify([conversation.streamState?.run, conversation.streamState?.pending ?? []]) !== previousRun;
 			await app().ai.models.conversation.where('id', conversation.id).patch({ streamState: conversation.streamState });
 			frames = this.#pending.splice(0);
 			return result;
@@ -187,6 +203,8 @@ export class AgentStreamRecorder {
 		/** Leaves transaction scope before dispatching committed corrections. */
 		const publish = (): void => ActiveRecord.withDb(database, () => { this.#publish(frames); void this.#service.notifyState(String(this.state.conversation.id)).catch(() => undefined); });
 		if (committed) void committed.then(success => { if (success) publish(); }); else publish();
+		if (attentionChanged) this.#service.notifyAttention(String(this.state.conversation.id), committed);
+		if (runStateChanged) this.#service.notifyRunState(String(this.state.conversation.id), committed);
 		return result;
 	}
 	/** Publishes frames under this internal turn/attempt identity. */

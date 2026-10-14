@@ -26,6 +26,14 @@ let available = true;
 let publicationGate: Promise<void> | undefined;
 const published: Array<{ data: import('../contracts/AgentConversationStream').AgentLiveUpdate }> = [];
 const reader = { userId: 'viewer', scopeId: 'team' };
+const runChanges: Array<{ id: string; status: string; queued: number }> = [];
+let activityDeliveryFails = false;
+
+/** Observes the public lifecycle callback without replacing execution or persistence. */
+function onRunStateChanged(conversation: AiConversation): void {
+	if (activityDeliveryFails) throw new Error('Activity transport unavailable');
+	runChanges.push({ id: String(conversation.id), status: conversation.streamState!.run.status, queued: conversation.streamState?.pending?.length ?? 0 });
+}
 
 /** Emits valid SDK SSE while allowing a test to pause between text and completion. */
 function controlledResponse() {
@@ -78,19 +86,103 @@ beforeAll(async () => {
 	await new Promise<void>(resolve => receiver.listen(0, '127.0.0.1', resolve));
 	const port = (receiver.address() as { port: number }).port;
 	database = await createGeneratedTestDatabase('agent_stream');
-	application = new App({ db: database.db, webSockets: { publish: { url: `http://127.0.0.1:${port}/publish`, token: 'x'.repeat(64) } }, ai: { apiKey: 'synthetic-test-key', model: 'test-model', rateLimiter: false, fetch, streaming: { enabled: true, flushIntervalMs: 5, authorize: context => context.userId === 'viewer', authorizeStop: (context, conversation) => context.userId === conversation.user, projectTool: item => item } }, queue: { driver: 'database', queueMonitor: false } });
+	application = new App({ db: database.db, webSockets: { publish: { url: `http://127.0.0.1:${port}/publish`, token: 'x'.repeat(64) } }, ai: { apiKey: 'synthetic-test-key', model: 'test-model', rateLimiter: false, fetch, streaming: { enabled: true, flushIntervalMs: 5, onRunStateChanged, authorize: context => context.userId === 'viewer', authorizeStop: (context, conversation) => context.userId === conversation.user, projectTool: item => item } }, queue: { driver: 'database', queueMonitor: false } });
 	await application.db.install(AiConversation, AiRateLimitBucket, AiRequest, AiMessage, AiRateLimitReservation, QueuedJob, FailedJob);
 	application.queue.registerJob(AgentRunJob);
 	registerQueuedAgent('StreamingAgent', StreamingAgent);
 });
 beforeEach(async () => {
 	await application.ai.conversations.drain();
-	fetch.mockReset(); available = true; published.length = 0;
+	fetch.mockReset(); available = true; published.length = 0; runChanges.length = 0; activityDeliveryFails = false;
 	for (const Model of [AiMessage, AiRequest, AiRateLimitReservation, AiRateLimitBucket, QueuedJob, FailedJob, AiConversation]) await Model.query().delete();
 });
 afterAll(async () => { try { await application?.close(); } finally { await database?.destroy(); await new Promise<void>(resolve => receiver?.close(() => resolve())); vi.unstubAllEnvs(); } });
 
 describe('durable agent streaming', () => {
+	it('publishes committed admission, running, followup and completion changes without per-message activity', async () => {
+		await expect(application.db.transaction(async () => {
+			await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Rollback', { queue: 'activity' });
+			expect(runChanges).toEqual([]);
+			throw new Error('rollback activity');
+		})).rejects.toThrow('rollback activity');
+		await application.ai.conversations.drain(); expect(runChanges).toEqual([]);
+		const run = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First', { queue: 'activity' });
+		await application.ai.conversations.drain();
+		expect(runChanges).toEqual([{ id: run.conversationId, status: 'queued', queued: 0 }]);
+		const provider = controlledResponse(); fetch.mockResolvedValueOnce(provider.response);
+		const work = application.queue.workNextJob('activity');
+		try {
+			await vi.waitFor(() => expect(runChanges.at(-1)?.status).toBe('running'));
+			const before = runChanges.length;
+			provider.delta('Still working');
+			await new Promise(resolve => setTimeout(resolve, 20));
+			await application.ai.conversations.drain(); expect(runChanges).toHaveLength(before);
+			await new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: run.conversationId }).queue('Followup', { queue: 'activity' });
+			await application.ai.conversations.drain(); expect(runChanges.at(-1)).toMatchObject({ status: 'running', queued: 1 });
+			provider.finish('Done'); expect((await work)?.status).toBe('succeeded');
+			await application.ai.conversations.drain(); expect(runChanges.at(-1)).toMatchObject({ status: 'completed', queued: 1 });
+			await application.ai.conversations.stop(reader, { conversationId: run.conversationId });
+			await application.ai.conversations.drain(); expect(runChanges.at(-1)).toMatchObject({ status: 'completed', queued: 0 });
+		} finally { provider.finish('Done'); await work; }
+	});
+
+	it('signals retry, terminal recovery and cancellation and tolerates a failed activity publisher', async () => {
+		const run = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Retry', { queue: 'activity-retry' });
+		await application.ai.conversations.settleQueuedRetry(run.aiRequestId, 1);
+		await application.ai.conversations.drain(); expect(runChanges.at(-1)?.status).toBe('waiting');
+		await application.ai.conversations.settleQueuedStop(run.aiRequestId, 'Failed');
+		await application.ai.conversations.drain(); expect(runChanges.at(-1)?.status).toBe('failed');
+		const stopped = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Stop', { queue: 'activity-stop' });
+		await application.ai.conversations.stop(reader, { conversationId: stopped.conversationId });
+		await application.ai.conversations.drain(); expect(runChanges.at(-1)?.status).toBe('cancelled');
+		activityDeliveryFails = true;
+		const provider = controlledResponse(); provider.finish('Saved despite transport failure.'); fetch.mockResolvedValueOnce(provider.response);
+		const offline = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Offline', { queue: 'activity-offline' });
+		expect((await application.queue.workNextJob('activity-offline'))?.status).toBe('succeeded');
+		await application.ai.conversations.drain();
+		expect((await AiConversation.findOrFail(offline.conversationId)).streamState?.run.status).toBe('completed');
+	});
+
+	it('persists completion attention without a viewer and acknowledges only the observed occurrence', async () => {
+		const queued = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Unread output', { queue: 'attention' });
+		const provider = controlledResponse(); provider.finish('Ready to read.'); fetch.mockResolvedValueOnce(provider.response);
+		expect((await application.queue.workNextJob('attention'))?.status).toBe('succeeded');
+		const service = application.ai.conversations;
+		const first = await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' });
+		expect(first.attention).toEqual({ id: `${queued.aiRequestId}:completed`, kind: 'completed', unread: true });
+		await service.markRead(reader, { conversationId: queued.conversationId, attentionId: first.attention!.id });
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention?.unread).toBe(false);
+		await service.requestAttention(queued.conversationId, { id: 'approval-1', kind: 'approval' });
+		await service.markRead(reader, { conversationId: queued.conversationId, attentionId: first.attention!.id });
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention).toEqual({ id: 'approval-1', kind: 'approval', unread: true });
+		await expect(service.markRead({ userId: 'intruder', scopeId: 'team' }, { conversationId: queued.conversationId, attentionId: 'approval-1' })).rejects.toMatchObject({ statusCode: 404 });
+		await expect(service.markRead({ ...reader, scopeId: 'foreign' }, { conversationId: queued.conversationId, attentionId: 'approval-1' })).rejects.toMatchObject({ statusCode: 404 });
+		await service.markRead(reader, { conversationId: queued.conversationId, attentionId: 'approval-1' });
+		await service.requestAttention(queued.conversationId, { id: 'approval-1', kind: 'approval' });
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention?.unread).toBe(false);
+		await new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: queued.conversationId }).queue('Follow up', { queue: 'attention' });
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention?.unread).toBe(false);
+	});
+
+	it('keeps read receipts per user and delivers attention invalidation only after commit', async () => {
+		const queued = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Attention', { queue: 'attention' });
+		const changed = vi.fn();
+		const service = new AgentConversations(application.ai, { enabled: true, authorize: () => true, onAttentionChanged: changed });
+		await expect(application.db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+			await service.requestAttention(queued.conversationId, { id: 'rolled-back', kind: 'input' });
+			expect(changed).not.toHaveBeenCalled();
+			throw new Error('rollback');
+		}))).rejects.toThrow('rollback');
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention).toBeNull();
+		expect(changed).not.toHaveBeenCalled();
+		await service.requestAttention(queued.conversationId, { id: 'saved', kind: 'input' });
+		await vi.waitFor(() => expect(changed).toHaveBeenCalledTimes(1));
+		await Promise.all([service.markRead(reader, { conversationId: queued.conversationId, attentionId: 'saved' }), service.markRead(reader, { conversationId: queued.conversationId, attentionId: 'saved' })]);
+		expect((await service.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).attention?.unread).toBe(false);
+		expect((await service.load({ userId: 'another', scopeId: 'team' }, { conversationId: queued.conversationId, view: 'conversation' })).attention?.unread).toBe(true);
+		expect((await AiConversation.findOrFail(queued.conversationId)).streamState?.attention?.readBy).toEqual(['viewer']);
+	});
+
 	it('corrects saved state after transient publication overflows its bounded backlog', async () => {
 		const queued = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First', { queue: 'overflow' });
 		await application.ai.conversations.drain(); published.length = 0;
@@ -181,6 +273,52 @@ describe('durable agent streaming', () => {
 			expect(result.aiRequestId).not.toBe(identity!.aiRequestId);
 		} finally { provider.finish('Finished'); await work; }
 	});
+
+	it('keeps a direct stream alive beyond admission and polls remote Stop outside the committed transaction', async () => {
+		const provider = controlledResponse();
+		let providerSignal: AbortSignal | undefined;
+		fetch.mockImplementationOnce(async (_url, init) => {
+			providerSignal = init?.signal ?? undefined;
+			providerSignal?.addEventListener('abort', () => provider.abort(providerSignal!.reason), { once: true });
+			return provider.response;
+		});
+		let conversationId: string | undefined;
+		let settled = false;
+		const work = new StreamingAgent({ user: 'viewer', scope: 'team' }).stream('Wait quietly', event => {
+			if (event.type === 'conversation.created') conversationId = event.conversationId;
+		}).then(result => { settled = true; return { result }; }, error => { settled = true; return { error }; });
+		const remote = new AgentConversations(application.ai, { enabled: true, authorizeStop: context => context.userId === 'viewer' });
+		try {
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			// Real SQL and a real timer exercise the AsyncLocalStorage boundary. A
+			// timer inherited from admission would query its committed transaction.
+			await new Promise(resolve => setTimeout(resolve, 5250));
+			expect(settled).toBe(false);
+			expect(providerSignal?.aborted).toBe(false);
+			await remote.stop(reader, { conversationId: conversationId! });
+			await vi.waitFor(() => expect(settled).toBe(true), { timeout: 6000 });
+			expect(await work).toEqual({ result: null });
+			expect(providerSignal?.aborted).toBe(true);
+			expect((await AiConversation.findOrFail(conversationId!)).streamState?.run.status).toBe('cancelled');
+		} finally { provider.finish('Finished'); await work; await remote.drain(); }
+	}, 20_000);
+
+	it('rejects a saved output after remote Stop without waiting for the next poll', async () => {
+		const provider = controlledResponse(); fetch.mockResolvedValueOnce(provider.response);
+		let conversationId: string | undefined;
+		const work = new StreamingAgent({ user: 'viewer', scope: 'team' }).stream('Wait for output', event => {
+			if (event.type === 'conversation.created') conversationId = event.conversationId;
+		});
+		const remote = new AgentConversations(application.ai, { enabled: true, authorizeStop: context => context.userId === 'viewer' });
+		try {
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			await remote.stop(reader, { conversationId: conversationId! });
+			provider.finish('This must not be saved.');
+			await expect(work).resolves.toBeNull();
+			expect(await AiMessage.where('conversation', conversationId!).where('role', 'assistant').count()).toBe(0);
+			expect((await AiConversation.findOrFail(conversationId!)).streamState?.run.status).toBe('cancelled');
+		} finally { provider.finish('Finished'); await work; await remote.drain(); }
+	}, 4000);
 
 	it('does not signal or persist a stop rolled back by the caller', async () => {
 		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('First');

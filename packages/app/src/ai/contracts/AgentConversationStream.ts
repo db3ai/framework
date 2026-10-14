@@ -1,4 +1,5 @@
 import type { AgentConversationTimelineItem, AgentStreamEvent, AgentToolErrorPayload, QueuedAgentRunResponse } from './AgentProtocol';
+import type { AgentConversationAttention } from './AgentConversationAttention';
 
 /** Authorized output projection. Knowing an ID never grants access. */
 export type AgentView = 'admin' | 'conversation' | 'status';
@@ -38,6 +39,8 @@ export interface AgentLiveUpdate {
 
 /** Recent authoritative history and execution state. Older pages use database message order. */
 export interface AgentConversationSnapshot {
+	/** Latest occurrence identity for race-safe read acknowledgement after rendering. */
+	attention?: { id: string; kind: AgentConversationAttention['kind']; unread: boolean } | null;
 	conversationId: string;
 	view: AgentView;
 	timeline: AgentTimelineEntry[];
@@ -52,6 +55,8 @@ export interface AgentReadContext { userId: string; scopeId?: string }
 
 /** Current writer fence and FIFO pending request IDs on the existing conversation record. */
 export interface AgentStreamState {
+	/** Read state survives subsequent admissions and remains independent of execution. */
+	attention?: AgentConversationAttention;
 	owner: string | null;
 	run: AgentRunState;
 	activity: AgentActivity | null;

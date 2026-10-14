@@ -106,6 +106,16 @@ their idempotency/checkpoints for external effects. Applications with custom que
 adapters delegate retry/failure hooks to `AgentRunJob`; released attempts show
 `waiting`, and terminal failure clears the active state through a fresh writer.
 
+Configure `ai.streaming.onRunStateChanged(conversation)` to invalidate an
+application-owned activity channel after committed admission, run status or
+queued-input changes. It covers direct and queued agents, including queue retry,
+Stop and terminal recovery; message saves, text deltas and tool progress alone do
+not invoke it. The callback reloads current state after the outer transaction
+commits, is suppressed on rollback and cannot fail agent execution. Choose and
+authorize recipients in the application. Publish a content-free invalidation and
+reload the authorized aggregate on initial subscription, reconnect and focus;
+no browser activity polling is required. Delivery is best effort, not an outbox.
+
 ### Reading and attaching
 
 Set `ai.streaming.authorize` and `authorizeStop` to application resource policies.
@@ -155,6 +165,39 @@ replace live partials by identity; partial prefixes can be missing until save.
 There is no delta replay or polling timer. `refresh()` also works when the socket
 is offline. `loadOlder()` pages saved history; loaded pages are reconciled on refresh.
 Disposal aborts viewer reads and listeners; it never stops worker execution.
+
+### Conversation attention and read state
+
+Completed, failed and blocked runs save the latest attention occurrence in
+`stream_state` atomically with the terminal state. Cancelled runs do not create
+attention. No table migration is required for applications already using this
+field, and historical runs are not retroactively marked unread. New admissions
+preserve the previous occurrence until another result needs attention.
+
+Snapshots include `attention: { id, kind, unread } | null`, projected for the
+authenticated reader. After rendering a visible conversation, acknowledge that
+exact occurrence with `conversations.markRead(actor, { conversationId,
+attentionId })`. This rechecks conversation authorization and serializes receipts
+under the conversation lock. A stale acknowledgement cannot clear a newer result;
+another reader retains their own unread state. Reading lists or snapshots alone
+does not mark anything read. Receipts live only on the latest occurrence, rather
+than retaining a history of every reader's activity.
+
+Trusted server workflows can call `conversations.requestAttention(conversationId,
+{ id: occurrenceKey, kind: 'approval' | 'input' })`. Repeating the current key
+preserves receipts. Hosts must not replay superseded occurrences or expose this
+producer API directly to browsers. Read state is distinct from approval/input
+resolution: acknowledging a view never grants permission or resumes execution.
+`attentionFor(actor, conversation)` projects already-authorized records for
+application-owned list endpoints; it is not itself an authorization boundary.
+
+Configure `ai.streaming.onAttentionChanged(conversation)` to invalidate the
+application's recipient channel after committed attention and read changes.
+Rollback suppresses invalidation; delivery failure cannot undo saved state.
+Register recipient-only channel authorization and reload authorized HTTP state on
+initial load, reconnect and focus. Signals are best effort, without an outbox or
+guaranteed delivery while disconnected. Keep this listener at application scope
+so navigating away from the conversation does not lose completion indicators.
 
 `admin` exposes diagnostic prompts, tools and provider reasoning summaries.
 `conversation` hides prompts, includes provider summaries, and exposes tools only
@@ -406,7 +449,10 @@ safe. Saved messages/results remain; the root uses `failed` with
 send can start another turn. Stop does not undo completed external effects.
 
 Local execution is notified after commit. Remote workers check the writer fence
-at saved-output boundaries and every second during silent provider/tool waits.
+at saved-output boundaries and every five seconds during silent provider/tool waits.
+This interval controls cancellation responsiveness, not the maximum run duration;
+provider and tool deadlines remain independent. A saved-output checkpoint checks
+before writing even when the next poll is not due.
 Only active workers check; idle conversations do not poll. Provider calls use the
 abort signal, and tools cooperate with cancellation. Queue claims fence stale
 writers. Custom retained-job adapters can report cancelled/blocked outcomes with

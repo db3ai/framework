@@ -8,6 +8,7 @@ import type { Ai } from './Ai';
 import type { AiConversation } from './AiConversation';
 import type { AgentConversationTimelineItem } from './contracts/Agent';
 import type * as stream from './contracts/AgentConversationStream';
+import type { AgentConversationAttention } from './contracts/AgentConversationAttention';
 
 /** Saved conversation history, execution control and best-effort live publication. */
 export class AgentConversations {
@@ -15,6 +16,7 @@ export class AgentConversations {
 	readonly #pendingFrames = new Map<string, number>();
 	readonly #corrections = new Map<string, { aiRequestId: string; attempt: number }>();
 	readonly #stopListeners = new Map<string, Set<() => void>>();
+	readonly #changePublishing = new Set<Promise<void>>();
 
 	/** Binds the application's models and access policies. */
 	constructor(readonly ai: Ai, readonly options?: AgentStreamingOptions) {
@@ -23,6 +25,68 @@ export class AgentConversations {
 
 	/** Whether conversation lifecycle and live delivery are enabled. */
 	get enabled(): boolean { return this.options?.enabled === true; }
+
+	/** Projects attention for a trusted reader after the host has authorized the conversation. */
+	attentionFor(context: stream.AgentReadContext, conversation: AiConversation): stream.AgentConversationSnapshot['attention'] {
+		const attention = conversation.streamState?.attention;
+		return attention ? { id: attention.id, kind: attention.kind, unread: !attention.readBy.includes(context.userId) } : null;
+	}
+
+	/**
+	 * Records a trusted producer's occurrence under the conversation lock. Duplicate
+	 * keys preserve receipts; reading an occurrence never approves or resumes work.
+	 */
+	async requestAttention(conversationId: string, input: { id: string; kind: AgentConversationAttention['kind'] }): Promise<void> {
+		if (!input.id || input.id.length > 160 || !['completed', 'failed', 'blocked', 'approval', 'input'].includes(input.kind)) throw new AgentConversationReadError(400, 'Invalid attention occurrence.');
+		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		const changed = await this.#transaction(async () => {
+			const conversation = await this.ai.models.conversation.where('id', conversationId).forUpdate().firstOrFail();
+			if (!conversation.streamState) throw new AgentConversationReadError(409, 'Conversation has no admitted run.');
+			if (conversation.streamState.attention?.id === input.id) return false;
+			conversation.streamState.attention = { ...input, createdAt: new Date().toISOString(), readBy: [] };
+			await this.ai.models.conversation.where('id', conversationId).patch({ streamState: conversation.streamState });
+			return true;
+		});
+		if (changed) this.notifyAttention(conversationId, committed);
+	}
+
+	/** Acknowledges only the occurrence actually rendered; stale tabs cannot clear newer output. */
+	async markRead(context: stream.AgentReadContext, input: { conversationId: string; attentionId: string }): Promise<void> {
+		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		const changed = await this.#transaction(async () => {
+			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().first();
+			await this.#authorize(context, input.conversationId, 'conversation');
+			const attention = conversation?.streamState?.attention;
+			if (!attention || attention.id !== input.attentionId || attention.readBy.includes(context.userId)) return false;
+			attention.readBy.push(context.userId);
+			await this.ai.models.conversation.where('id', input.conversationId).patch({ streamState: conversation!.streamState });
+			return true;
+		});
+		if (changed) this.notifyAttention(input.conversationId, committed);
+	}
+
+	/** Delivers an invalidation outside the transaction; durable state survives delivery failure. */
+	notifyAttention(conversationId: string, committed?: Promise<boolean>): void {
+		this.#notifyChange(conversationId, this.options?.onAttentionChanged, committed);
+	}
+
+	/** Publishes aggregate activity invalidation after commit, independent of conversation viewers. */
+	notifyRunState(conversationId: string, committed?: Promise<boolean>): void {
+		this.#notifyChange(conversationId, this.options?.onRunStateChanged, committed);
+	}
+
+	/** Reloads committed state outside transaction scope; rollback and transport failures cannot affect execution. */
+	#notifyChange(conversationId: string, changed: ((conversation: AiConversation) => void | Promise<void>) | undefined, committed?: Promise<boolean>): void {
+		if (!changed) return;
+		const database = app().db.knex;
+		/** Restores ordinary model scope after an outer transaction closes. */
+		const deliver = async (): Promise<void> => ActiveRecord.withDb(database, async () => {
+			const conversation = await this.ai.models.conversation.find(conversationId);
+			if (conversation) await changed(conversation);
+		});
+		const work = (committed ? committed.then(success => { if (success) return deliver(); }) : deliver()).catch(() => undefined).finally(() => { this.#changePublishing.delete(work); });
+		this.#changePublishing.add(work);
+	}
 
 	/**
 	 * Stops the current turn and queued inputs atomically. No viewer-supplied run ID
@@ -92,7 +156,7 @@ export class AgentConversations {
 			const entries = timeline.map(item => this.#filterItem(item, input.view)).filter((item): item is stream.AgentTimelineEntry => item !== null);
 			const first = messages[0]?.sequence;
 			const older = first !== undefined && first !== null && await this.ai.models.message.where('conversation', input.conversationId).where('sequence', '<', first).first() ? first : null;
-			return { conversationId: input.conversationId, view: input.view, timeline: entries, run: this.#publicRun(conversation.streamState?.run ?? null, input.view), activity: conversation.streamState?.activity ?? null, older, queued: conversation.streamState?.pending?.length ?? 0 };
+			return { conversationId: input.conversationId, view: input.view, timeline: entries, run: this.#publicRun(conversation.streamState?.run ?? null, input.view), activity: conversation.streamState?.activity ?? null, older, queued: conversation.streamState?.pending?.length ?? 0, attention: this.attentionFor(context, conversation) };
 		});
 	}
 
@@ -128,7 +192,7 @@ export class AgentConversations {
 	}
 
 	/** Drains already queued local delivery for shutdown/tests; never calls a provider. */
-	async drain(): Promise<void> { while (this.#publishing.size) await Promise.all(this.#publishing.values()); }
+	async drain(): Promise<void> { while (this.#publishing.size || this.#changePublishing.size) await Promise.all([...this.#publishing.values(), ...this.#changePublishing]); }
 
 	/** Publishes a fresh lifecycle correction after a committed control transition. */
 	async notifyState(conversationId: string): Promise<void> {
@@ -212,6 +276,7 @@ export class AgentConversations {
 		if (status === 'cancelled') await this.#cancelRequest(aiRequestId);
 		else await this.ai.models.request.where('id', aiRequestId).where('status', 'pending').patch({ status: 'failed', completedAt: new Date(), errorMessage: message });
 		conversation.streamState = { ...previous, owner: null, run: { ...previous.run, status, completedAt: new Date().toISOString(), error: status === 'cancelled' ? null : { message: message.slice(0, 512) } }, activity: { code: status, label: status === 'cancelled' ? 'Stopped' : status.charAt(0).toUpperCase() + status.slice(1) } };
+		if (status !== 'cancelled' && previous.attention?.id !== `${aiRequestId}:${status}`) conversation.streamState.attention = { id: `${aiRequestId}:${status}`, kind: status, createdAt: new Date().toISOString(), readBy: [] };
 		await conversation.save();
 	}
 
@@ -230,6 +295,8 @@ export class AgentConversations {
 
 	/** Notifies only after the outer transaction commits, outside its closed database scope. */
 	#afterStateChange(conversationId: string, stopped: string[], committed?: Promise<boolean>): void {
+		this.notifyAttention(conversationId, committed);
+		this.notifyRunState(conversationId, committed);
 		const database = app().db.knex;
 		/** Restores the ordinary model scope for delivery and local cancellation. */
 		const notify = (): void => ActiveRecord.withDb(database, () => {

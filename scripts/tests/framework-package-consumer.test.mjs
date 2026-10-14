@@ -469,6 +469,7 @@ import { Notifications } from '@db3.ai/app/notifications';
 import { defineChannel, defineWebSocket } from '@db3.ai/app/websocket';
 import { createAgentConversation, createAgentConversationHttp } from '@db3.ai/app/ai/client';
 import { AgentConversations } from '@db3.ai/app/ai';
+if (typeof AgentConversations.prototype.notifyRunState !== 'function') throw new Error('Run-state activity export failed.');
 if (typeof createAgentConversation !== 'function' || typeof createAgentConversationHttp !== 'function' || typeof AgentConversations !== 'function') throw new Error('Conversation exports failed.');
 import { WebSocketClient } from '@db3.ai/app/websocket/client';
 const pushApp = new App({ webSockets: { publish: { url: 'http://127.0.0.1:8001/_internal/realtime/publish', token: 'a'.repeat(64) } } });
@@ -607,6 +608,9 @@ for (const specifier of ${JSON.stringify(runtimeSpecifiers)}) {
 `, 'utf8');
 
 	await writeFile(join(consumerRoot, 'typecheck.ts'), `
+import type { AgentStreamingOptions, AiConversation as ActivityConversation } from '@db3.ai/app/ai';
+const activityOptions: AgentStreamingOptions = { enabled: true, onRunStateChanged(conversation: ActivityConversation) { const status: string | undefined = conversation.streamState?.run.status; void status; } };
+void activityOptions;
 import { utcDate, formatInTimeZone, calendarDateInTimeZone, validTimeZone, zonedDateTimeToIso } from '@db3.ai/pure/dates';
 const scheduledInstant: string = zonedDateTimeToIso('2026-10-10T09:00', 'Europe/London');
 const utcInstant: Date | null = utcDate('2026-10-10 13:00:00');

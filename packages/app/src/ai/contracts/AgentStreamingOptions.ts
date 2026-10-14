@@ -8,6 +8,10 @@ export interface AgentStreamingOptions {
 	enabled: boolean;
 	/** Coalesces transient text in memory, default 100 ms; no delta database writes. */
 	flushIntervalMs?: number;
+	/** Best-effort invalidation after committed run/queued-input changes, excluding text and tool progress. Apps choose authorized activity channels; failures never fail execution. */
+	onRunStateChanged?(conversation: AiConversation): void | Promise<void>;
+	/** Best-effort invalidation after committed attention/read changes; apps choose recipient channels. */
+	onAttentionChanged?(conversation: AiConversation): void | Promise<void>;
 	/** Rechecked on HTTP reads, subscriptions and socket delivery. Missing policy denies. */
 	authorize?(context: AgentReadContext, conversation: AiConversation, view: AgentView): boolean | Promise<boolean>;
 	/** Separate mutation permission; read access never implies stop access. */

@@ -40,7 +40,7 @@ const event = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('run.completed'), conversationId: identity, aiRequestId: identity.nullable(), traceId: identity, usage, creditCost: z.number().nullable(), costUSD: z.number().nullable().optional(), finalOutput: text }),
 	z.object({ type: z.literal('run.error'), conversationId: identity.nullable(), aiRequestId: identity.nullable(), traceId: identity.nullable(), error }),
 ]);
-const snapshot = z.object({ conversationId: identity, view, timeline: z.array(agentTimelineEntrySchema).max(1_000), run: run.nullable(), activity: activity.nullable(), older: sequence.nullable(), queued: sequence });
+const snapshot = z.object({ conversationId: identity, view, timeline: z.array(agentTimelineEntrySchema).max(1_000), run: run.nullable(), activity: activity.nullable(), older: sequence.nullable(), queued: sequence, attention: z.object({ id: identity, kind: z.enum(['completed', 'failed', 'blocked', 'approval', 'input']), unread: z.boolean() }).nullable().optional() });
 const update = z.object({ conversationId: identity, view, aiRequestId: identity, attempt: sequence, itemId: identity.nullable(), event });
 const admission = z.object({ jobId: z.union([identity, sequence]), conversationId: identity, aiRequestId: identity.nullable(), traceId: identity });
 const stopped = z.object({ conversationId: identity, aiRequestId: identity.nullable(), status: run.shape.status.nullable() });
