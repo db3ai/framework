@@ -322,7 +322,8 @@ export class ActiveQueryBuilder<TRecord extends ActiveRecord> {
 	 * Execute inside a transaction; locks are released on commit or rollback.
 	 * This delegates to Knex and does not start or finish a transaction.
 	 * @returns This query for further filtering or execution.
-	 * @example await app().db.transaction(async () => { const user = await User.where('id', id).forUpdate().first(); });
+	 * @see src/db/examples/createNotesTogether.ts for an explicitly atomic multi-row operation.
+	 * A read-only lookup does not by itself justify opening a transaction or taking a write lock.
 	 */
 	forUpdate(): this {
 		this.qb.forUpdate();

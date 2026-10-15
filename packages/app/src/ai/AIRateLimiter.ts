@@ -78,6 +78,8 @@ export class AIRateLimiter {
 			return emptyLease(input, bucketKey);
 		}
 
+		// Transaction invariant: Avoid concurrent admissions both observing the same remaining provider
+		// capacity, or committing bucket changes without the reservation they admit.
 		return await app().db.transaction(async database => {
 			const now = new Date();
 			const bucket = await this.findOrCreateBucket({

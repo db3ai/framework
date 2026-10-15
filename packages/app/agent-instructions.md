@@ -87,6 +87,25 @@ components and starter examples are not exceptions or architectural precedent.
   threading optional Knex connections through app code.
 - Put reusable mechanics in the framework only when they are genuinely shared.
 
+## Database transactions
+
+- Default to ordinary row-level ActiveRecord saves. A single SQL statement is
+	atomic; multiple reads or saves do not by themselves justify an explicit transaction.
+- Immediately beside every transaction start, comment the concrete invalid state
+	it prevents: which writes must succeed together, or which competing update/claim
+	must not win between a check and its write. "For consistency" is not sufficient.
+	For transaction helpers, document their contract and the caller-specific invariant.
+- Keep the boundary as small as that invariant requires. Prefer a conditional
+	update, uniqueness constraint or optimistic version check for single-row races
+	when it preserves the required behaviour. Keep provider calls, rendering and other
+	unrelated work outside; SQL rollback cannot undo external side effects.
+- State how a nested boundary relates to its outer owner. A savepoint shares the
+	outer transaction's snapshot; it does not provide independent isolation/recovery.
+- Where necessity is unclear, add `TODO(transaction-review)` beside the transaction
+	with the suspected simplification and the consequence that needs testing. Do not
+	remove or change it during a comment-only review. A later change must verify
+	concurrency, partial failures, hooks, idempotency and dispatch/side effects as relevant.
+
 ## Feature apps
 
 For cohesive features start with apps/{id}/manifest.json and App.ts. The root

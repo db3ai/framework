@@ -57,6 +57,11 @@ export class PasswordLoginAttempt extends ActiveRecord {
 	 * @returns Callback result after its state commits.
 	 */
 	static async withIdentityLock<TResult>(identity: string, callback: (attempt: PasswordLoginAttempt) => Promise<TResult>): Promise<TResult> {
+		// Transaction invariant: Avoid concurrent login attempts losing failure counts or verifying against
+		// stale suspension state; initialization and the callback share the identity lock.
+		// TODO(transaction-review): Review callback scope, including password verification, while preserving
+		// the suspension threshold and recovery ordering; one-row conditional counters may cover simpler
+		// callers.
 		return this.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const identityHash = this.identityKey(identity);
 			const candidate = this.create({ identityHash, identity: identity.trim().toLowerCase() });

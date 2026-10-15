@@ -461,6 +461,10 @@ export class Database {
 	async transaction<TResult>(
 		callback: (db: Database) => Promise<TResult>,
 	): Promise<TResult> {
+		// Transaction invariant: Infrastructure boundary: every callback write must use the same connection so
+		// failure cannot leave only part of the caller's documented atomic operation committed.
+		// TODO(transaction-review): This generic helper establishes no domain invariant itself; each caller
+		// must justify the exact partial state it prevents, including nested savepoint use.
 		return this.connection.transaction(async transaction => {
 			const transactionConnection = transaction as unknown as Knex;
 

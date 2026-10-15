@@ -23,6 +23,10 @@ export async function agentAdmission(input: { key?: string; actor: string; scope
 	const previous = await existing();
 	if (previous) return previous;
 	try {
+		// Transaction invariant: Avoid a saved submission key/conversation/request without its queue delivery
+		// and admitted stream state; a retry must see either the complete admission or no admission.
+		// TODO(transaction-review): Review nested callers that already own admission atomicity; a savepoint
+		// shares their snapshot and cannot independently recover an aborted outer transaction.
 		return await app().ai.models.request.getDb().transaction(transaction => ActiveRecord.withDb(transaction, () => admit(binding)));
 	} catch (error) {
 		const winner = await existing();

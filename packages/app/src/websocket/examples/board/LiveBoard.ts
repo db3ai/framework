@@ -54,6 +54,10 @@ export class LiveBoard extends ActiveRecord {
 	/** Serializes edits and rejects stale revisions rather than silently overwriting another user's move. */
 	static async move(id: string, userId: string, input: unknown): Promise<BoardSnapshot> {
 		const command = z.object({ cardId: z.string(), column: z.enum(['todo', 'doing', 'done']), revision: z.number().int().nonnegative() }).strict().parse(input);
+		// Transaction invariant: Avoid two card moves accepting the same expected board revision and silently
+		// overwriting one another.
+		// TODO(transaction-review): This saves one board; demonstrate a revision compare-and-swap rather than
+		// locking read/modify/write if the conflict response can remain unchanged.
 		const snapshot = await app().db.transaction(async () => {
 			const board = await this.where('id', id).forUpdate().first();
 			if (!board?.members.includes(userId)) throw new Error('Board unavailable.');
@@ -75,6 +79,8 @@ export class LiveBoard extends ActiveRecord {
 	 */
 	static async startSummary(id: string, userId: string, requestId: string): Promise<BoardSnapshot> {
 		z.string().uuid().parse(requestId);
+		// Transaction invariant: Avoid board activity marked queued without its database job, or concurrent
+		// requests enqueueing multiple summaries for one board.
 		const snapshot = await app().db.transaction(async () => {
 			const board = await this.where('id', id).forUpdate().first();
 			if (!board?.members.includes(userId)) throw new Error('Board unavailable.');

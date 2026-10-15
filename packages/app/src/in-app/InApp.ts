@@ -31,6 +31,10 @@ export class InApp {
 		if (!ids.length) return [];
 		const connection = InAppRecord.getDb();
 		const committed = this.#committed(connection);
+		// Transaction invariant: Avoid accepting only part of a recipient batch when authorization/key checks
+		// fail, or concurrent retries creating conflicting deliveries for one recipient key.
+		// TODO(transaction-review): Nested callers retain the outer snapshot; review lock scope separately for
+		// single-recipient acceptance without weakening the atomic batch contract.
 		const accepted = await connection.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			// Lock in stable order so concurrent batches and retries cannot deadlock by recipient order.
 			const canonicalIds = new Map<string, string>();

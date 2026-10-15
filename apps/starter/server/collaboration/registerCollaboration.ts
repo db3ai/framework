@@ -30,6 +30,10 @@ export function registerCollaboration(server: FastifyInstance, application: App,
 	server.post<{ Body: { code: string } }>('/api/rooms/studio/join', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } }, schema: { body: { type: 'object', required: ['code'], additionalProperties: false, properties: { code: { type: 'string', maxLength: 128 } } } } }, async request => {
 		const user = await requireUser(application, request);
 		if (request.body.code !== (process.env.DEMO_ROOM_CODE ?? 'draw-together')) throw new HttpError(403, 'Incorrect room code.');
+		// Transaction invariant: Avoid simultaneous first opens creating competing access records for the same
+		// personal studio room.
+		// TODO(transaction-review): Only one access row is inserted; assess unique-key insert/conflict
+		// handling instead of locking the user parent.
 		await application.db.transaction(async () => {
 			await UserIdentity.where('id', user.id).toKnex().forUpdate().first();
 			const key = `studio:${user.id}`;

@@ -366,6 +366,8 @@ export class Flows {
 		this.#assertPayloadSize(normalizedInput, 'Flow input');
 
 		const db = FlowRun.getDb();
+		// Transaction invariant: Avoid a flow run with missing step rows or creation/replay events after a
+		// partial setup failure; dispatch follows creation.
 		const createdIds = await db.transaction(async transaction => ActiveRecord.withDb(transaction, async () => {
 			const run = FlowRun.create({
 				flowId: execution.definition.id,

@@ -87,6 +87,8 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 		const now = unixTimestamp();
 		const expiredAt = now - options.retryAfterSeconds;
 
+		// Transaction invariant: Avoid two workers reserving the same available delivery and executing it
+		// concurrently; selection with SKIP LOCKED and reservation must be indivisible.
 		return withQueueQueryCategory(() => this.db.transaction(async () => {
 			const row = await QueuedJob
 				.where('queue', queue)
@@ -151,6 +153,8 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	 * @returns True when the current attempt owned and failed the job.
 	 */
 	async fail(job: queue.QueueJob, error: unknown): Promise<boolean> {
+		// Transaction invariant: Avoid deleting an exhausted delivery without retaining its failed-job
+		// payload, losing the evidence and retry path.
 		return await withQueueQueryCategory(() => this.db.transaction(async () => {
 			const deleted = await QueuedJob
 				.where('id', job.id)

@@ -902,6 +902,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 */
 	private async prepareRun(message: string, transport: string, traceId: string): Promise<PreparedAgentRun> {
 		if (app().ai.conversations.enabled && transport !== 'queue') {
+			// Transaction invariant: Avoid a rejected direct/stream turn leaving a pending request, orphan
+			// conversation/messages or partial stream ownership before provider execution.
+			// TODO(transaction-review): Review invocation preparation inside this boundary and nested recorder
+			// savepoints; keep only the writes required by the admission invariant.
 			return app().ai.models.request.getDb().transaction(transaction => ActiveRecord.withDb(transaction, () => this.prepareRunRecords(message, transport, traceId)));
 		}
 		return this.prepareRunRecords(message, transport, traceId);

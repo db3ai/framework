@@ -666,6 +666,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		const userId = this.userPrimaryKey(user);
 		if (!userId) return false;
 
+		// Transaction invariant: Avoid changing a password while old recovery tokens/sessions or password
+		// suspension state remain valid after a later invalidation failure.
 		const changed = await this.db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const lockedUser = await this.#lockIdentity(userId, transaction);
 			if (!lockedUser) return false;
@@ -794,6 +796,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		}
 
 		if (!tokenRecord.userId) return null;
+		// Transaction invariant: Avoid redeeming a recovery token twice or changing the password without
+		// invalidating old recovery/session credentials and suspension state.
 		const user = await this.db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const lockedUser = await this.#lockIdentity(tokenRecord.userId!, transaction);
 			if (!lockedUser) return null;

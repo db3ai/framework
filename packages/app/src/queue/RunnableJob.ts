@@ -150,6 +150,8 @@ export class RunnableJob extends ActiveRecord.define({
 			try { return await queue.dispatch(this, options); } finally { this.#publishing = false; }
 		};
 		try {
+			// Transaction invariant: Avoid a retained run recording a delivery key without its database queue
+			// entry, preventing a retry from publishing the missing delivery.
 			return queue.driverName === 'database'
 				? await RunnableJob.getDb().transaction(transaction => ActiveRecord.withDb(transaction, publish))
 				: await publish();
@@ -178,6 +180,8 @@ export class RunnableJob extends ActiveRecord.define({
 	async onFinalFailure(context: QueueableJobFailureContext): Promise<void> {
 		// A deadline can pass between handler failure and the driver's final disposition.
 		const error = context.error instanceof Error ? context.error.message : String(context.error);
+		// Transaction invariant: Avoid a terminal failed run with an attempt still marked retrying or without
+		// its matching failure event.
 		await RunnableJob.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const changed = await RunnableJob.where({ id: this.id, status: 'waiting', attemptCount: this.attemptCount }).patch({ status: 'failed', error, completedAt: new Date() });
 			if (changed) {
@@ -194,6 +198,8 @@ export class RunnableJob extends ActiveRecord.define({
 		this.#context = context;
 		this.#updates = Promise.resolve();
 		const token = randomUUID();
+		// Transaction invariant: Avoid multiple workers owning the same retained run, or a running lease
+		// without its corresponding attempt and interrupted-predecessor state.
 		const claimed = await RunnableJob.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const raw = await RunnableJob.where('id', this.id).toKnex().forUpdate().first();
 			if (!raw) throw new Error('Run no longer exists.');
@@ -253,6 +259,8 @@ export class RunnableJob extends ActiveRecord.define({
 
 	/** Records terminal/retry state, attempt outcome and timeline in the same transaction. */
 	async #finish(status: typeof JOB_RUN_STATUSES[number], error: string | null): Promise<void> {
+		// Transaction invariant: Avoid clearing a run lease/marking it terminal while its attempt remains
+		// running or its completion event is missing.
 		await RunnableJob.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const now = new Date();
 			const changed = await RunnableJob.where({ id: this.id, leaseToken: this.#token, status: 'running' }).patch({ status, error, completedAt: status === 'waiting' ? null : now, heartbeatAt: now, leaseToken: null, updatedAt: now });

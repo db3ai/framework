@@ -30,6 +30,10 @@ export class SchedulerCheckpointRecord extends ActiveRecord.define({
 			/** Advances only a valid, initialized UTC-minute cursor under a database row lock. */
 			async save(evaluatedFor: Date): Promise<void> {
 				const minute = checkpointMinute(evaluatedFor.toISOString());
+				// Transaction invariant: Avoid an older scheduler advancing operation overwriting a newer evaluated
+				// minute and replaying already evaluated time.
+				// TODO(transaction-review): This updates one checkpoint; evaluate an atomic monotonic conditional
+				// update and preserve its existing conflict handling.
 				await SchedulerCheckpointRecord.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 					const row = await SchedulerCheckpointRecord.where('name', name).toKnex().forUpdate().first();
 					if (!row) throw new Error('Scheduler checkpoint must be initialized before advancing it.');

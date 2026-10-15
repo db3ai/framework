@@ -14,6 +14,8 @@ import type { KnowledgeNote } from './KnowledgeNote';
  * @returns Persisted notes after the transaction commits successfully.
  */
 export async function createNotesTogether(workspaceId: string, inputs: unknown[]): Promise<KnowledgeNote[]> {
+	// Transaction invariant: This example promises an all-or-nothing note batch: a later validation/save
+	// failure must not leave earlier notes persisted.
 	return app().db.knex.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 		const notes: KnowledgeNote[] = [];
 		for (const input of inputs) {

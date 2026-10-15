@@ -187,6 +187,10 @@ export class AgentStreamRecorder {
 		let frames: Array<{ event: stream.AgentConversationEvent; itemId: string | null }> = [];
 		let attentionChanged = false;
 		let runStateChanged = false;
+		// Transaction invariant: Avoid stream messages/request changes committing without their conversation
+		// sequence, ownership and run state, or publishing frames for rolled-back writes.
+		// TODO(transaction-review): Some recorder callbacks only change conversation JSON; review those and
+		// nested savepoints separately while preserving atomic message/run transitions.
 		const result = await connection.transaction(transaction => ActiveRecord.withDb(transaction, async () => {
 			const conversation = await app().ai.models.conversation.where('id', this.state.conversation.id).forUpdate().firstOrFail();
 			const attentionId = conversation.streamState?.attention?.id;

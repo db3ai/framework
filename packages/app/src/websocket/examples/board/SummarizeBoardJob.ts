@@ -20,6 +20,10 @@ export class SummarizeBoardJob extends QueueableJob<SummarizeBoardData> {
 	 * Browser disconnect never cancels this job; a repeated attempt safely replaces the same result.
 	 */
 	async handle(): Promise<void> {
+		// Transaction invariant: Avoid a stale summary worker changing activity/revision after another board
+		// operation replaces or completes its run.
+		// TODO(transaction-review): This saves one board; evaluate a run-id/status/revision-conditional update
+		// for the example.
 		const snapshot = await app().db.transaction(async () => {
 			const board = await LiveBoard.where('id', this.data.boardId).forUpdate().firstOrFail();
 			if (board.activity?.id !== this.data.runId || ['completed', 'failed'].includes(board.activity.status)) return null;
@@ -40,6 +44,10 @@ export class SummarizeBoardJob extends QueueableJob<SummarizeBoardData> {
 
 	/** Fences an old attempt from overwriting a newer run and publishes only after commit. */
 	async #finish(status: 'completed' | 'failed', result: string | null): Promise<void> {
+		// Transaction invariant: Avoid an old summary result overwriting newer board activity or losing a
+		// concurrent board revision increment.
+		// TODO(transaction-review): This saves one board; evaluate a run-id/status/revision-conditional update
+		// that retains stale-result rejection.
 		await app().db.transaction(async () => {
 			const board = await LiveBoard.where('id', this.data.boardId).forUpdate().first();
 			if (!board || board.activity?.id !== this.data.runId || ['completed', 'failed'].includes(board.activity.status)) return;

@@ -39,6 +39,10 @@ export class AgentConversations {
 	async requestAttention(conversationId: string, input: { id: string; kind: AgentConversationAttention['kind'] }): Promise<void> {
 		if (!input.id || input.id.length > 160 || !['completed', 'failed', 'blocked', 'approval', 'input'].includes(input.kind)) throw new AgentConversationReadError(400, 'Invalid attention occurrence.');
 		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		// Transaction invariant: Avoid replacing attention while losing concurrent run/queue state stored in
+		// the same conversation JSON.
+		// TODO(transaction-review): This patches one conversation row; evaluate an atomic attention-field
+		// update or revision compare-and-swap instead of locking the full read/modify/write.
 		const changed = await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', conversationId).forUpdate().firstOrFail();
 			if (!conversation.streamState) throw new AgentConversationReadError(409, 'Conversation has no admitted run.');
@@ -53,6 +57,10 @@ export class AgentConversations {
 	/** Acknowledges only the occurrence actually rendered; stale tabs cannot clear newer output. */
 	async markRead(context: stream.AgentReadContext, input: { conversationId: string; attentionId: string }): Promise<void> {
 		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		// Transaction invariant: Avoid acknowledging a newer attention occurrence by mistake or losing another
+		// reader's acknowledgement in the shared JSON state.
+		// TODO(transaction-review): This patches one row; assess an attention-id-conditional JSON update that
+		// preserves run state and deduplicates readBy.
 		const changed = await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().first();
 			await this.#authorize(context, input.conversationId, 'conversation');
@@ -97,6 +105,8 @@ export class AgentConversations {
 		if (!this.enabled || !context.userId || !this.options?.authorizeStop) throw new AgentConversationReadError(404, 'Conversation not found.');
 		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
 		const stopped: string[] = [];
+		// Transaction invariant: Avoid a conversation marked stopped while its active/pending requests remain
+		// runnable, or cancelling requests without removing them from its queue.
 		const result = await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().first();
 			const scope = conversation?.get(this.ai.scopeField) as string | { id?: string } | null;
@@ -138,6 +148,11 @@ export class AgentConversations {
 	async load(context: stream.AgentReadContext, input: { conversationId: string; view: stream.AgentView; before?: number; limit?: number }): Promise<stream.AgentConversationSnapshot> {
 		await this.#authorize(context, input.conversationId, input.view);
 		if (input.before !== undefined && (!Number.isSafeInteger(input.before) || input.before < 0) || input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1)) throw new AgentConversationReadError(400, 'Invalid history page.');
+		// Transaction invariant: Intends to avoid returning a timeline, run state and attention from different
+		// stream revisions; this boundary does not persist data.
+		// TODO(transaction-review): Read-only snapshot takes FOR UPDATE on the conversation. Test whether a
+		// consistent read or revision/reload check can preserve the response contract without a write
+		// lock/explicit transaction.
 		return this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().firstOrFail();
 			const query = this.ai.models.message.where('conversation', input.conversationId).orderBy('sequence', 'desc').limit(Math.min(100, Math.max(1, input.limit ?? 40)));
@@ -210,6 +225,8 @@ export class AgentConversations {
 		if (!request?.conversation?.id) return;
 		const id = String(request.conversation.id);
 		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		// Transaction invariant: Avoid a request left terminal while its conversation advertises a waiting
+		// retry, or a stale retry reopening a completed/cancelled turn.
 		await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', id).forUpdate().firstOrFail();
 			const previous = conversation.streamState;
@@ -230,6 +247,8 @@ export class AgentConversations {
 		if (!request?.conversation?.id) return;
 		const id = String(request.conversation.id);
 		const committed = databaseTransactionCommit(this.ai.models.conversation.getDb());
+		// Transaction invariant: Avoid failing a request without removing/settling its conversation queue
+		// state, or an obsolete owner stopping a replacement run.
 		await this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', id).forUpdate().firstOrFail();
 			if (expectedOwner && conversation.streamState?.owner && conversation.streamState.owner !== expectedOwner) return;
@@ -249,6 +268,10 @@ export class AgentConversations {
 	 * Call explicitly during an application data migration; returns the repaired count.
 	 */
 	async repairRejectedRequests(conversationId: string): Promise<number> {
+		// Transaction invariant: Avoid cleanup failing a pending request that admission/execution concurrently
+		// adopted into the conversation or gave provider/message evidence.
+		// TODO(transaction-review): Independent orphan rows are repaired here; review per-request conditional
+		// reconciliation and lock participation before retaining the broad repair transaction.
 		return this.#transaction(async () => {
 			const conversation = await this.ai.models.conversation.where('id', conversationId).forUpdate().firstOrFail();
 			const roots = await this.ai.models.request.where('conversation', conversationId).where('status', 'pending').where('operation', 'agents.run.stream').forUpdate().all();
@@ -309,6 +332,10 @@ export class AgentConversations {
 	/** Rejects missing and unauthorized conversations with the same public response. */
 	async #authorize(context: stream.AgentReadContext, id: string, view: stream.AgentView): Promise<void> { if (!await this.authorized(context, id, view)) throw new AgentConversationReadError(404, 'Conversation not found.'); }
 	/** Serializes authoritative lifecycle changes on the conversation record. */
+	// Transaction invariant: Shared connection/scope for the caller's conversation-state and
+	// request/message changes; their concrete invalid partial states are documented at each call.
+	// TODO(transaction-review): Do not infer that every caller needs this wrapper; review read-only and
+	// single-row callers independently.
 	async #transaction<T>(work: () => Promise<T>): Promise<T> { return this.ai.models.conversation.getDb().transaction(transaction => ActiveRecord.withDb(transaction, work)); }
 	/** Applies presentation policy before HTTP or socket delivery. */
 	#filterItem(item: AgentConversationTimelineItem, view: stream.AgentView): AgentConversationTimelineItem | null {
