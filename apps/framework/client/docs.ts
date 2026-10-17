@@ -1,3 +1,4 @@
+import { dockArticles } from './articles/dock';
 import { articleSections } from './articleContent';
 import { serviceExampleOutputs, serviceExampleSources } from './generated/service-examples';
 import { activeRecordArticle } from './articles/activeRecord';
@@ -39,7 +40,7 @@ import { serviceLabEvidence, serviceLabSamples, serviceLabTesting } from './arti
 /**
  * Stable identifiers for the primary documentation destinations.
  */
-export type DocAreaId = 'start' | 'ai' | 'guides' | 'services' | 'cookbook' | 'examples' | 'api';
+export type DocAreaId = 'start' | 'ai' | 'guides' | 'services' | 'cookbook' | 'examples' | 'api' | 'dock';
 
 /**
  * One primary destination shown in the global documentation rail.
@@ -82,6 +83,8 @@ export interface DocContentSection {
 	title: string;
 	paragraphs: string[];
 	codeSampleId?: string;
+	/** Screenshot of the real UI, with accessible description and demo-data context. */
+	image?: { src: string; alt: string; caption: string; width: number; height: number };
 	/** Optional explanatory visual rendered alongside the canonical prose. */
 	visual?: 'framework-vision';
 	/** Heading depth used by long-form service documentation. */
@@ -187,6 +190,7 @@ export const docAreas: DocArea[] = [
 	{ id: 'services', label: 'Services', description: 'Explore every reusable framework service.' },
 	{ id: 'cookbook', label: 'Cookbook', description: 'Solve common application and operations problems.' },
 	{ id: 'examples', label: 'Examples', description: 'Inspect tested, source-backed framework examples.' },
+	{ id: 'dock', label: 'Dock', description: 'Run local projects and inspect Docker servers with Dock.' },
 	{ id: 'api', label: 'API', description: 'Browse package contracts and public exports.' },
 ];
 
@@ -960,6 +964,7 @@ const apiArticles: DocArticle[] = [
 
 export const docArticles: DocArticle[] = [
 	...startArticles,
+	...dockArticles,
 	...guideArticles,
 	...serviceArticles,
 	...cookbookArticles,

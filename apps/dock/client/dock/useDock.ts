@@ -1,6 +1,7 @@
 import { computed, onScopeDispose, reactive, ref, shallowRef } from 'vue';
 
-import type { DockEvent, OutputChunk, ProcessSnapshot, ProjectDefinition, ProxyRoute } from '../../shared/contracts.js';
+import type { CreateAppRequest, DockEvent, GitBranch, OutputChunk, ProcessSnapshot, ProjectDefinition, ProxyRoute } from '../../shared/contracts.js';
+import type { AddHostRequest, ContainerAction, HostEvent, HostSnapshot } from '../../shared/hostContracts.js';
 import { portLink, type PortLink } from '../../shared/portLink.js';
 import { dockApi } from '../api.js';
 import { useTerminalSocket } from '../terminal/useTerminalSocket.js';
@@ -16,6 +17,9 @@ import { mergeChunks } from './mergeChunks.js';
 export function useDock() {
 	const projects = shallowRef<ProjectDefinition[]>([]);
 	const proxies = shallowRef<ProxyRoute[]>([]);
+	const branches = shallowRef<Record<string, GitBranch | null>>({});
+	/** Docker hosts, in saved order; each replaced whole when it changes. */
+	const hosts = shallowRef<HostSnapshot[]>([]);
 	const snapshots = reactive(new Map<string, ProcessSnapshot>());
 	const output = reactive(new Map<string, OutputChunk[]>());
 	const terminal = useTerminalSocket();
@@ -31,13 +35,21 @@ export function useDock() {
 	source.onerror = () => {
 		connected.value = false;
 	};
-	source.onmessage = message => apply(JSON.parse(message.data) as DockEvent);
+	source.onmessage = message => apply(JSON.parse(message.data) as DockEvent | HostEvent);
 	onScopeDispose(() => source.close());
 
-	function apply(event: DockEvent): void {
-		if (event.type === 'state') {
+	function apply(event: DockEvent | HostEvent): void {
+		if (event.type === 'hosts') {
+			hosts.value = event.hosts;
+		} else if (event.type === 'host') {
+			const index = hosts.value.findIndex(host => host.id === event.host.id);
+			hosts.value = index < 0 ? [...hosts.value, event.host] : hosts.value.map((host, at) => (at === index ? event.host : host));
+		} else if (event.type === 'host-removed') {
+			hosts.value = hosts.value.filter(host => host.id !== event.id);
+		} else if (event.type === 'state') {
 			projects.value = event.state.projects;
 			proxies.value = event.state.proxies ?? [];
+			branches.value = event.state.branches ?? {};
 			const ids = new Set(event.state.processes.map(process => process.id));
 			for (const id of [...snapshots.keys()]) if (!ids.has(id)) snapshots.delete(id);
 			for (const process of event.state.processes) snapshots.set(process.id, process);
@@ -52,6 +64,8 @@ export function useDock() {
 			output.set(event.processId, []);
 		} else if (event.type === 'proxies') {
 			proxies.value = event.proxies;
+		} else if (event.type === 'branches') {
+			branches.value = event.branches;
 		}
 	}
 
@@ -102,11 +116,20 @@ export function useDock() {
 		return portLink(port, proxies.value);
 	}
 
+	/**
+	 * @param projectId - Project id.
+	 * @returns The project's current git branch, or `null` when it is not in a git repository (or not read yet).
+	 */
+	function branchOf(projectId: string): GitBranch | null {
+		return branches.value[projectId] ?? null;
+	}
+
 	const runningCount = computed(() => [...snapshots.values()].filter(process => process.status === 'running').length);
 	const processCount = computed(() => projects.value.reduce((total, project) => total + project.processes.length, 0));
 
 	return {
 		projects,
+		hosts,
 		snapshots,
 		connected,
 		loaded,
@@ -115,6 +138,7 @@ export function useDock() {
 		processCount,
 		loadOutput,
 		linkFor,
+		branchOf,
 		chunksOf,
 		clearError: () => {
 			error.value = null;
@@ -130,7 +154,12 @@ export function useDock() {
 		resize: terminal.resize,
 		projectAction: (id: string, action: 'start' | 'stop' | 'restart' | 'open-editor') => run(() => dockApi.projectAction(id, action)),
 		addProject: (path: string, name?: string) => run(() => dockApi.addProject(path, name)),
+		createApp: (body: CreateAppRequest) => run(() => dockApi.createApp(body)),
 		removeProject: (id: string) => run(() => dockApi.removeProject(id)),
+		addHost: (body: AddHostRequest) => run(() => dockApi.addHost(body)),
+		removeHost: (id: string) => run(() => dockApi.removeHost(id)),
+		refreshHost: (id: string) => run(() => dockApi.refreshHost(id)),
+		containerAction: (hostId: string, name: string, action: ContainerAction) => run(() => dockApi.containerAction(hostId, name, action)),
 	};
 }
 

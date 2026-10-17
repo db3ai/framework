@@ -12,6 +12,14 @@ export interface LayoutState {
 	project: string;
 	/** Process shown in the list view's output panel. */
 	selectedProcess: string | null;
+	/** Container shown in a server's bottom panel, as `hostId/containerName`. */
+	selectedContainer: string | null;
+	/** Tab of that panel. */
+	containerTab: 'details' | 'logs';
+	/** A server's main view: the app cards, or the Routes diagram. */
+	serverView: 'list' | 'routes';
+	/** Width in pixels of the boxes in the Routes diagram. */
+	routeWidth: number;
 	/** Process expanded to fill the terminals grid. */
 	maximized: string | null;
 	/** Height in pixels of the list view's output panel. */
@@ -29,6 +37,10 @@ const DEFAULTS: LayoutState = {
 	sidebarCollapsed: false,
 	project: 'all',
 	selectedProcess: null,
+	selectedContainer: null,
+	containerTab: 'details',
+	serverView: 'list',
+	routeWidth: 270,
 	maximized: null,
 	panelHeight: 280,
 	columnWidths: {},

@@ -1,5 +1,7 @@
 # @db3.ai/app
 
+[db3.ai](https://db3.ai/) · [Framework documentation](https://db3.ai/framework)
+
 Shared backend framework package for DB3 applications.
 
 This package owns reusable runtime services and data-layer mechanics:

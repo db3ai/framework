@@ -26,6 +26,15 @@ test('the production runtime serves health, canonical feature documentation and 
 	const asset = guide.body.match(/src="(\/framework\/assets\/[^" ]+\.js)"/)?.[1];
 	assert.ok(asset, 'Built HTML references the framework browser bundle.');
 	assert.equal((await server.inject(asset)).statusCode, 200);
+	for (const name of ['processes', 'terminals', 'servers', 'routes']) {
+		const screenshot = await server.inject(`/framework/images/dock/${name}.png`);
+		assert.equal(screenshot.statusCode, 200);
+		assert.match(screenshot.headers['content-type'] ?? '', /image\/png/);
+		assert.equal(screenshot.rawPayload.readUInt32BE(0), 0x89504e47);
+	}
+	const dock = await server.inject('/framework/docs/dock');
+	assert.equal(dock.statusCode, 200);
+	assert.match(dock.body, /src="\/framework\/images\/dock\/processes\.png"/);
 	assert.equal((await server.inject('/')).statusCode, 404);
 	assert.equal((await server.inject('/assets/missing.js')).statusCode, 404);
 	const missing = await server.inject('/framework/docs/unknown-release-check');

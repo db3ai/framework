@@ -4,11 +4,15 @@ import { computed, ref, watch, watchEffect } from 'vue';
 import AddProcessDialog from './components/AddProcessDialog.vue';
 import AddProjectDialog from './components/AddProjectDialog.vue';
 import AppHeader from './components/AppHeader.vue';
+import AddHostDialog from './components/hosts/AddHostDialog.vue';
+import HostView from './components/hosts/HostView.vue';
 import ProcessList from './components/ProcessList.vue';
 import ProjectSidebar from './components/ProjectSidebar.vue';
 import TerminalGrid from './components/TerminalGrid.vue';
 import { provideDockContext } from './dock/context.js';
 import { filterProjects } from './dock/filterProjects.js';
+import { formatMemory } from './dock/presentation.js';
+import { hostNav, isRunning } from './hosts/presentation.js';
 import { projectNav } from './dock/projectNav.js';
 import { useDock } from './dock/useDock.js';
 import { useLayout } from './dock/useLayout.js';
@@ -23,23 +27,37 @@ watchEffect(() => {
 });
 const addProcessFor = ref<string | null>(null);
 const addingProject = ref(false);
+const addingHost = ref(false);
 
 provideDockContext({ dock, layout, openAddProcess: id => (addProcessFor.value = id) });
 
 const navItems = computed(() => projectNav(dock.projects.value, dock.snapshots));
+const serverItems = computed(() => hostNav(dock.hosts.value));
+/** The server shown, when the current selection is `host:<id>`. */
+const currentHost = computed(() => (layout.project.startsWith('host:') ? dock.hosts.value.find(host => `host:${host.id}` === layout.project) ?? null : null));
 const visibleProjects = computed(() => filterProjects(dock.projects.value, layout.project, filter.value));
 const addProcessProject = computed(() => dock.projects.value.find(project => project.id === addProcessFor.value) ?? null);
 
 const subtitle = computed(() => {
+	if (currentHost.value) {
+		const host = currentHost.value;
+		const engine = host.engine ? ` · ${host.engine.cpus} CPU · ${formatMemory(host.engine.memory)}` : '';
+		return `${host.containers.filter(isRunning).length} of ${host.containers.length} running · ${host.target}${engine}`;
+	}
 	const project = dock.projects.value.find(item => item.id === layout.project);
 	const nav = navItems.value.find(item => item.id === layout.project);
 	if (!project || !nav) return `${dock.runningCount.value} of ${dock.processCount.value} running`;
 	return `${nav.running} of ${nav.total} running · ${project.path.replace(/^\/Users\/[^/]+/, '~')}`;
 });
 
-// A removed project falls back to "All projects".
-watch(() => dock.projects.value, projects => {
-	if (layout.project !== 'all' && dock.loaded.value && !projects.some(project => project.id === layout.project)) layout.project = 'all';
+// A removed project or server falls back to "All projects".
+watch([() => dock.projects.value, () => dock.hosts.value], ([projects, hosts]) => {
+	if (layout.project === 'all' || !dock.loaded.value) return;
+	// Hosts arrive just after projects; an empty list may not be loaded yet.
+	const exists = layout.project.startsWith('host:')
+		? !hosts.length || hosts.some(host => `host:${host.id}` === layout.project)
+		: projects.some(project => project.id === layout.project);
+	if (!exists) layout.project = 'all';
 });
 
 function pickProject(id: string): void {
@@ -47,9 +65,19 @@ function pickProject(id: string): void {
 	layout.maximized = null;
 }
 
-function projectAdded(id: string): void {
+function hostAdded(id: string): void {
+	addingHost.value = false;
+	layout.project = `host:${id}`;
+}
+
+function projectAdded(id: string, processId?: string): void {
 	addingProject.value = false;
 	layout.project = id;
+	// A new app's setup terminal is shown so its install output and prompts are visible.
+	if (processId) {
+		layout.view = 'list';
+		layout.selectedProcess = processId;
+	}
 }
 </script>
 
@@ -58,25 +86,28 @@ function projectAdded(id: string): void {
 		<AppHeader
 			v-model:filter="filter"
 			v-model:theme="layout.theme"
-			:items="navItems"
+			:items="[...navItems, ...serverItems]"
 			:current="layout.project"
 			:subtitle="subtitle"
 			:view="layout.view"
 			:sidebar-collapsed="layout.sidebarCollapsed"
 			:connected="dock.connected.value || !dock.loaded.value"
+			:show-views="!currentHost"
+			:filter-label="currentHost ? 'Filter containers' : 'Filter processes'"
 			@toggle-sidebar="layout.sidebarCollapsed = !layout.sidebarCollapsed"
 			@pick="pickProject"
 			@view="layout.view = $event"
 			@add-project="addingProject = true"
 		/>
 		<div class="body" :class="{ 'body--rail': layout.sidebarCollapsed }">
-			<ProjectSidebar :items="navItems" :current="layout.project" :collapsed="layout.sidebarCollapsed" @pick="pickProject" />
+			<ProjectSidebar :items="navItems" :servers="serverItems" :current="layout.project" :collapsed="layout.sidebarCollapsed" @pick="pickProject" @add-server="addingHost = true" />
 			<main class="main">
-				<p v-if="dock.error.value && !addingProject && !addProcessFor" class="banner" role="alert">
+				<p v-if="dock.error.value && !addingProject && !addingHost && !addProcessFor" class="banner" role="alert">
 					{{ dock.error.value }}
 					<button type="button" class="btn" @click="dock.clearError()">Dismiss</button>
 				</p>
-				<div v-if="dock.loaded.value && !dock.projects.value.length" class="empty">
+				<HostView v-if="currentHost" :key="currentHost.id" :host="currentHost" :filter="filter" />
+				<div v-else-if="dock.loaded.value && !dock.projects.value.length" class="empty">
 					<h1>Add your first project</h1>
 					<p>Point Dock at a folder with a package.json. It picks up the <span class="mono">api</span>, <span class="mono">dev</span>, <span class="mono">queue</span> and <span class="mono">scheduler</span> scripts and runs each in its own terminal.</p>
 					<button type="button" class="btn btn--primary" @click="addingProject = true">Add project</button>
@@ -87,6 +118,7 @@ function projectAdded(id: string): void {
 			</main>
 		</div>
 		<AddProcessDialog v-if="addProcessProject" :key="addProcessProject.id" :project="addProcessProject" @close="addProcessFor = null" />
+		<AddHostDialog v-if="addingHost" @close="addingHost = false; dock.clearError()" @added="hostAdded" />
 		<AddProjectDialog v-if="addingProject" @close="addingProject = false; dock.clearError()" @added="projectAdded" />
 	</div>
 </template>

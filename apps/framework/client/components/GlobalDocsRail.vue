@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Bot, Box, Braces, BookOpen, ChefHat, CodeXml, House } from '@lucide/vue';
+import { Bot, Box, Braces, BookOpen, ChefHat, CodeXml, House, PanelsTopLeft } from '@lucide/vue';
 import type { Component } from 'vue';
 import { docAreas, docArticles, type DocAreaId } from '../docs';
 import { documentationPath } from '../siteRoutes';
@@ -10,6 +10,7 @@ defineProps<{
 
 const areaIcons: Record<DocAreaId, Component> = {
 	start: House,
+	dock: PanelsTopLeft,
 	ai: Bot,
 	guides: BookOpen,
 	services: Box,

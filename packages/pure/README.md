@@ -1,5 +1,7 @@
 # @db3.ai/pure
 
+[db3.ai](https://db3.ai/) · [Framework documentation](https://db3.ai/framework)
+
 Source-workspace verification uses `npm test --workspace @db3.ai/pure` for tests
 plus type checks and available naming checks, or `npm run quality --workspace
 @db3.ai/pure` for quality alone. A combined summary reports every stage even

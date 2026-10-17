@@ -112,7 +112,7 @@ export class SupervisedProcess {
 			ports: this.isRunning ? this.listening : [],
 			cpu: this.isRunning ? this.stats.cpu : null,
 			memory: this.isRunning ? this.stats.memory : null,
-			command: displayCommand(this.definition.script, this.definition.args),
+			command: this.commandText(),
 			external: !!this.external,
 		};
 	}
@@ -120,7 +120,7 @@ export class SupervisedProcess {
 	/** Starts the script unless it is already running. */
 	start(): void {
 		if (this.term || this.external) return;
-		const { script, args } = this.definition;
+		const { script, args, command } = this.definition;
 		this.stopRequested = false;
 		this.exitCode = null;
 		this.port = null;
@@ -128,10 +128,11 @@ export class SupervisedProcess {
 		this.listening = [];
 		this.pendingLine = '';
 		this.stats = { cpu: null, memory: null };
-		this.note(`$ ${displayCommand(script, args)}`);
+		this.note(`$ ${this.commandText()}`);
 		let term: pty.IPty;
 		try {
-			term = pty.spawn(this.options.npm ?? 'npm', ['run', script, ...(args.length ? ['--', ...args] : [])], {
+			const [file, ...argv] = command?.length ? command : [this.options.npm ?? 'npm', 'run', script, ...(args.length ? ['--', ...args] : [])];
+			term = pty.spawn(file, argv, {
 				name: 'xterm-256color',
 				cols: this.size.cols,
 				rows: this.size.rows,
@@ -272,6 +273,12 @@ export class SupervisedProcess {
 	 *
 	 * @param definition - New definition with the same id.
 	 */
+	/** The command line shown in the terminal and process list. */
+	private commandText(): string {
+		const { command, script, args } = this.definition;
+		return command?.length ? command.join(' ') : displayCommand(script, args);
+	}
+
 	update(definition: ProcessDefinition): void {
 		this.definition = definition;
 	}

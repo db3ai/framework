@@ -4,12 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 import { createServer } from './createServer.js';
 import { Dock } from './Dock.js';
+import { HostMonitor } from './hosts/HostMonitor.js';
+import { HostStore } from './hosts/HostStore.js';
 import { ProjectStore } from './projects/ProjectStore.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.DOCK_PORT || 8790);
 const host = process.env.DOCK_HOST || '127.0.0.1';
 const configFile = resolve(process.env.DOCK_CONFIG || join(homedir(), '.db3-dock', 'projects.json'));
+const hostsFile = resolve(process.env.DOCK_HOSTS || join(dirname(configFile), 'hosts.json'));
 
 if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
 	console.error(`DOCK_HOST must be a loopback address; Dock runs commands on this machine. Got "${host}".`);
@@ -18,6 +21,8 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
 
 const dock = new Dock(new ProjectStore(configFile));
 await dock.open();
+const hosts = new HostMonitor(new HostStore(hostsFile));
+await hosts.open();
 
 const server = await createServer(dock, {
 	clientDir: process.env.DOCK_CLIENT_DIR ?? join(here, '..', 'dist'),
@@ -25,6 +30,7 @@ const server = await createServer(dock, {
 	logger: process.env.DOCK_LOG === '1',
 	dockDir: join(here, '..'),
 	port,
+	hosts,
 });
 
 let closing = false;
@@ -32,6 +38,7 @@ async function shutdown(signal: string): Promise<void> {
 	if (closing) return;
 	closing = true;
 	console.log(`\n${signal}: stopping supervised processes…`);
+	hosts.close();
 	await dock.close();
 	await server.close();
 	process.exit(0);

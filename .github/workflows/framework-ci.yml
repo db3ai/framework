@@ -69,6 +69,9 @@ jobs:
       - name: Type-check source and examples
         run: npm run check
 
+      - name: Test Dock projects, terminals and host routes
+        run: npm test --workspace db3-dock
+
       - name: Test Pure, Create and Starter
         run: npm test --workspace @db3.ai/pure && npm test --workspace @db3.ai/create && npm test --workspace db3-starter
 

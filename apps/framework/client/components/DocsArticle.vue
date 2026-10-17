@@ -68,6 +68,12 @@ function findCodeSample(id?: string): DocCodeSample | null {
 			<section v-for="section in articleSections(article)" :id="section.id" :key="section.id" class="docs-content-section">
 				<component :is="section.level === 3 ? 'h3' : 'h2'">{{ section.title }}</component>
 				<p v-for="paragraph in section.paragraphs" :key="paragraph"><DocsInlineText :text="paragraph" /></p>
+				<figure v-if="section.image" class="my-6">
+					<a :href="section.image.src" target="_blank" rel="noreferrer" class="block overflow-hidden rounded-xl border border-border focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary" :aria-label="`Open full-size screenshot: ${section.image.alt}`">
+						<img :src="section.image.src" :alt="section.image.alt" :width="section.image.width" :height="section.image.height" loading="lazy" decoding="async" class="h-auto w-full" />
+					</a>
+					<figcaption class="mt-3 text-sm leading-6 text-muted-fg">{{ section.image.caption }} Open the image for a full-size view.</figcaption>
+				</figure>
 				<FrameworkVision v-if="section.visual === 'framework-vision'" />
 				<ul v-if="section.links?.length" class="my-4 space-y-2">
 					<li v-for="link in section.links" :key="link.href ?? `${link.articleId}#${link.sectionId ?? ''}`">

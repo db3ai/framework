@@ -4,6 +4,8 @@ Typed TypeScript application framework packaged as `@db3.ai/app` and
 `@db3.ai/pure`, with the `@db3.ai/create` application starter. This repository
 contains their public source, the runnable starter, service documentation, examples and behaviour tests.
 
+[db3.ai website](https://db3.ai/) · [Framework documentation](https://db3.ai/framework) · [Getting started](https://db3.ai/framework/docs/welcome) · [Dock guide](https://db3.ai/framework/docs/dock)
+
 The `main` branch contains ongoing development; `0.1.x` maintains the 0.1 release line.
 Run [apps/starter](./apps/starter/README.md) directly from this checkout
 to develop and try framework features. Its local environment file is ignored by
@@ -69,7 +71,7 @@ packages through trusted publishing. Stable versions use `latest`.
 The public documentation website lives at
 [`apps/framework`](./apps/framework/README.md). It is a separate
 deployment root with its own `index.ts`; the framework packages are build inputs.
-It serves `https://db3.ai/framework`, with guides under `/framework/docs/...`.
+Read the [framework documentation](https://db3.ai/framework), with guides under `/framework/docs/...`.
 Run `npm run docs:dev` or `npm run docs:build` from this repository root.
 
 Packaging (`framework:package`), independent consumers (`framework:package:test`
@@ -101,6 +103,17 @@ publication, versioned tags, verification-only runs and manual recovery.
 Version: `0.1.0`
 License: `MIT`  
 Repository: <https://github.com/db3ai/framework>
+
+## Dock
+
+[Dock](https://db3.ai/framework/docs/dock) runs your local projects and npm scripts
+with live terminals, process controls and Git branch information. Connect Docker
+hosts over SSH to inspect containers, logs and the routes serving your apps.
+
+Run `npm run dev:dock` from this checkout. See the
+[Dock README](./apps/dock/README.md) for setup and configuration, or follow the
+[illustrated guides](https://db3.ai/framework/docs/dock) on db3.ai. Dock runs from
+source; packaged desktop installers are not available yet.
 
 ## Flow editor and lab
 

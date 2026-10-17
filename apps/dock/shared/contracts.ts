@@ -25,6 +25,11 @@ export interface ProcessDefinition {
 	saved: boolean;
 	/** Added automatically for a job found running outside Dock; removed when that job ends. */
 	discovered?: boolean;
+	/**
+	 * Program and arguments to run instead of `npm run <script>`, for one-off
+	 * jobs such as installing a newly created app. `script` is empty then.
+	 */
+	command?: string[];
 }
 
 /** A project folder whose npm scripts the Dock runs. */
@@ -81,11 +86,21 @@ export interface ProxyRoute {
 	port: number;
 }
 
+/** The git checkout a project folder is on. */
+export interface GitBranch {
+	/** Branch name, such as `main`, or the short commit hash when `detached`. */
+	name: string;
+	/** HEAD points at a commit rather than a branch. */
+	detached: boolean;
+}
+
 /** Everything the client needs to draw the Dock. */
 export interface DockState {
 	projects: ProjectDefinition[];
 	processes: ProcessSnapshot[];
 	proxies: ProxyRoute[];
+	/** Current git branch by project id; `null` when the folder is not in a git repository. */
+	branches: Record<string, GitBranch | null>;
 }
 
 /** An npm script found in a project's package.json. */
@@ -115,10 +130,33 @@ export interface AddProcessRequest {
 	start: boolean;
 }
 
+/** How a newly created app reaches its MariaDB database. */
+export type CreateAppDatabase = 'local' | 'docker';
+
+/** Request body for creating a new db3 app with `create-db3` and adding it as a project. */
+export interface CreateAppRequest {
+	/** Folder name of the new app: a lowercase letter, then lowercase letters, numbers or hyphens. */
+	name: string;
+	/** Existing parent folder the app is created in; `~` is expanded. */
+	folder: string;
+	/** Use a MariaDB already on this machine, or start one in Docker. */
+	database: CreateAppDatabase;
+	/** Run the database, `npm install` and migrations in a setup terminal straight away. */
+	setup: boolean;
+}
+
+/** The project made by {@link CreateAppRequest}. */
+export interface CreateAppResult {
+	project: ProjectDefinition;
+	/** The session-only setup process, when setup was requested. */
+	setupProcessId: string | null;
+}
+
 /** Events pushed to the client. */
 export type DockEvent =
 	| { type: 'state'; state: DockState }
 	| { type: 'process'; process: ProcessSnapshot }
 	| { type: 'output'; processId: string; chunks: OutputChunk[] }
 	| { type: 'cleared'; processId: string }
-	| { type: 'proxies'; proxies: ProxyRoute[] };
+	| { type: 'proxies'; proxies: ProxyRoute[] }
+	| { type: 'branches'; branches: Record<string, GitBranch | null> };

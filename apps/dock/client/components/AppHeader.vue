@@ -17,6 +17,9 @@ const props = defineProps<{
 	view: 'list' | 'terminals';
 	sidebarCollapsed: boolean;
 	connected: boolean;
+	/** Show the List / Terminals switch (projects only). */
+	showViews?: boolean;
+	filterLabel?: string;
 }>();
 
 const filter = defineModel<string>('filter', { required: true });
@@ -51,7 +54,7 @@ async function openDesktop(): Promise<void> {
 			><Icon name="sidebar" /></button>
 			<ProjectSwitcher :items="props.items" :current="props.current" :subtitle="props.subtitle" @pick="emit('pick', $event)" @add-project="emit('addProject')" />
 		</div>
-		<div class="segmented" role="group" aria-label="View">
+		<div v-if="props.showViews !== false" class="segmented" role="group" aria-label="View">
 			<button type="button" :aria-pressed="props.view === 'list'" :class="{ on: props.view === 'list' }" @click="emit('view', 'list')"><Icon name="list" :size="14" /> List</button>
 			<button type="button" :aria-pressed="props.view === 'terminals'" :class="{ on: props.view === 'terminals' }" @click="emit('view', 'terminals')"><Icon name="grid" :size="14" /> Terminals</button>
 		</div>
@@ -59,8 +62,8 @@ async function openDesktop(): Promise<void> {
 			<span v-if="!props.connected" class="offline" role="status">Reconnecting…</span>
 			<label class="search">
 				<Icon name="search" :size="15" />
-				<span class="visually-hidden">Filter processes</span>
-				<input v-model="filter" type="search" placeholder="Filter processes">
+				<span class="visually-hidden">{{ props.filterLabel ?? 'Filter processes' }}</span>
+				<input v-model="filter" type="search" :placeholder="props.filterLabel ?? 'Filter processes'">
 			</label>
 			<span v-if="desktop.message.value" class="desktop-note" role="status">{{ desktop.message.value }}</span>
 			<button v-if="desktop.available" type="button" class="btn add" :disabled="desktop.opening.value" title="Open Dock as a desktop app" @click="openDesktop"><Icon name="external" :size="14" /> Desktop app</button>

@@ -8,6 +8,8 @@ import { externalUrl, isDockNavigation, isLoopbackHttpUrl } from './navigation.j
 const here = dirname(fileURLToPath(import.meta.url));
 // dist/src/main.js → apps/dock
 const dockDir = resolve(here, '..', '..', '..');
+/** App icon, rendered from `assets/icon.svg`; Electron cannot load SVG icons. */
+const iconPath = resolve(here, '..', '..', 'assets', 'icon.png');
 const port = Number(process.env.DOCK_PORT || 8790);
 
 app.setName('Dock');
@@ -46,6 +48,8 @@ function openExternal(url: string): void {
 function createWindow(appUrl: string): void {
 	const window = new BrowserWindow({
 		title: 'Dock',
+		// Windows and Linux take the icon per window; macOS uses the Dock icon set at launch.
+		icon: iconPath,
 		width: 1320,
 		height: 880,
 		minWidth: 560,
@@ -111,6 +115,8 @@ if (!app.requestSingleInstanceLock()) {
 	});
 
 	void app.whenReady().then(async () => {
+		// An unpackaged app otherwise shows Electron's own icon in the macOS Dock.
+		app.dock?.setIcon(iconPath);
 		const dockSession = session.fromPartition('persist:dock');
 		dockSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
 		dockSession.setPermissionCheckHandler(() => false);

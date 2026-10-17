@@ -3,6 +3,7 @@ import type { ProjectDefinition } from '../../shared/contracts.js';
 import { useDockContext } from '../dock/context.js';
 import { isUp } from '../dock/presentation.js';
 import { clampSize, resizeAdjacent } from '../dock/splitSizes.js';
+import BranchChip from './BranchChip.vue';
 import ProjectActions from './ProjectActions.vue';
 import SplitHandle from './SplitHandle.vue';
 import TerminalPane from './TerminalPane.vue';
@@ -87,6 +88,7 @@ function moveRow(project: ProjectDefinition, delta: number): void {
 			>
 				<div class="bar">
 					<h2 :id="`terms-${project.id}`">{{ project.name }}</h2>
+					<BranchChip :project-id="project.id" />
 					<span class="path mono">{{ project.path }}</span>
 					<span class="count">{{ runningIn(project) }} of {{ project.processes.length }} running</span>
 					<ProjectActions :project="project" class="bar-actions" />
@@ -163,6 +165,7 @@ h2 {
 	margin: 0;
 	font-size: 15px;
 	font-weight: 600;
+	white-space: nowrap;
 }
 
 .path,

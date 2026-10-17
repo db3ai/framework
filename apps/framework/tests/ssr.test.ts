@@ -84,6 +84,13 @@ test('the docs server renders canonical, hydratable pages and a noindex 404', as
 		const current = docArticles.find(item => url === `/framework/docs/${item.id}`);
 		if (current) {
 			for (const section of articleSections(current)) {
+				if (section.image) {
+					assert.ok(response.body.includes(`src="${section.image.src}"`), `${url}: missing screenshot`);
+					assert.ok(response.body.includes(`alt="${section.image.alt}"`), `${url}: missing screenshot description`);
+					const screenshot = await server.inject({ method: 'GET', url: section.image.src });
+					assert.equal(screenshot.statusCode, 200, section.image.src);
+					assert.match(screenshot.headers['content-type'] ?? '', /image\/png/);
+				}
 				assert.ok(response.body.includes(`id="${section.id}"`), `${url}: missing section ${section.id}`);
 				assert.ok(response.body.includes(`href="${url}#${section.id}"`), `${url}: missing contents link ${section.id}`);
 			}

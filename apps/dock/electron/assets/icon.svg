@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+	<defs>
+		<linearGradient id="ground" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#2a2e36" />
+			<stop offset="1" stop-color="#121316" />
+		</linearGradient>
+		<filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+			<feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.35" />
+		</filter>
+	</defs>
+	<!-- macOS icon grid: 824px body inside a 1024px canvas. -->
+	<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#ground)" filter="url(#shadow)" />
+	<rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="3" />
+	<text x="512" y="520" text-anchor="middle" font-family="Inter, 'SF Pro Display', 'Helvetica Neue', Arial, sans-serif" font-size="300" font-weight="800" letter-spacing="-12" fill="#e8e9ec">db3</text>
+	<!-- The dock: one bar per process kind (api, web, queue, scheduler). -->
+	<g>
+		<rect x="230" y="640" width="564" height="120" rx="36" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.1" stroke-width="3" />
+		<rect x="268" y="676" width="104" height="48" rx="16" fill="#6aa8ff" />
+		<rect x="396" y="676" width="104" height="48" rx="16" fill="#f2a65a" />
+		<rect x="524" y="676" width="104" height="48" rx="16" fill="#b48cf2" />
+		<rect x="652" y="676" width="104" height="48" rx="16" fill="#5fc4b8" />
+	</g>
+</svg>

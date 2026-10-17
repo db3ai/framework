@@ -1,5 +1,7 @@
 # @db3.ai/create
 
+[db3.ai](https://db3.ai/) · [Starter guide](https://db3.ai/framework/docs/starter-app) · [Framework documentation](https://db3.ai/framework)
+
 Creates an independent Vue/DOM Studio + Fastify app using `@db3.ai/app`.
 The starter has password registration/login, private notes and optional AI note
 summaries. The developer supplies their own server-side OpenAI key.

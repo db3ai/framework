@@ -220,7 +220,8 @@ test('complete AI context contains every registered article and verified source'
 	const mountOverhead = productionBytes - contentBytes;
 	// Reconciled provider admission, request diagnostics and operational-email contracts add public source evidence.
 	// UTC timestamp contracts and timezone helper declarations add public API evidence.
-	assert.ok(contentBytes < 1_780_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.78 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	// Dock adds three user guides with screenshot references and setup commands.
+	assert.ok(contentBytes < 1_800_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.80 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 
@@ -283,3 +284,12 @@ function exportWildcard(subpath: string, pattern: string): string {
 
 	return subpath.slice(prefix.length, subpath.length - suffix.length);
 }
+
+/** Keeps screenshot descriptions and usable absolute asset links in the portable guide. */
+test('Dock screenshots remain accessible in Markdown exports', () => {
+	const article = findArticle('dock');
+	assert.ok(article);
+	const document = documentationArticleMarkdown(article, { origin: 'https://docs.example.test' });
+	assert.match(document, /!\[Dock List view[^\]]+\]\(https:\/\/docs\.example\.test\/framework\/images\/dock\/processes\.png\)/);
+	assert.match(document, /Demonstration data/);
+});

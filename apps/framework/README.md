@@ -1,5 +1,7 @@
 # Framework documentation website
 
+[db3.ai website](https://db3.ai/) · [Live framework documentation](https://db3.ai/framework) · [Dock guides](https://db3.ai/framework/docs/dock)
+
 This directory owns `https://db3.ai/framework`. Its root `index.ts` starts the
 framework SSR adapter and documentation router. The landing page is `/framework`;
 guides are `/framework/docs/...`. Assets, health, Markdown feeds and the sitemap

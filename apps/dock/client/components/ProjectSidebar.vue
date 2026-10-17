@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import type { ProjectNavItem } from '../dock/projectNav.js';
 import { KIND_ORDER, kindMeta } from '../dock/presentation.js';
+import Icon from './Icon.vue';
 import KindTile from './KindTile.vue';
 import ProjectBadge from './ProjectBadge.vue';
 
-/** Project navigation; collapses to a rail of badges. */
-const props = defineProps<{ items: ProjectNavItem[]; current: string; collapsed: boolean }>();
-const emit = defineEmits<{ pick: [id: string] }>();
+/** Project and server navigation; collapses to a rail of badges. */
+const props = defineProps<{ items: ProjectNavItem[]; servers: ProjectNavItem[]; current: string; collapsed: boolean }>();
+const emit = defineEmits<{ pick: [id: string]; addServer: [] }>();
 </script>
 
 <template>
@@ -31,14 +32,39 @@ const emit = defineEmits<{ pick: [id: string] }>();
 				</template>
 			</button>
 		</div>
-		<div v-if="!props.collapsed" class="legend">
+		<div class="group">
+			<div v-if="!props.collapsed" class="eyebrow heading">Servers</div>
+			<button
+				v-for="item in props.servers"
+				:key="item.id"
+				type="button"
+				class="item"
+				:class="{ 'item--current': item.id === props.current }"
+				:aria-current="item.id === props.current ? 'true' : undefined"
+				:aria-label="`${item.label}, ${item.running} of ${item.total} containers running`"
+				:title="props.collapsed ? item.label : undefined"
+				@click="emit('pick', item.id)"
+			>
+				<ProjectBadge :initials="item.initials" :health="item.health" />
+				<template v-if="!props.collapsed">
+					<span class="label">{{ item.label }}</span>
+					<span class="count mono">{{ item.running }}/{{ item.total }}</span>
+				</template>
+			</button>
+			<button type="button" class="item item--add" aria-label="Add server" :title="props.collapsed ? 'Add server' : undefined" @click="emit('addServer')">
+				<span class="add-icon"><Icon name="plus" :size="14" /></span>
+				<span v-if="!props.collapsed" class="label">Add server</span>
+			</button>
+		</div>
+		<div v-if="!props.collapsed && !props.current.startsWith('host:')" class="legend">
 			<div class="eyebrow">Process types</div>
 			<div v-for="kind in KIND_ORDER" :key="kind" class="legend-item">
 				<KindTile :kind="kind" size="sm" />
 				{{ kindMeta(kind).label }}
 			</div>
 		</div>
-		<p v-if="!props.collapsed" class="foot">Runs each project's <span class="mono">npm run</span> scripts in its own folder.</p>
+		<p v-if="!props.collapsed && props.current.startsWith('host:')" class="foot">Watches Docker over SSH. Deploys and restart policies change containers too; the view follows them.</p>
+		<p v-else-if="!props.collapsed" class="foot">Runs each project's <span class="mono">npm run</span> scripts in its own folder.</p>
 	</nav>
 </template>
 
@@ -95,6 +121,21 @@ const emit = defineEmits<{ pick: [id: string] }>();
 
 .item--current {
 	background: var(--raised-hi);
+}
+
+.item--add {
+	color: var(--muted);
+}
+
+.add-icon {
+	width: 28px;
+	height: 28px;
+	flex: none;
+	border-radius: 7px;
+	border: 1px dashed var(--line-strong);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
 }
 
 .label {

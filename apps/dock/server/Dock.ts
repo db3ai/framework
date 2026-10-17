@@ -1,14 +1,16 @@
-import type { AddProcessRequest, DockEvent, DockState, OutputChunk, ProcessSnapshot, ProjectDefinition } from '../shared/contracts.js';
+import type { AddProcessRequest, CreateAppRequest, CreateAppResult, DockEvent, DockState, OutputChunk, ProcessSnapshot, ProjectDefinition } from '../shared/contracts.js';
 import { realpath } from 'node:fs/promises';
 
-import type { ProxyRoute } from '../shared/contracts.js';
+import type { GitBranch, ProxyRoute } from '../shared/contracts.js';
 import { pickListeningPort } from '../shared/pickListeningPort.js';
 import { ensurePtyHelper } from './processes/ensurePtyHelper.js';
 import { scanProcesses, type ProcessScan } from './processes/listExternalProcesses.js';
 import { readCaddyRoutes } from './proxies/readCaddyRoutes.js';
 import { sampleProcessGroups } from './processes/sampleProcessGroups.js';
 import { SupervisedProcess, type SupervisedProcessOptions } from './processes/SupervisedProcess.js';
+import { generateApp, setupCommand } from './projects/createApp.js';
 import { ProjectStore } from './projects/ProjectStore.js';
+import { readGitBranch } from './projects/readGitBranch.js';
 
 /** Receives every Dock event. */
 export type DockListener = (event: DockEvent) => void;
@@ -27,6 +29,10 @@ export interface DockOptions {
 	listProxies?: () => Promise<ProxyRoute[]>;
 	/** Milliseconds between proxy config reads. */
 	proxiesEveryMs?: number;
+	/** Reads a project folder's current git branch; replaceable in tests. */
+	readBranch?: (folder: string) => Promise<GitBranch | null>;
+	/** Generates a new app folder; `create-db3` by default, replaceable in tests. */
+	generateApp?: typeof generateApp;
 }
 
 /**
@@ -45,6 +51,7 @@ export class Dock {
 	private readonly realPaths = new Map<string, string>();
 	private proxies: ProxyRoute[] = [];
 	private proxiesReadAt = 0;
+	private branches: Record<string, GitBranch | null> = {};
 
 	constructor(readonly store: ProjectStore, private readonly options: DockOptions = {}) {}
 
@@ -53,6 +60,7 @@ export class Dock {
 		await ensurePtyHelper();
 		await this.store.load();
 		this.sync();
+		await this.refreshBranches();
 		const every = this.options.sampleEveryMs ?? 3000;
 		if (every > 0) {
 			this.sampler = setInterval(() => void this.sample(), every);
@@ -94,7 +102,7 @@ export class Dock {
 
 	private async runDiscovery(): Promise<void> {
 		const owned = new Set([...this.processes.values()].map(process => process.ownedPid).filter((pid): pid is number => pid !== null));
-		const [scan] = await Promise.all([(this.options.scan ?? scanProcesses)(), this.refreshProxies()]);
+		const [scan] = await Promise.all([(this.options.scan ?? scanProcesses)(), this.refreshProxies(), this.refreshBranches()]);
 		const jobs = scan.jobs.filter(job => !owned.has(job.pid));
 		for (const process of this.processes.values()) {
 			if (process.ownedPid !== null) {
@@ -161,6 +169,20 @@ export class Dock {
 		this.broadcast({ type: 'proxies', proxies });
 	}
 
+	/**
+	 * Re-reads every project's git branch, broadcasting when any changed, so a
+	 * checkout made in a terminal or editor shows up on the next scan.
+	 */
+	async refreshBranches(): Promise<void> {
+		const read = this.options.readBranch ?? readGitBranch;
+		const projects = this.store.list();
+		const entries = await Promise.all(projects.map(async project => [project.id, await read(project.path).catch(() => null)] as const));
+		const branches = Object.fromEntries(entries);
+		if (JSON.stringify(branches) === JSON.stringify(this.branches)) return;
+		this.branches = branches;
+		this.broadcast({ type: 'branches', branches });
+	}
+
 	private async realPath(path: string): Promise<string> {
 		let resolved = this.realPaths.get(path);
 		if (!resolved) {
@@ -187,6 +209,7 @@ export class Dock {
 			projects: this.store.list(),
 			processes: [...this.processes.values()].map(process => process.snapshot()),
 			proxies: this.proxies,
+			branches: this.branches,
 		};
 	}
 
@@ -199,9 +222,29 @@ export class Dock {
 	 */
 	async addProject(path: string, name?: string): Promise<ProjectDefinition> {
 		const project = await this.store.addProject(path, name);
+		await this.refreshBranches();
 		this.syncAndBroadcast();
 		await this.discover();
 		return this.store.get(project.id);
+	}
+
+	/**
+	 * Creates a new db3 app with `create-db3`, adds it as a project and, when
+	 * asked, starts a session-only `setup` terminal for its database, install
+	 * and migrations. The app's own `dev` (and other) processes start as usual.
+	 *
+	 * @param request - Name, parent folder, database and whether to set up now.
+	 * @returns The project and its setup process.
+	 */
+	async createApp(request: CreateAppRequest): Promise<CreateAppResult> {
+		const database = request.database === 'docker' ? 'docker' : 'local';
+		const path = await (this.options.generateApp ?? generateApp)(request.name, request.folder, database);
+		const project = await this.store.addProject(path);
+		const setup = request.setup ? this.store.addCommand(project.id, 'setup', setupCommand(database)) : null;
+		await this.refreshBranches();
+		this.syncAndBroadcast();
+		if (setup) this.process(setup.id).start();
+		return { project: this.store.get(project.id), setupProcessId: setup?.id ?? null };
 	}
 
 	/**
@@ -266,7 +309,8 @@ export class Dock {
 	 */
 	async projectAction(projectId: string, action: 'start' | 'stop' | 'restart'): Promise<void> {
 		const project = this.store.get(projectId);
-		const targets = project.processes.map(definition => this.process(definition.id));
+		// One-off commands, such as a new app's setup, only run when started on their own.
+		const targets = project.processes.filter(definition => !definition.command || action === 'stop').map(definition => this.process(definition.id));
 		if (action === 'start') targets.forEach(process => process.start());
 		else if (action === 'stop') await Promise.all(targets.map(process => process.stop()));
 		else await Promise.all(targets.map(process => process.restart()));

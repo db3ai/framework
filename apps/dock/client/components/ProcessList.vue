@@ -4,6 +4,7 @@ import { computed, ref } from 'vue';
 import type { ProjectDefinition } from '../../shared/contracts.js';
 import { useDockContext } from '../dock/context.js';
 import { clampSize } from '../dock/splitSizes.js';
+import BranchChip from './BranchChip.vue';
 import ProcessRow from './ProcessRow.vue';
 import SplitHandle from './SplitHandle.vue';
 import ProjectActions from './ProjectActions.vue';
@@ -42,6 +43,7 @@ const selected = computed(() => {
 				<div class="card-head">
 					<div class="title">
 						<h2 :id="`project-${project.id}`">{{ project.name }}</h2>
+						<BranchChip :project-id="project.id" />
 						<span class="path mono">{{ project.path }}</span>
 					</div>
 					<ProjectActions :project="project" show-terminals />
@@ -118,9 +120,13 @@ h2 {
 	margin: 0;
 	font-size: 15px;
 	font-weight: 600;
+	white-space: nowrap;
 }
 
 .path {
+	/* Only the space left after the name and branch. */
+	flex: 1 1 0;
+	min-width: 0;
 	font-size: 12px;
 	color: var(--muted);
 	white-space: nowrap;

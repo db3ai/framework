@@ -3,9 +3,12 @@ import { existsSync } from 'node:fs';
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 
-import type { AddProcessRequest, DockEvent } from '../shared/contracts.js';
+import type { AddProcessRequest, CreateAppRequest, DockEvent } from '../shared/contracts.js';
+import type { HostEvent } from '../shared/hostContracts.js';
 import type { Dock } from './Dock.js';
 import { desktopStatus, openDesktop } from './desktopApp.js';
+import type { HostMonitor } from './hosts/HostMonitor.js';
+import { registerHostRoutes } from './hosts/hostRoutes.js';
 import { openInEditor } from './openInEditor.js';
 import { attachTerminalSocket } from './terminalSocket.js';
 import { DockRequestError } from './projects/ProjectStore.js';
@@ -24,6 +27,8 @@ export interface DockServerOptions {
 	dockDir?: string;
 	/** Port this server listens on, passed to the desktop shell. */
 	port?: number;
+	/** Docker hosts to watch; omitted, the Servers API is not offered. */
+	hosts?: HostMonitor;
 }
 
 /**
@@ -81,19 +86,31 @@ export async function createServer(dock: Dock, options: DockServerOptions = {}):
 			'cache-control': 'no-store',
 			connection: 'keep-alive',
 		});
-		const send = (event: DockEvent) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
+		const send = (event: DockEvent | HostEvent) => reply.raw.write(`data: ${JSON.stringify(event)}\n\n`);
 		send({ type: 'state', state: dock.state() });
 		const unsubscribe = dock.subscribe(send);
+		// Hosts are sampled only while a window is open.
+		const hosts = options.hosts;
+		if (hosts) send({ type: 'hosts', hosts: hosts.state() });
+		const unsubscribeHosts = hosts?.subscribe(send);
+		const release = hosts?.retain();
 		const heartbeat = setInterval(() => reply.raw.write(': ping\n\n'), 15000);
 		request.raw.on('close', () => {
 			clearInterval(heartbeat);
 			unsubscribe();
+			unsubscribeHosts?.();
+			release?.();
 		});
 	});
 
 	server.post<{ Body: { path?: string; name?: string } }>('/api/projects', async request => {
 		if (!request.body?.path) throw new DockRequestError('A folder path is required.');
 		return dock.addProject(request.body.path, request.body.name);
+	});
+
+	server.post<{ Body: CreateAppRequest }>('/api/projects/create', async request => {
+		if (!request.body?.name) throw new DockRequestError('An app name is required.');
+		return dock.createApp(request.body);
 	});
 
 	server.delete<{ Params: { id: string } }>('/api/projects/:id', async request => {
@@ -153,6 +170,8 @@ export async function createServer(dock: Dock, options: DockServerOptions = {}):
 		else throw new DockRequestError(`Unknown action "${action}".`, 404);
 		return { ok: true };
 	});
+
+	if (options.hosts) registerHostRoutes(server, options.hosts);
 
 	if (options.clientDir && existsSync(options.clientDir)) {
 		await server.register(fastifyStatic, { root: options.clientDir });

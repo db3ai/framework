@@ -184,6 +184,22 @@ export class ProjectStore {
 	}
 
 	/**
+	 * Adds a session-only definition that runs a command instead of an npm
+	 * script, such as a new app's install and migrations.
+	 *
+	 * @param projectId - Project id.
+	 * @param name - Display name.
+	 * @param command - Program and arguments, run in the project folder.
+	 * @returns The new definition.
+	 */
+	addCommand(projectId: string, name: string, command: string[]): ProcessDefinition {
+		const project = this.get(projectId);
+		const definition: ProcessDefinition = { id: uniqueId(`${project.name}-${name}`), name, script: '', args: [], kind: 'script', saved: false, command };
+		project.processes.push(definition);
+		return definition;
+	}
+
+	/**
 	 * Removes a process definition.
 	 *
 	 * @param processId - Process id.

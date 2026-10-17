@@ -107,5 +107,6 @@ export const mobileLandingNavigation: LandingNavigationItem[] = [
 	...frameworkNavigation,
 	...guideNavigation,
 	...serviceNavigation,
+	{ label: 'Dock', value: 'dock' },
 	{ label: 'API reference', value: 'api-reference' },
 ];

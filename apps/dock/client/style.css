@@ -32,6 +32,9 @@
 	--kind-queue: light-dark(#7444c4, #b48cf2);
 	--kind-scheduler: light-dark(#0f7c76, #5fc4b8);
 	--kind-script: light-dark(#5b6270, #c9cdd4);
+	/* Container roles on servers. */
+	--kind-gateway: light-dark(#b0306a, #f27aae);
+	--kind-database: light-dark(#4352b0, #9aa8f5);
 
 	/* Terminal colours 0–7 and their bright variants 8–15. */
 	--ansi-0: light-dark(#3b4048, #5c6370);

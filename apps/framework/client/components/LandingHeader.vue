@@ -67,6 +67,7 @@ function selectNavigation(target: string): void {
 				width="min-w-[17rem]"
 				@select="selectNavigation"
 			/>
+			<a class="landing-navigation-link" href="/framework/docs/dock" data-docs-navigation>Dock</a>
 			<a class="landing-navigation-link" href="/framework/docs/api-reference" data-docs-navigation>API</a>
 		</nav>
 

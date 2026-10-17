@@ -72,6 +72,9 @@ export function documentationArticleMarkdown(
 		const sample = article.codeSamples?.find(candidate => candidate.id === section.codeSampleId);
 		const heading = `${'#'.repeat(section.level ?? 2)} ${section.title}`;
 		const sectionBlocks = [`<a id="${xmlText(section.id)}"></a>`, heading, ...section.paragraphs];
+		if (section.image) {
+			sectionBlocks.push(`![${section.image.alt}](${new URL(section.image.src, origin).toString()})`, section.image.caption);
+		}
 		if (section.links?.length) {
 			sectionBlocks.push(section.links.map(link => {
 				if (link.href) return `- [${link.label}](${link.href})`;

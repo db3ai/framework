@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import fastifyStatic from '@fastify/static';
 import { fastifyViteSsr, type ViteSsrMode } from '@db3.ai/app/ssr/vite';
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
 import { Log, registerHttpExchangeMonitor } from '@db3.ai/app/logging';
@@ -60,6 +61,15 @@ export async function createDocsServer(options: DocsServerOptions = {}): Promise
 	server.addHook('preHandler', async request => { request.raw.url = request.originalUrl; });
 
 	registerDocumentationFeeds(server, { origin });
+
+	// Public screenshots are copied by Vite and served under the same mount in both modes.
+	await server.register(fastifyStatic, {
+		root: resolve(root, mode === 'production' ? 'dist/client/images' : 'public/images'),
+		prefix: '/framework/images/',
+		decorateReply: false,
+		index: false,
+		maxAge: '1h',
+	});
 
 	await server.register(fastifyViteSsr({
 		root,
