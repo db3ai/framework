@@ -649,7 +649,7 @@ async function acknowledgedDispatch(queue: QueueService): Promise<QueueJobId> {
 	return await accepted;
 }
 void acknowledgedDispatch;
-const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'], concurrency: 4 };
+const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'], concurrency: 4, intervalMs: 5000, stagger: true };
 declare const consumingQueue: Queue;
 const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsPerTick: 1 });
 const boundedWorker = new QueueWorker(consumingQueue, { queues: ['default', 'articles'] });

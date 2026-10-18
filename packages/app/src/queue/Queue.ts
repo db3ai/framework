@@ -664,7 +664,7 @@ export class Queue implements queue.QueueService {
 		const worker = new QueueWorker(
 			this,
 			typeof queue === 'string' ? queue : { ...queue, queues: queue.queues ?? [this.options.queue || 'default'] },
-			options.intervalMs ?? this.workerIntervalMs(),
+			options.intervalMs ?? (typeof queue === 'string' ? undefined : queue.intervalMs) ?? this.workerIntervalMs(),
 			options.maxJobsPerTick ?? this.maxJobsPerTick(),
 			options.logger,
 			options.verbose ?? false,

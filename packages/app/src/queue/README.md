@@ -540,3 +540,18 @@ still apply across all slots. CPU-bound JavaScript still shares the event loop.
 job. `workOnce()` always executes at most one job and cannot run alongside a
 started pool. Configure concurrency in a console worker selection to retain the
 same lifecycle behavior with `--pool`; `--once` still processes a single job.
+
+## Pool polling and startup staggering
+
+A `QueueSelection` may set `intervalMs` and `stagger: true` alongside its
+queue names and concurrency. Staggering delays the first claim of each execution
+slot by an independent random offset below the polling interval. It does not
+delay `workOnce()`. Stopping a worker cancels pending startup timers and drains
+active work. Explicit worker `intervalMs` or CLI `--interval` overrides the pool
+interval. Pool defaults otherwise take precedence over the service interval.
+Polling remains bounded and skips ticks while the slot is busy.
+
+```ts
+queue.startWorker({ queues: ['maintenance'], intervalMs: 5000, stagger: true });
+queue.startWorker({ queues: ['interactive'], concurrency: 4, intervalMs: 1000, stagger: true });
+```

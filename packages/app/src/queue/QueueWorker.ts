@@ -30,6 +30,9 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	readonly #excludeQueues: ReadonlySet<string>;
 	private readonly queue: string;
 	private timer: NodeJS.Timeout | null = null;
+	/** Pending first claim, cancelled together with the polling timer during shutdown. */
+	#startupTimer: NodeJS.Timeout | null = null;
+	readonly #stagger: boolean;
 	private readonly intervalMs: number;
 	private readonly maxJobsPerTick: number;
 
@@ -37,13 +40,15 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	constructor(
 		private readonly queueManager: Queue,
 		selection: string | queue.QueueSelection = 'default',
-		intervalMs = Number(process.env.QUEUE_WORKER_INTERVAL_MS || DEFAULT_WORKER_INTERVAL_MS),
+		intervalMs?: number,
 		maxJobsPerTick = Number(process.env.QUEUE_WORKER_MAX_JOBS_PER_TICK || DEFAULT_MAX_JOBS_PER_TICK),
 		private readonly logger?: queue.QueueLogger,
 		private readonly verbose = false,
 	) {
 		const requested = typeof selection === 'string' ? { queues: [selection] } : selection;
+		intervalMs ??= requested.intervalMs ?? Number(process.env.QUEUE_WORKER_INTERVAL_MS || DEFAULT_WORKER_INTERVAL_MS);
 		const concurrency = requested.concurrency ?? 1;
+		this.#stagger = requested.stagger ?? false;
 		if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 32) throw new Error('Worker concurrency must be an integer between 1 and 32.');
 		this.#slots = concurrency === 1 ? [] : Array.from({ length: concurrency }, () => new QueueWorker(queueManager, { ...requested, concurrency: 1 }, intervalMs, maxJobsPerTick, logger, verbose));
 		this.#queues = requested.queues === '*' ? '*' : normalizeQueueNames(requested.queues ?? ['default']);
@@ -58,7 +63,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	}
 
 	/**
-	 * Starts the worker with an immediate tick followed by interval-based polling.
+	 * Starts interval polling, optionally spreading each slot's first claim across one interval.
 	 */
 	start(): void {
 		if (this.#slots.length) {
@@ -68,16 +73,24 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			for (const slot of this.#slots) slot.start();
 			return;
 		}
-		if (this.timer) return;
+		if (this.timer || this.#startupTimer) return;
 		this.#stopping = false;
 
 		this.logger?.info(this.verbose
 			? `[queue] Worker started for "${this.queue}" (interval ${this.intervalMs}ms, max ${this.maxJobsPerTick} jobs/tick).`
 			: `[queue] Worker started for "${this.queue}".`);
 		this.#presence.start();
-		this.timer = setInterval(() => {
-			this.startTick();
-		}, this.intervalMs);
+		if (this.#stagger) {
+			this.#startupTimer = setTimeout(() => {
+				this.#startupTimer = null;
+				if (!this.#stopping) this.#beginPolling();
+			}, Math.floor(Math.random() * this.intervalMs));
+		} else this.#beginPolling();
+	}
+
+	/** Starts the periodic timer only after the optional startup offset has elapsed. */
+	#beginPolling(): void {
+		this.timer = setInterval(() => this.startTick(), this.intervalMs);
 		this.startTick();
 	}
 
@@ -86,6 +99,8 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	stop(): void {
 		this.#stopping = true;
+		if (this.#startupTimer) clearTimeout(this.#startupTimer);
+		this.#startupTimer = null;
 		if (this.#slotsStarted) { for (const slot of this.#slots) slot.stop(); return; }
 		if (this.#activeJob) this.#presence.update('stopping'); else void this.#presence.stop();
 		if (!this.timer) return;

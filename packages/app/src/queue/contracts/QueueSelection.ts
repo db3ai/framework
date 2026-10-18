@@ -10,4 +10,8 @@ export interface QueueSelection {
 	excludeQueues?: readonly string[];
 	/** Independent in-process polling slots (1–32). Each slot owns its lease and presence; one-shot work still processes one job. */
 	concurrency?: number;
+	/** Pool polling interval in milliseconds; explicit worker/CLI options override it. */
+	intervalMs?: number;
+	/** Spreads initial claims across one polling interval, independently for every execution slot. */
+	stagger?: boolean;
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { Database } from '../../db';
 import { Queue, QueueableJob, type JobEnvelope, type QueueDriver, type QueueDriverPopOptions, type QueueDriverPushInput, type QueueJob, type QueueJobId, type QueueLogger } from '../index';
 
@@ -373,5 +373,65 @@ describe('QueueWorker', () => {
 
 		expect(drained).toBe(true);
 		expect(driver.jobs).toEqual([]);
+	});
+});
+
+/** Tests polling timing through real queue deliveries; only the clock and random offset are controlled. */
+describe('pool polling and staggering', () => {
+	it('staggered starts spread claims and stop cancels an unstarted worker', async () => {
+		vi.useFakeTimers();
+		const random = vi.spyOn(Math, 'random').mockReturnValueOnce(0.2).mockReturnValueOnce(0.8);
+		const driver = new MemoryQueueDriver();
+		const queue = queueWith(driver);
+		const handled: number[] = [];
+		queue.registerHandler('stagger-test', async () => { handled.push(Date.now()); });
+		const first = queue.startWorker({ queues: ['default'], intervalMs: 5000, stagger: true }, { force: true });
+		const second = queue.startWorker({ queues: ['default'], intervalMs: 5000, stagger: true }, { force: true });
+		try {
+			await queue.dispatch('stagger-test', {});
+			await vi.advanceTimersByTimeAsync(999);
+			expect(handled).toHaveLength(0);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(handled).toHaveLength(1);
+			await queue.dispatch('stagger-test', {});
+			await vi.advanceTimersByTimeAsync(2999);
+			expect(handled).toHaveLength(1);
+			await second!.stopAndDrain();
+			await vi.advanceTimersByTimeAsync(1);
+			expect(handled).toHaveLength(1);
+			await vi.advanceTimersByTimeAsync(2000);
+			expect(handled).toHaveLength(2);
+		} finally {
+			await first!.stopAndDrain();
+			await second!.stopAndDrain();
+			random.mockRestore();
+			vi.useRealTimers();
+		}
+	});
+
+	it('explicit intervals override a pool while active handlers remain serial within each slot', async () => {
+		vi.useFakeTimers();
+		const driver = new MemoryQueueDriver();
+		const queue = queueWith(driver);
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => { release = resolve; });
+		let started = 0;
+		queue.registerHandler('interval-test', async () => { started++; await gate; });
+		const worker = queue.startWorker({ queues: ['default'], intervalMs: 5000 }, { force: true, intervalMs: 1000 });
+		try {
+			await vi.advanceTimersByTimeAsync(0);
+			await queue.dispatch('interval-test', {});
+			await queue.dispatch('interval-test', {});
+			await vi.advanceTimersByTimeAsync(999);
+			expect(started).toBe(0);
+			await vi.advanceTimersByTimeAsync(1);
+			expect(started).toBe(1);
+			await vi.advanceTimersByTimeAsync(5000);
+			expect(started).toBe(1);
+		} finally {
+			release();
+			await worker!.stopAndDrain();
+			vi.useRealTimers();
+		}
 	});
 });
