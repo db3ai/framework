@@ -13,3 +13,5 @@ export type { QueueJobRunner } from './QueueJobRunner';
 export * from './QueueableJobContract';
 
 export type { QueueWorkerSnapshot } from './QueueWorkerSnapshot';
+
+export * from './QueueWaitOptions';

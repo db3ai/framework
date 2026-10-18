@@ -59,7 +59,7 @@ export class AgentStreamRecorder {
 			if (this.#job?.id) await root.assign({ metadata: { ...root.metadata, jobRunId: String(this.#job.id) } }).save();
 			this.#attempt = status === 'queued' ? 0 : this.context?.job.attempts ?? (prior?.run.aiRequestId === id ? prior.run.attempt : 0) + 1;
 			const run: stream.AgentRunState = { aiRequestId: id, status, attempt: this.#attempt, startedAt: status === 'running' ? (prior?.run.aiRequestId === id ? prior.run.startedAt : null) ?? new Date().toISOString() : null, completedAt: null, error: null };
-			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), attention: prior?.attention, activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
+			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), attention: prior?.attention, context: prior?.context, contextCheckpoint: prior?.contextCheckpoint, activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
 			this.#claimed = true;
 		}, false);
 		if (status === 'running') {
@@ -88,8 +88,35 @@ export class AgentStreamRecorder {
 		}));
 	}
 
-	/** Fences provider checkpoints just like saved messages, without adding history events. */
-	async checkpoint(save: () => Promise<unknown>): Promise<void> { await this.#serialize(() => this.#write(async () => { await save(); })); }
+	/**
+	 * Commits provider finalization and its compacted continuation under one writer fence.
+	 * A retry must never see a new continuation without the finalized marker. The same
+	 * conversation lock keeps the sequence watermark and queued-followup exclusions atomic.
+	 */
+	async checkpoint(save: () => Promise<unknown>, history?: { model: string; input: agent.AgentModelInput }): Promise<void> {
+		await this.#serialize(() => this.#write(async conversation => {
+			await save();
+			if (!history) return;
+			let index = history.input.length - 1;
+			while (index >= 0 && history.input[index]?.type !== 'compaction') index -= 1;
+			if (index < 0) return;
+			const latest = await app().ai.models.message.where('conversation', conversation.id).orderBy('sequence', 'desc').first();
+			conversation.streamState!.contextCheckpoint = {
+				model: history.model, input: history.input.slice(index), throughSequence: latest?.sequence ?? 0,
+				excludedRequestIds: [...conversation.streamState!.pending ?? []],
+			};
+		}));
+	}
+
+	/** Saves bounded context diagnostics under the current writer fence and publishes only safe metadata. */
+	async contextUsage(update: Omit<stream.AgentContextState, 'compactions'>, compacted = false): Promise<void> {
+		await this.#serialize(() => this.#write(async conversation => {
+			const prior = conversation.streamState!.context;
+			const context = { ...update, compactions: (prior?.compactions ?? 0) + (compacted ? 1 : 0) };
+			conversation.streamState!.context = context;
+			this.#pending.push({ event: { type: 'context.changed', context }, itemId: null });
+		}));
+	}
 
 	/** Prompt data stays on its request; authorized viewers reload it through normal history. */
 	async prompt(save: () => Promise<void>): Promise<void> {
@@ -131,8 +158,9 @@ export class AgentStreamRecorder {
 		await this.#serialize(() => this.#write(async conversation => {
 			await save?.();
 			const previous = conversation.streamState!;
+			const code = error ? (await app().ai.models.request.findOrFail(this.state.rootAiRequest.id)).errorCode ?? undefined : undefined;
 			const terminal = ['completed', 'failed', 'cancelled', 'blocked'].includes(status);
-			conversation.streamState = { ...previous, owner: terminal ? null : this.#owner, run: { ...previous.run, status, completedAt: terminal ? new Date().toISOString() : null, error: error ? { message: error.slice(0, 512) } : null }, activity: { code: status, label: status === 'waiting' ? 'Waiting to retry' : status.charAt(0).toUpperCase() + status.slice(1) } };
+			conversation.streamState = { ...previous, owner: terminal ? null : this.#owner, run: { ...previous.run, status, completedAt: terminal ? new Date().toISOString() : null, error: error ? { code, message: error.slice(0, 512) } : null }, activity: { code: status, label: status === 'waiting' ? 'Waiting to retry' : status.charAt(0).toUpperCase() + status.slice(1) } };
 			if (status === 'completed' || status === 'failed' || status === 'blocked') {
 				const id = `${previous.run.aiRequestId}:${status}`;
 				if (previous.attention?.id !== id) conversation.streamState.attention = { id, kind: status, createdAt: new Date().toISOString(), readBy: [] };

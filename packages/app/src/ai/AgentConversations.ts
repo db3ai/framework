@@ -171,7 +171,7 @@ export class AgentConversations {
 			const entries = timeline.map(item => this.#filterItem(item, input.view)).filter((item): item is stream.AgentTimelineEntry => item !== null);
 			const first = messages[0]?.sequence;
 			const older = first !== undefined && first !== null && await this.ai.models.message.where('conversation', input.conversationId).where('sequence', '<', first).first() ? first : null;
-			return { conversationId: input.conversationId, view: input.view, timeline: entries, run: this.#publicRun(conversation.streamState?.run ?? null, input.view), activity: conversation.streamState?.activity ?? null, older, queued: conversation.streamState?.pending?.length ?? 0, attention: this.attentionFor(context, conversation) };
+			return { conversationId: input.conversationId, view: input.view, context: conversation.streamState?.context ?? null, timeline: entries, run: this.#publicRun(conversation.streamState?.run ?? null, input.view), activity: conversation.streamState?.activity ?? null, older, queued: conversation.streamState?.pending?.length ?? 0, attention: this.attentionFor(context, conversation) };
 		});
 	}
 
@@ -298,7 +298,7 @@ export class AgentConversations {
 		if (root.status === 'completed' || ['completed', 'cancelled', 'blocked'].includes(previous.run.status)) return;
 		if (status === 'cancelled') await this.#cancelRequest(aiRequestId);
 		else await this.ai.models.request.where('id', aiRequestId).where('status', 'pending').patch({ status: 'failed', completedAt: new Date(), errorMessage: message });
-		conversation.streamState = { ...previous, owner: null, run: { ...previous.run, status, completedAt: new Date().toISOString(), error: status === 'cancelled' ? null : { message: message.slice(0, 512) } }, activity: { code: status, label: status === 'cancelled' ? 'Stopped' : status.charAt(0).toUpperCase() + status.slice(1) } };
+		conversation.streamState = { ...previous, owner: null, run: { ...previous.run, status, completedAt: new Date().toISOString(), error: status === 'cancelled' ? null : { code: root.errorCode ?? undefined, message: message.slice(0, 512) } }, activity: { code: status, label: status === 'cancelled' ? 'Stopped' : status.charAt(0).toUpperCase() + status.slice(1) } };
 		if (status !== 'cancelled' && previous.attention?.id !== `${aiRequestId}:${status}`) conversation.streamState.attention = { id: `${aiRequestId}:${status}`, kind: status, createdAt: new Date().toISOString(), readBy: [] };
 		await conversation.save();
 	}
@@ -346,11 +346,16 @@ export class AgentConversations {
 		return item;
 	}
 	/** Ordinary views receive safe failure text without diagnostic details. */
-	#publicRun(run: stream.AgentRunState | null, view: stream.AgentView): stream.AgentRunState | null { return !run || view === 'admin' ? run : { ...run, error: run.error ? { code: run.error.code, message: 'The agent could not complete this run.' } : null }; }
+	#publicRun(run: stream.AgentRunState | null, view: stream.AgentView): stream.AgentRunState | null {
+		if (!run || view === 'admin') return run;
+		// Older persisted failures predate safe error codes; retain recoverability without leaking diagnostics.
+		const code = run.error?.code ?? (/exceeds the context window|context_length_exceeded/i.test(run.error?.message ?? '') ? 'context_length_exceeded' : undefined);
+		return { ...run, error: run.error ? { code, message: 'The agent could not complete this run.' } : null };
+	}
 	/** Filters transient frames using the same policy as saved history. */
 	#projectEvent(event: stream.AgentConversationEvent, view: stream.AgentView): stream.AgentConversationEvent | null {
 		if (event.type === 'run.state') return { ...event, run: this.#publicRun(event.run, view)! };
-		if (event.type === 'status.changed' || event.type === 'history.changed') return event;
+		if (event.type === 'status.changed' || event.type === 'history.changed' || event.type === 'context.changed') return event;
 		if (view === 'status') return null;
 		if (event.type === 'item.changed') { const item = this.#filterItem(event.item, view); return item ? { type: 'item.changed', item } : null; }
 		if (event.type === 'text.delta' || event.type === 'citation.added' || event.type === 'reasoning.summary.delta') return event;

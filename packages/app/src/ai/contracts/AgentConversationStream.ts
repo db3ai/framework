@@ -1,6 +1,26 @@
 import type { AgentConversationTimelineItem, AgentStreamEvent, AgentToolErrorPayload, QueuedAgentRunResponse } from './AgentProtocol';
 import type { AgentConversationAttention } from './AgentConversationAttention';
 
+/** Measured input for the last model call, distinct from cumulative billed usage. */
+export interface AgentContextState {
+	model: string;
+	/** Authoritative model capacity supplied by the application; unknown capacity stays null. */
+	windowTokens: number | null;
+	inputTokens: number | null;
+	status: 'measured' | 'compacting' | 'compacted';
+	compactions: number;
+}
+
+/** Private provider checkpoint. Never include its opaque input in client projections. */
+export interface AgentContextCheckpoint {
+	model: string;
+	/** Server-owned SDK items; deliberately opaque to browser type consumers. */
+	input: unknown[];
+	throughSequence: number;
+	/** Already-admitted followups were not seen by the model and must survive the checkpoint. */
+	excludedRequestIds: string[];
+}
+
 /** Authorized output projection. Knowing an ID never grants access. */
 export type AgentView = 'admin' | 'conversation' | 'status';
 
@@ -24,6 +44,7 @@ export interface AgentActivity { code: string; label: string; current?: number; 
 export type AgentConversationEvent = AgentStreamEvent
 	| { type: 'item.changed'; item: AgentTimelineEntry }
 	| { type: 'history.changed' }
+	| { type: 'context.changed'; context: AgentContextState }
 	| { type: 'run.state'; run: AgentRunState; queued: number }
 	| { type: 'status.changed'; activity: AgentActivity | null };
 
@@ -39,6 +60,7 @@ export interface AgentLiveUpdate {
 
 /** Recent authoritative history and execution state. Older pages use database message order. */
 export interface AgentConversationSnapshot {
+	context?: AgentContextState | null;
 	/** Latest occurrence identity for race-safe read acknowledgement after rendering. */
 	attention?: { id: string; kind: AgentConversationAttention['kind']; unread: boolean } | null;
 	conversationId: string;
@@ -55,6 +77,9 @@ export interface AgentReadContext { userId: string; scopeId?: string }
 
 /** Current writer fence and FIFO pending request IDs on the existing conversation record. */
 export interface AgentStreamState {
+	context?: AgentContextState;
+	/** Provider-only compacted input; the full transcript is retained separately. */
+	contextCheckpoint?: AgentContextCheckpoint;
 	/** Read state survives subsequent admissions and remains independent of execution. */
 	attention?: AgentConversationAttention;
 	owner: string | null;

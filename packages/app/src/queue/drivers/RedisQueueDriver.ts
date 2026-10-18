@@ -37,6 +37,7 @@ if tonumber(ARGV[2]) > 0 then
 else
 	redis.call('RPUSH', KEYS[3], id)
 end
+redis.call('XADD', KEYS[5], 'MAXLEN', '=', 1, '*', 'queue', record.queue)
 return id
 `;
 
@@ -73,6 +74,21 @@ while true do
 end
 `;
 
+// Reads readiness and the earliest delayed/lease deadline without changing ownership.
+const WAIT_DEADLINE_SCRIPT = `
+local deadline = 0
+for i = 1, #KEYS, 3 do
+	if redis.call('LLEN', KEYS[i]) > 0 then return tonumber(ARGV[1]) end
+	for j = i + 1, i + 2 do
+		local next = redis.call('ZRANGE', KEYS[j], 0, 0, 'WITHSCORES')
+		if #next > 0 and (deadline == 0 or tonumber(next[2]) < deadline) then
+			deadline = tonumber(next[2])
+		end
+	end
+end
+return deadline
+`;
+
 const RELEASE_SCRIPT = `
 local raw = redis.call('HGET', KEYS[1], ARGV[1])
 if not raw then
@@ -89,6 +105,7 @@ redis.call('ZREM', KEYS[2], ARGV[1])
 redis.call('ZREM', KEYS[3], ARGV[1])
 redis.call('LREM', KEYS[4], 0, ARGV[1])
 redis.call('ZADD', KEYS[3], ARGV[4], ARGV[1])
+redis.call('XADD', KEYS[5], 'MAXLEN', '=', 1, '*', 'queue', current.queue)
 return 1
 `;
 
@@ -164,6 +181,8 @@ export class RedisQueueDriver implements queue.QueueDriver {
 	readonly #client: RedisClientType;
 	readonly #options: ResolvedRedisQueueDriverOptions;
 	#connecting: Promise<RedisClientType> | null = null;
+	/** Owned idle sockets; close() interrupts them before closing ordinary commands. */
+	readonly #blockingClients = new Set<RedisClientType>();
 
 	/**
 	 * Creates a Redis-backed queue driver.
@@ -196,11 +215,12 @@ export class RedisQueueDriver implements queue.QueueDriver {
 		const id = await this.#command<string | number>([
 			'EVAL',
 			PUSH_SCRIPT,
-			4,
+			5,
 			this.#idKey(),
 			this.#jobsKey(),
 			this.#readyKey(job.queue),
 			this.#delayedKey(job.queue),
+			this.#key('wake'),
 			JSON.stringify(record),
 			job.delaySeconds,
 			record.availableAt,
@@ -228,6 +248,58 @@ export class RedisQueueDriver implements queue.QueueDriver {
 			}
 		} while (cursor !== '0');
 		return [...names].sort();
+	}
+
+	/**
+	 * Blocks on a bounded notification stream, leaving durable jobs and atomic claims
+	 * in their existing structures. Capture the cursor before checking eligibility so
+	 * dispatch between the check and XREAD cannot be missed. Stream reads broadcast
+	 * to all slots, including wildcard consumers discovering a newly created queue.
+	 * Delayed jobs and expired leases bound the wait even without a new dispatch.
+	 */
+	async waitForWork(selection: queue.QueueSelection, options: queue.QueueWaitOptions = {}): Promise<void> {
+		try {
+			await this.#waitForWork(selection, options);
+		} catch (error) {
+			if (!options.signal?.aborted) throw error;
+		}
+	}
+
+	/** Resolves readiness and scheduling before opening an isolated blocking socket. */
+	async #waitForWork(selection: queue.QueueSelection, options: queue.QueueWaitOptions): Promise<void> {
+		if (options.signal?.aborted) return;
+		const timeout = options.timeoutMs ?? 30000;
+		if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('Queue wait timeout must be positive.');
+		const wakeKey = this.#key('wake');
+		const latest = await this.#command<[string, string[]][]>(['XREVRANGE', wakeKey, '+', '-', 'COUNT', 1]);
+		const cursor = latest[0]?.[0] ?? '0-0';
+		const excluded = new Set(selection.excludeQueues ?? []);
+		const names = [...new Set(selection.queues === '*' ? await this.queueNames() : selection.queues ?? ['default'])].filter(name => !excluded.has(name));
+		const keys = names.flatMap(name => [this.#readyKey(name), this.#delayedKey(name), this.#reservedKey(name)]);
+		const deadline = await this.#command<number>(['EVAL', WAIT_DEADLINE_SCRIPT, keys.length, ...keys, unixTimestamp()]);
+		const wakeAt = Math.min(Date.now() + timeout, deadline > 0 ? deadline * 1000 : Infinity);
+		if (wakeAt <= Date.now() || options.signal?.aborted) return;
+
+		// A dedicated socket prevents this blocking command from delaying pushes or lease renewals.
+		const client = createClient({ ...redisClientOptions(this.#options), name: `${this.#options.keyPrefix}:wait` });
+		client.on('error', (): void => {});
+		this.#blockingClients.add(client);
+		/** Interrupts only this wait's socket; the shared command connection remains available. */
+		const cancel = (): void => { if (client.isOpen) client.destroy(); };
+		options.signal?.addEventListener('abort', cancel, { once: true });
+		try {
+			if (options.signal?.aborted) return;
+			await client.connect();
+			const remaining = wakeAt - Date.now();
+			if (remaining <= 0 || options.signal?.aborted) return;
+			await client.sendCommand(['XREAD', 'BLOCK', String(Math.max(1, Math.ceil(remaining))), 'COUNT', '1', 'STREAMS', wakeKey, cursor]);
+		} catch (error) {
+			if (!options.signal?.aborted) throw error;
+		} finally {
+			options.signal?.removeEventListener('abort', cancel);
+			this.#blockingClients.delete(client);
+			cancel();
+		}
 	}
 
 	/** Scans active Redis payloads during quiesced maintenance; includes delayed, reserved and chained jobs. */
@@ -420,6 +492,8 @@ export class RedisQueueDriver implements queue.QueueDriver {
 	 * @returns Promise that settles after the Redis client has closed.
 	 */
 	async close(): Promise<void> {
+		for (const client of this.#blockingClients) { if (client.isOpen) client.destroy(); }
+		this.#blockingClients.clear();
 		if (!this.#client.isOpen) return;
 
 		await this.#client.close();
@@ -448,11 +522,12 @@ export class RedisQueueDriver implements queue.QueueDriver {
 		const rescheduled = await this.#command<number>([
 			'EVAL',
 			RELEASE_SCRIPT,
-			4,
+			5,
 			this.#jobsKey(),
 			this.#reservedKey(job.queue),
 			this.#delayedKey(job.queue),
 			this.#readyKey(job.queue),
+			this.#key('wake'),
 			String(job.id),
 			job.attempts,
 			JSON.stringify(record),
@@ -481,8 +556,8 @@ export class RedisQueueDriver implements queue.QueueDriver {
 	 * @returns Connected Redis client.
 	 */
 	async #connect(): Promise<RedisClientType> {
-		if (this.#client.isOpen) return this.#client;
 		if (this.#connecting) return await this.#connecting;
+		if (this.#client.isReady) return this.#client;
 
 		this.#connecting = this.#client.connect().finally((): void => {
 			this.#connecting = null;
@@ -605,6 +680,7 @@ function redisClientOptions(options: ResolvedRedisQueueDriverOptions): RedisClie
 			url: options.url,
 			socket: {
 				connectTimeout: options.connectionTimeoutMs,
+				reconnectStrategy: false,
 			},
 		};
 	}
@@ -615,6 +691,7 @@ function redisClientOptions(options: ResolvedRedisQueueDriverOptions): RedisClie
 			host: options.host,
 			port: options.port,
 			connectTimeout: options.connectionTimeoutMs,
+			reconnectStrategy: false,
 		},
 	};
 }

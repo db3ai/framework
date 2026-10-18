@@ -18,6 +18,7 @@ const tool = z.object({ kind: z.literal('tool'), id: identity, toolName: identit
 /** Validates full HTTP items and live canonical replacements without server imports. */
 export const agentTimelineEntrySchema = z.discriminatedUnion('kind', [message, reasoning, prompt, tool]);
 const run = z.object({ aiRequestId: identity, status: z.enum(['queued', 'running', 'waiting', 'completed', 'failed', 'blocked', 'cancelled']), attempt: sequence, startedAt: z.string().max(64).nullable(), completedAt: z.string().max(64).nullable(), error: error.nullable() });
+const context = z.object({ model: identity, windowTokens: sequence.nullable(), inputTokens: sequence.nullable(), status: z.enum(['measured', 'compacting', 'compacted']), compactions: sequence });
 const activity = z.object({ code: identity, label: text, current: z.number().finite().optional(), total: z.number().finite().optional() });
 const usage = z.object({ requests: sequence, inputTokens: z.number().nullable(), outputTokens: z.number().nullable(), totalTokens: z.number().nullable(), reasoningTokens: z.number().nullable(), cachedTokens: z.number().nullable(), cacheWriteTokens: z.number().nullable() });
 const event = z.discriminatedUnion('type', [
@@ -32,6 +33,7 @@ const event = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('tool.error'), id: identity, toolName: identity, arguments: z.unknown().optional(), error }),
 	z.object({ type: z.literal('tool.progress'), id: identity, toolName: identity, progress }),
 	z.object({ type: z.literal('run.state'), run, queued: sequence }),
+	z.object({ type: z.literal('context.changed'), context }),
 	z.object({ type: z.literal('status.changed'), activity: activity.nullable() }),
 	z.object({ type: z.literal('conversation.created'), conversationId: identity, aiRequestId: identity.nullable(), traceId: identity, toolDefinitions: z.array(definition).max(1_000) }),
 	z.object({ type: z.literal('message.created'), id: identity, role: z.literal('user'), content: text, createdAt: z.string().max(64) }),
@@ -40,7 +42,7 @@ const event = z.discriminatedUnion('type', [
 	z.object({ type: z.literal('run.completed'), conversationId: identity, aiRequestId: identity.nullable(), traceId: identity, usage, creditCost: z.number().nullable(), costUSD: z.number().nullable().optional(), finalOutput: text }),
 	z.object({ type: z.literal('run.error'), conversationId: identity.nullable(), aiRequestId: identity.nullable(), traceId: identity.nullable(), error }),
 ]);
-const snapshot = z.object({ conversationId: identity, view, timeline: z.array(agentTimelineEntrySchema).max(1_000), run: run.nullable(), activity: activity.nullable(), older: sequence.nullable(), queued: sequence, attention: z.object({ id: identity, kind: z.enum(['completed', 'failed', 'blocked', 'approval', 'input']), unread: z.boolean() }).nullable().optional() });
+const snapshot = z.object({ context: context.nullable().optional(), conversationId: identity, view, timeline: z.array(agentTimelineEntrySchema).max(1_000), run: run.nullable(), activity: activity.nullable(), older: sequence.nullable(), queued: sequence, attention: z.object({ id: identity, kind: z.enum(['completed', 'failed', 'blocked', 'approval', 'input']), unread: z.boolean() }).nullable().optional() });
 const update = z.object({ conversationId: identity, view, aiRequestId: identity, attempt: sequence, itemId: identity.nullable(), event });
 const admission = z.object({ jobId: z.union([identity, sequence]), conversationId: identity, aiRequestId: identity.nullable(), traceId: identity });
 const stopped = z.object({ conversationId: identity, aiRequestId: identity.nullable(), status: run.shape.status.nullable() });

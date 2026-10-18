@@ -277,12 +277,26 @@ describe('QueueWorker', () => {
 		expect(worker).not.toBeNull();
 
 		try {
-			await waitForMessageCount(messages, 'Idle on "default"; next check in 100ms.', 2);
+			await waitForMessageCount(messages, 'Idle on "default"; waiting for work (SQL poll 100ms).', 2);
 		} finally {
 			worker?.stop();
 		}
 
 		expect(messages).toContain('[queue] Worker started for "default" (interval 100ms, max 5 jobs/tick).');
+	});
+
+	it('cancels a long SQL-style idle delay without another claim', async () => {
+		const driver = new MemoryQueueDriver();
+		const queue = queueWith(driver);
+		const pop = vi.spyOn(driver, 'pop');
+		const worker = queue.startWorker({ queues: ['default'], intervalMs: 5000 }, { force: true })!;
+		try {
+			await vi.waitFor(() => expect(pop).toHaveBeenCalledTimes(1));
+			const start = Date.now();
+			await worker.stopAndDrain();
+			expect(Date.now() - start).toBeLessThan(1000);
+			expect(pop).toHaveBeenCalledTimes(1);
+		} finally { await worker.stopAndDrain(); pop.mockRestore(); }
 	});
 
 	it('normalizes unsafe timer options before starting the polling loop', () => {

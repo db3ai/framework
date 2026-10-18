@@ -3,6 +3,7 @@ import type * as stream from '../contracts/AgentConversationStream';
 /** Applies transient events and canonical saved items by their stable display identity. */
 export function applyAgentUpdate(snapshot: stream.AgentConversationSnapshot, update: stream.AgentLiveUpdate): void {
 	const event = update.event;
+	if (event.type === 'context.changed') { snapshot.context = event.context; return; }
 	if (event.type === 'run.state') { snapshot.run = event.run; snapshot.queued = event.queued; return; }
 	if (event.type === 'status.changed') { snapshot.activity = event.activity; return; }
 	if (event.type === 'item.changed') { upsert(snapshot, event.item); return; }

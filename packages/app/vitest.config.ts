@@ -3,6 +3,8 @@ import { createVitestCacheOptions } from '../../scripts/createVitestCacheOptions
 
 export default defineConfig({
 	test: {
+		// Knex loads generated migrations outside Vite; workers need the application's TypeScript loader.
+		execArgv: ['--import', 'tsx'],
 		environment: 'node',
 		include: [
 			'src/**/tests/**/*.test.ts',

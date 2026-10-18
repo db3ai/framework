@@ -1,3 +1,4 @@
+import type { QueueWaitOptions } from './QueueWaitOptions';
 import type { QueueMonitor, QueueMonitorOptions } from '../queueMonitor';
 import type { QueueEvents } from '../QueueEvents';
 import type { QueueableJobContract as QueueableJob } from './QueueableJobContract';
@@ -225,11 +226,14 @@ export interface QueueService {
 	 */
 	queueNames(): Promise<string[]>;
 
+	/** Waits for possible eligible work without claiming it; cancellation resolves normally. */
+	waitForWork(selection: QueueSelection, options?: QueueWaitOptions): Promise<void>;
+
 	/**
-	 * Starts a polling worker for a named queue or round-robin selection.
+	 * Starts a worker with backend-owned idle waiting for a named queue or round-robin selection.
 	 *
-	 * @param queue - Exact queue name or named-queue selection the worker should poll.
-	 * @param options - Worker lifecycle and polling options.
+	 * @param queue - Exact queue name or named-queue selection the worker should consume.
+	 * @param options - Worker lifecycle and SQL polling options.
 	 * @returns Worker lifecycle controls, or null when worker startup is disabled.
 	 */
 	startWorker(queue?: string | QueueSelection, options?: QueueWorkerOptions): QueueWorkerLifecycle | null;

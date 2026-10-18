@@ -1,3 +1,4 @@
+import { waitForQueueDelay } from './waitForQueueDelay';
 import { QueueWorkerReporter } from './QueueWorkerReporter';
 import { unknownErrorMessage } from '@db3.ai/pure';
 
@@ -12,9 +13,9 @@ const DEFAULT_MAX_JOBS_PER_TICK = 5;
 const MIN_MAX_JOBS_PER_TICK = 1;
 
 /**
- * Polls eligible named queues in round-robin order, executing one job per configured slot at a time.
+ * Consumes eligible named queues in round-robin order, executing one job per configured slot at a time.
  *
- * The worker intentionally owns only timer and lifecycle behavior. It delegates claims,
+ * The worker intentionally owns only execution slots and lifecycle behavior. It delegates claims,
  * handler execution, retries, and failure recording back to Queue.
  */
 export class QueueWorker implements queue.QueueWorkerLifecycle {
@@ -29,8 +30,10 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	readonly #queues: readonly string[] | '*';
 	readonly #excludeQueues: ReadonlySet<string>;
 	private readonly queue: string;
-	private timer: NodeJS.Timeout | null = null;
-	/** Pending first claim, cancelled together with the polling timer during shutdown. */
+	#running = false;
+	#waitController: AbortController | null = null;
+	#loop: Promise<void> | null = null;
+	/** Pending first claim, cancelled together with the idle wait during shutdown. */
 	#startupTimer: NodeJS.Timeout | null = null;
 	readonly #stagger: boolean;
 	private readonly intervalMs: number;
@@ -63,7 +66,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	}
 
 	/**
-	 * Starts interval polling, optionally spreading each slot's first claim across one interval.
+	 * Starts backend-owned waiting, optionally spreading each slot's first claim across one interval.
 	 */
 	start(): void {
 		if (this.#slots.length) {
@@ -73,8 +76,9 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			for (const slot of this.#slots) slot.start();
 			return;
 		}
-		if (this.timer || this.#startupTimer) return;
+		if (this.#running || this.#startupTimer || this.#loop) return;
 		this.#stopping = false;
+		this.#waitController = new AbortController();
 
 		this.logger?.info(this.verbose
 			? `[queue] Worker started for "${this.queue}" (interval ${this.intervalMs}ms, max ${this.maxJobsPerTick} jobs/tick).`
@@ -83,15 +87,38 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		if (this.#stagger) {
 			this.#startupTimer = setTimeout(() => {
 				this.#startupTimer = null;
-				if (!this.#stopping) this.#beginPolling();
+				if (!this.#stopping) this.#beginWork();
 			}, Math.floor(Math.random() * this.intervalMs));
-		} else this.#beginPolling();
+		} else this.#beginWork();
 	}
 
-	/** Starts the periodic timer only after the optional startup offset has elapsed. */
-	#beginPolling(): void {
-		this.timer = setInterval(() => this.startTick(), this.intervalMs);
-		this.startTick();
+	/** Starts a serial claim/wait loop after the optional startup offset. */
+	#beginWork(): void {
+		this.#running = true;
+		const loop = this.#run();
+		this.#loop = loop;
+		void loop.finally(() => {
+			if (this.#loop === loop) this.#loop = null;
+		});
+	}
+
+	/** Delegates idle waiting to Queue; transport failures back off rather than spin. */
+	async #run(): Promise<void> {
+		const signal = this.#waitController!.signal;
+		while (!this.#stopping) {
+			const tick = this.tick();
+			this.#activeTick = tick;
+			await tick;
+			this.#activeTick = null;
+			if (this.#stopping) break;
+			try {
+				await this.queueManager.waitForWork({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, { pollIntervalMs: this.intervalMs, signal });
+			} catch (error) {
+				if (signal.aborted) break;
+				this.logger?.error?.(`[queue] Worker wait failed for "${this.queue}". ${unknownErrorMessage(error)}`);
+				await waitForQueueDelay(this.intervalMs, signal);
+			}
+		}
 	}
 
 	/**
@@ -99,14 +126,13 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	 */
 	stop(): void {
 		this.#stopping = true;
+		this.#waitController?.abort();
 		if (this.#startupTimer) clearTimeout(this.#startupTimer);
 		this.#startupTimer = null;
 		if (this.#slotsStarted) { for (const slot of this.#slots) slot.stop(); return; }
 		if (this.#activeJob) this.#presence.update('stopping'); else void this.#presence.stop();
-		if (!this.timer) return;
-
-		clearInterval(this.timer);
-		this.timer = null;
+		if (!this.#running) return;
+		this.#running = false;
 		this.logger?.info(`[queue] Worker stopped for "${this.queue}".`);
 	}
 
@@ -121,6 +147,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			return;
 		}
 
+		await this.#loop;
 		if (this.#activeTick) {
 			await this.#activeTick;
 		}
@@ -143,7 +170,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			return await pending;
 		} finally {
 			this.#activeJob = null;
-			if (this.#stopping || !this.timer) await this.#presence.stop();
+			if (this.#stopping || !this.#running) await this.#presence.stop();
 			else this.#presence.update('idle');
 		}
 	}
@@ -174,22 +201,6 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			}
 		}
 		return null;
-	}
-
-	/**
-	 * Starts one tick when the previous tick is no longer running.
-	 */
-	private startTick(): void {
-		if (this.#activeTick) return;
-
-		const tick = this.tick();
-
-		this.#activeTick = tick;
-		void tick.finally(() => {
-			if (this.#activeTick === tick) {
-				this.#activeTick = null;
-			}
-		});
 	}
 
 	/**
@@ -236,7 +247,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			: '';
 
 		this.logger?.info(
-			`[queue] Idle on "${this.queue}"${drained}; next check in ${this.intervalMs}ms.`,
+			`[queue] Idle on "${this.queue}"${drained}; waiting for work (SQL poll ${this.intervalMs}ms).`,
 		);
 	}
 
@@ -249,7 +260,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		if (!this.verbose) return;
 
 		this.logger?.info(
-			`[queue] Processed ${processedThisTick} ${plural('job', processedThisTick)} this tick; next check in ${this.intervalMs}ms.`,
+			`[queue] Processed ${processedThisTick} ${plural('job', processedThisTick)} this tick; waiting for work (SQL poll ${this.intervalMs}ms).`,
 		);
 	}
 

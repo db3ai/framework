@@ -2,6 +2,7 @@ import { ActiveRecord } from '@db3.ai/app/db';
 import { agentAdmission } from './agentAdmission';
 import type { AgentQueueOptions } from './contracts/AgentStreamingOptions';
 import { AgentStreamRecorder } from './AgentStreamRecorder';
+import { AgentCompactionHistory } from './AgentCompactionHistory';
 import { AgentToolEvents } from './AgentToolEvents';
 import { AIProviderRetryError } from './AIProviderRetryError';
 import { AIProviderStoppedError } from './AIProviderStoppedError';
@@ -129,6 +130,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	/** Maximum model turns per run; null lets the agent finish without a turn ceiling. */
 	protected readonly maxTurns: number | null = 8;
 	protected readonly maxPreviousMessages: number = 50;
+	/** Returns a documented context capacity for a concrete provider model, or null when unknown. */
+	protected contextWindowTokens(_model: string): number | null { return null; }
 	/** Provider reasoning effort used for every run of this agent. */
 	protected readonly reasoningEffort: agent.AgentReasoningEffort | null = null;
 	protected readonly agentName: string = this.constructor.name;
@@ -238,7 +241,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			const payload = agentErrorPayload(error, `Unable to run ${this.agentName}.`);
 
 			if (state) {
-				await this.recordRunStatus('failed', () => this.failTrackedRun(state!, payload.message), payload.message);
+				await this.recordRunStatus('failed', () => this.failTrackedRun(state!, payload.message, openAIProviderError(error).code), payload.message);
 			}
 
 			await emitEvent({
@@ -1043,7 +1046,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const invocation = prepared.invocation;
 		const instructions = invocation.instructions;
 		const modelInput = invocation.input;
-		const attempts = app().ai.resolveProviders(this.provider(), prepared.model);
+		const resolvedAttempts = app().ai.resolveProviders(this.provider(), prepared.model);
+		const attempts = modelInput.some(item => item.type === 'compaction') ? resolvedAttempts.filter(attempt => attempt.provider === AI_PROVIDER.openai && attempt.model === prepared.model) : resolvedAttempts;
 		for (const attempt of attempts) assertAIServiceTier(attempt.provider, prepared.serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
 
@@ -1091,9 +1095,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				const executionState = attemptState;
 				return await aiExecutionContext.run(executionState, async () => {
 					providerStarted = true;
+					const compactionHistory = new AgentCompactionHistory();
 					const runner = new Runner({
 						model: attempt.model,
-						modelProvider: app().ai.createAgentProvider(attempt, rateLimitLease, prepared.serviceTier),
+						modelProvider: compactionHistory.provider(app().ai.createAgentProvider(attempt, rateLimitLease, prepared.serviceTier)),
 						modelSettings: {
 							...modelSettingsForProvider(invocation.modelSettings, attempt.provider, prepared.serviceTier),
 							retry: {
@@ -1138,8 +1143,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 					for await (const event of stream) {
 						sawStreamEvent = true;
+						if (event.type === 'raw_model_stream_event') {
+							const outer = recordValue(event.data);
+							const raw = outer?.type === 'model' ? recordValue(outer.event) : outer;
+							if (raw?.type === 'response.output_item.added' && recordValue(raw.item)?.type === 'compaction') {
+								await this.#recorder?.contextUsage({ model: attempt.model, windowTokens: this.contextWindowTokens(attempt.model), inputTokens: null, status: 'compacting' });
+							}
+						}
 						if (event.type === 'raw_model_stream_event' && event.data.type === 'response_done') {
 							completedModelTurn = true;
+							const compacted = event.data.response.output.some(item => item.type === 'compaction');
+							await this.#recorder?.contextUsage({ model: attempt.model, windowTokens: this.contextWindowTokens(attempt.model), inputTokens: compacted ? null : event.data.response.usage.inputTokens, status: compacted ? 'compacted' : 'measured' }, compacted);
 							const providerData = recordValue(event.data.response.providerData);
 							responsePricing.push({
 								...(typeof providerData?.model === 'string' ? { model: providerData.model } : {}),
@@ -1208,7 +1222,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						successfulAttemptAiRequestId: executionState.aiRequest.id ? String(executionState.aiRequest.id) : null,
 						structuredOutput,
 						outputMetadata,
-					});
+					}, { model: attempt.model, input: compactionHistory.continuation(stream.history) });
 
 					await emit({
 						type: 'message.completed',
@@ -1930,6 +1944,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 *
 	 * @param state - Logical root persistence state.
 	 * @param input - Final output and successful attempt identity.
+	 * @param history - Provider continuation committed atomically with finalization.
 	 * @returns Settled application-credit charge and recorded provider cost.
 	 */
 	private async completeTrackedRun(
@@ -1942,6 +1957,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			structuredOutput?: unknown;
 			outputMetadata?: Record<string, unknown> | null;
 		},
+		history: { model: string; input: agent.AgentModelInput },
 	): Promise<{ usage: agent.AgentRunUsage; creditCost: number | null; costUSD: number | null }> {
 		const response = {
 			finalOutput: input.finalOutput,
@@ -1974,7 +1990,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 
 		/** Provider finalization cannot overwrite a concurrent stop or newer writer. */
 		const save = () => state.rootAiRequest.setDb(app().ai.models.request.getDb()).save();
-		if (this.#recorder) await this.#recorder.checkpoint(save); else await save();
+		if (this.#recorder) await this.#recorder.checkpoint(save, history); else await save();
 
 		return await this.settleFinalizedTrackedRun(state);
 	}
@@ -2137,10 +2153,13 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			.orderBy('sequence', 'desc')
 			.limit((this.maxPreviousMessages * 2) + 12)
 			.all();
-		const pending = app().ai.conversations.enabled ? (await app().ai.models.conversation.findOrFail(conversation.id)).streamState?.pending ?? [] : [];
+		const savedState = app().ai.conversations.enabled ? (await app().ai.models.conversation.findOrFail(conversation.id)).streamState : null;
+		const pending = savedState?.pending ?? [];
+		const checkpoint = savedState?.contextCheckpoint?.model === this.resolvedModel() ? savedState.contextCheckpoint : null;
 		const replayMessages = messages
 			.reverse()
-			.filter(message => (!excludeAiRequestId || entityRefId(message.aiRequest) !== excludeAiRequestId) && !pending.includes(entityRefId(message.aiRequest) ?? ''));
+			.filter(message => (!excludeAiRequestId || entityRefId(message.aiRequest) !== excludeAiRequestId) && !pending.includes(entityRefId(message.aiRequest) ?? ''))
+			.filter(message => !checkpoint || (message.sequence ?? 0) > checkpoint.throughSequence || checkpoint.excludedRequestIds.includes(entityRefId(message.aiRequest) ?? ''));
 		const roots = [...new Set(replayMessages.map(message => entityRefId(message.aiRequest)).filter((id): id is string => Boolean(id)))];
 		const Message = app().ai.models.message;
 		const requestColumn = Message.getField('aiRequest').column;
@@ -2151,9 +2170,11 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const unresolvedCallIds = unresolvedToolCallIds(replayMessages);
 		const seenToolCallIds = new Set<string>();
 
-		return replayMessages
+		// Only this runtime writes the checkpoint; the provider validates its SDK items.
+		const compactedInput = checkpoint?.input as agent.AgentModelInput | undefined;
+		return [...compactedInput ?? [], ...replayMessages
 			.flatMap(message => agentInputItemsFromAiMessage(message, seenToolCallIds, unresolvedCallIds))
-			.slice(-this.maxPreviousMessages);
+			.slice(-this.maxPreviousMessages)];
 	}
 
 	/**
@@ -3612,7 +3633,10 @@ function emptyAgentRunUsage(): agent.AgentRunUsage {
  */
 function modelSettingsForProvider(settings: ModelSettings, provider: string, serviceTier: AIServiceTier): ModelSettings {
 	assertAIServiceTier(provider, serviceTier);
-	if (provider !== AI_PROVIDER.openai) return settings;
+	if (provider !== AI_PROVIDER.openai) {
+		const { contextManagement: _contextManagement, ...providerSettings } = settings;
+		return providerSettings;
+	}
 
 	return {
 		...settings,

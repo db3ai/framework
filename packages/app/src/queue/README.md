@@ -189,11 +189,12 @@ one available job and returns `null` when idle. Its statuses are `succeeded`,
 `released`, `deferred`, `failed` and `lease_lost`.
 `processNextJob()` returns whether any job was processed, not whether it succeeded.
 
-`startWorker()` starts a polling loop. `workerEnabled: false` or
+`startWorker()` starts a claim/wait loop. `workerEnabled: false` or
 `QUEUE_WORKER=false` disables it unless forced. `maxJobsPerTick` bounds sequential
 work per tick; it is not concurrency. Set selection `concurrency` for bounded asynchronous slots within one process,
-or use more supervised worker processes for process isolation. Polling defaults to 1000 ms and valid intervals are clamped to at
-least 100 ms. `queue:work --once` checks once and exits, even if delayed work exists.
+or use more supervised worker processes for process isolation. SQL polling defaults
+to 1000 ms and valid intervals are clamped to at least 100 ms; Redis blocks for
+notifications or scheduling deadlines. `queue:work --once` checks once and exits, even if delayed work exists.
 
 ### Share worker capacity
 
@@ -339,8 +340,8 @@ Stop and drain workers first, then `await driver.close()`, then
 the Redis Queue driver. Adapt a Redis console host's `close()` callback to close
 both resources after worker drain.
 
-`stop()` stops future polling; `stopAndDrain()` waits for the current tick,
-which can include several jobs. Neither aborts a handler. Give supervisors enough
+`stop()` cancels idle waiting and prevents further claims; `stopAndDrain()`
+waits for the current handler and loop to finish. Neither aborts a handler. Give supervisors enough
 shutdown grace time and restart workers after code changes.
 
 ## Progress, monitoring and privacy
@@ -530,7 +531,7 @@ transitions remain unchanged: essential settlement must be idempotent and recove
 ### Concurrent I/O slots
 
 `queue.startWorker({ queues: ['images'], concurrency: 4 })` starts four independent
-polling slots in one Node process. The default is one; integers from 1 to 32 are
+execution slots in one Node process. The default is one; integers from 1 to 32 are
 accepted. Each slot has its own claims, lease renewal, fairness and presence
 record, so queue administration may show several slots with the same PID.
 `maxJobsPerTick` remains a sequential per-slot batch limit. Provider rate limits
@@ -549,9 +550,36 @@ slot by an independent random offset below the polling interval. It does not
 delay `workOnce()`. Stopping a worker cancels pending startup timers and drains
 active work. Explicit worker `intervalMs` or CLI `--interval` overrides the pool
 interval. Pool defaults otherwise take precedence over the service interval.
-Polling remains bounded and skips ticks while the slot is busy.
+SQL waits for this interval between claim passes. Redis uses blocking reads;
+the interval controls startup staggering and backoff after transport errors.
+Neither driver checks for more work while its slot is executing a handler.
 
 ```ts
 queue.startWorker({ queues: ['maintenance'], intervalMs: 5000, stagger: true });
 queue.startWorker({ queues: ['interactive'], concurrency: 4, intervalMs: 1000, stagger: true });
 ```
+
+## Idle waiting
+
+Workers call `Queue.waitForWork(selection, { pollIntervalMs, signal })` between
+bounded claim/execution passes. This does not claim a job; `pop()` retains atomic
+ownership, retry fencing and lease renewal. `workOnce()` stays non-blocking.
+
+SQL and custom drivers without `QueueDriver.waitForWork()` retain the configured
+polling delay. Redis uses a dedicated `XREAD BLOCK` connection per active wait;
+dispatch and rescheduling atomically update a bounded wake stream with the job.
+Each slot reads its own cursor, so notifications wake all eligible claimers rather
+than being consumed by one slot. Notifications are hints: a slot may wake when
+another queue changes, and selection/exclusions still apply at claim time.
+
+Redis checks readiness after capturing the stream cursor to close the dispatch
+race, and wakes at the earliest delayed-job or expired-lease deadline. Empty
+namespaces otherwise wait up to 30 seconds before a recovery check (overridable
+with `timeoutMs` for direct waits). Existing producers without wake notifications
+are discovered on that recovery check. A blocking wait never occupies the shared
+command connection. Shutdown aborts the wait and closes its dedicated socket;
+active handlers still drain normally. Transport errors back off by the configured
+polling interval. Worker presence and active lease heartbeats remain periodic.
+
+Run `npm test --workspace @db3.ai/app -- src/queue/tests` with disposable SQL test
+credentials and `TEST_REDIS_REQUIRED=1` plus a dedicated test Redis instance.

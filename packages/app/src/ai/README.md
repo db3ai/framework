@@ -26,6 +26,34 @@ const result = await app().ai.generateTextWithResponse({
 saved request and conversation IDs. Direct generation tracks a conversation but
 does not replay its previous messages; use an agent for conversational memory.
 
+## Context measurements and provider compaction
+
+Agents can return the Responses SDK's `contextManagement` settings from
+`modelSettings()` to enable provider-managed compaction. These settings are sent
+only to direct OpenAI attempts. `contextWindowTokens(model)` defaults to `null`;
+an application may override it with a verified model capacity. No capacity is
+inferred from the model name or from cumulative billed usage.
+
+With durable streaming enabled, snapshots and `context.changed` events expose
+`context`: model, capacity, last measured input tokens, compaction status and
+count. Input usage is per completed model call. It becomes unknown during and
+immediately after compaction, since that response's usage describes its original
+input. The next model response supplies a fresh measurement.
+
+A successful run checkpoints input from its latest native compaction item along
+with provider finalization under the existing writer fence. The encrypted item
+is passed unchanged on continuation; it is not a human-readable summary. The
+watermark excludes queued followups, which remain eligible for subsequent turns.
+The full `AiMessage` transcript remains available. Checkpoints are private and
+are not part of any snapshot or live event, including admin views. A changed
+model replays ordinary saved history instead of reusing an incompatible checkpoint.
+Credit-settlement retries reuse finalized output without calling the model again.
+
+Compaction does not make arbitrarily oversized tool results safe: applications
+must bound those results before the next request. Context-limit errors retain a
+safe provider code in ordinary run projections so applications can offer recovery
+without exposing provider diagnostics or automatically replaying mutations.
+
 ## Agents and function calls
 
 Create a class under your app's `server/agents/` directory extending `Agent`.

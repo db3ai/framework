@@ -36,7 +36,7 @@ function onRunStateChanged(conversation: AiConversation): void {
 }
 
 /** Emits valid SDK SSE while allowing a test to pause between text and completion. */
-function controlledResponse() {
+function controlledResponse(compact = false) {
 	let controller!: ReadableStreamDefaultController<Uint8Array>;
 	let sequence = 0;
 	let finished = false;
@@ -66,9 +66,14 @@ function controlledResponse() {
 		finish(text: string): void {
 			if (finished) return;
 			finished = true;
+			const compaction = { id: 'cmp_test', type: 'compaction', encrypted_content: 'opaque-provider-checkpoint' };
+			if (compact) {
+				send({ type: 'response.output_item.added', output_index: 1, item: compaction });
+				send({ type: 'response.output_item.done', output_index: 1, item: compaction });
+			}
 			const completed = { ...item, status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] };
 			send({ type: 'response.output_item.done', output_index: 0, item: completed });
-			send({ type: 'response.completed', response: { ...response, status: 'completed', output: [completed] } });
+			send({ type: 'response.completed', response: { ...response, status: 'completed', output: compact ? [completed, compaction] : [completed] } });
 			controller.close();
 		},
 	};
@@ -99,6 +104,44 @@ beforeEach(async () => {
 afterAll(async () => { try { await application?.close(); } finally { await database?.destroy(); await new Promise<void>(resolve => receiver?.close(() => resolve())); vi.unstubAllEnvs(); } });
 
 describe('durable agent streaming', () => {
+	it('retains opaque compaction across queued followups without deleting history or exposing the checkpoint', async () => {
+		const provider = controlledResponse(true); fetch.mockResolvedValueOnce(provider.response);
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Original request', { queue: 'compact' });
+		const work = application.queue.workNextJob('compact');
+		try {
+			await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+			await new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: first.conversationId }).queue('Followup pending during compaction', { queue: 'compact' });
+			provider.finish('Saved first result');
+			expect((await work)?.status).toBe('succeeded');
+			for (const view of ['conversation', 'admin', 'status'] as const) {
+				const saved = await application.ai.conversations.load(reader, { conversationId: first.conversationId, view });
+				expect(saved.context).toMatchObject({ status: 'compacted', inputTokens: null, windowTokens: null, compactions: 1 });
+				expect(JSON.stringify(saved)).not.toContain('opaque-provider-checkpoint');
+			}
+			const continuation = controlledResponse(); continuation.finish('Finished followup'); fetch.mockResolvedValueOnce(continuation.response);
+			expect((await application.queue.workNextJob('compact'))?.status).toBe('succeeded');
+			const request = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body));
+			expect(request.input).toContainEqual(expect.objectContaining({ type: 'compaction', encrypted_content: 'opaque-provider-checkpoint' }));
+			expect(JSON.stringify(request.input)).not.toContain('Original request');
+			expect(JSON.stringify(request.input).split('Followup pending during compaction')).toHaveLength(2);
+			const saved = await application.ai.conversations.load(reader, { conversationId: first.conversationId, view: 'conversation' });
+			expect(saved.timeline).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'user', content: 'Original request' }), expect.objectContaining({ role: 'assistant', content: 'Saved first result' }), expect.objectContaining({ role: 'assistant', content: 'Finished followup' })]));
+			expect(saved.context).toMatchObject({ status: 'measured', inputTokens: 5, compactions: 1 });
+		} finally { provider.finish('Saved first result'); await work; }
+	});
+
+	it('exposes a safe context-overflow code to ordinary viewers while keeping provider diagnostics private', async () => {
+		fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Private provider details', type: 'invalid_request_error', code: 'context_length_exceeded' } }), { status: 400, headers: { 'content-type': 'application/json' } }));
+		const queued = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Too long', { queue: 'overflow', maxTries: 1 });
+		await application.queue.workNextJob('overflow');
+		const saved = await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'conversation' });
+		expect(saved.run).toMatchObject({ status: 'failed', error: { code: 'context_length_exceeded', message: 'The agent could not complete this run.' } });
+		const conversation = await AiConversation.findOrFail(queued.conversationId);
+		conversation.streamState = { ...conversation.streamState!, run: { ...conversation.streamState!.run, error: { message: 'Your input exceeds the context window of this model.' } } };
+		await conversation.save();
+		expect((await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'conversation' })).run?.error?.code).toBe('context_length_exceeded');
+	});
+
 	it('publishes committed admission, running, followup and completion changes without per-message activity', async () => {
 		await expect(application.db.transaction(async () => {
 			await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Rollback', { queue: 'activity' });
@@ -372,7 +415,7 @@ describe('durable agent streaming', () => {
 		}
 		registerQueuedAgent('ToolStreamingAgent', ToolStreamingAgent);
 		const call = { type: 'function_call', id: 'fc_inspect', call_id: 'call_inspect', name: 'inspect_topic', arguments: '{"topic":"workshops"}' };
-		const response = { id: 'resp_tool', object: 'response', model: 'test-model', created_at: 1, status: 'completed', output: [call], usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 } };
+		const response = { id: 'resp_tool', object: 'response', model: 'test-model', created_at: 1, status: 'completed', output: [{ type: 'compaction', id: 'cmp_tool', encrypted_content: 'opaque-tool-context' }, call], usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 } };
 		const events = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }, { type: 'response.output_item.added', output_index: 0, item: call }, { type: 'response.output_item.done', output_index: 0, item: call }, { type: 'response.completed', response }];
 		const final = controlledResponse(); final.delta('Finished'); final.finish('Finished');
 		fetch.mockResolvedValueOnce(new Response(events.map((event, sequence_number) => `data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } })).mockResolvedValueOnce(final.response);
@@ -394,6 +437,11 @@ describe('durable agent streaming', () => {
 				expect(page.timeline.find(item => item.kind === 'tool')).toMatchObject({ state: 'success', arguments: { topic: 'workshops' }, result: expect.objectContaining({ topic: 'workshops' }) });
 			}
 			expect(fetch).toHaveBeenCalledTimes(2);
+			const nextInput = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)).input;
+			expect(nextInput).toContainEqual(expect.objectContaining({ type: 'compaction', encrypted_content: 'opaque-tool-context' }));
+			expect(nextInput).toContainEqual(expect.objectContaining({ type: 'function_call', call_id: 'call_inspect' }));
+			expect(nextInput).toContainEqual(expect.objectContaining({ type: 'function_call_output', call_id: 'call_inspect' }));
+			expect(JSON.stringify(nextInput)).not.toContain('Inspect workshops');
 		} finally { finishTool(); await work; }
 	});
 
@@ -511,7 +559,7 @@ describe('durable agent streaming', () => {
 			protected override async beforeQueuedRun(root: AiRequest): Promise<void> { activations.push((root.response as { providerFinalized?: boolean } | null)?.providerFinalized === true); }
 		}
 		registerQueuedAgent('SettlementAgent', SettlementAgent);
-		const provider = controlledResponse(); fetch.mockResolvedValue(provider.response);
+		const provider = controlledResponse(true); fetch.mockResolvedValue(provider.response);
 		const queued = await new SettlementAgent({ user: 'viewer', scope: 'team' }).queue('Finish once', { queue: 'settlement', maxTries: 2, backoff: { initialSeconds: 0 } });
 		await database.db.raw("CREATE TRIGGER stream_settlement_failure BEFORE UPDATE ON ai_requests FOR EACH ROW BEGIN IF NEW.operation = 'agents.run.queue' AND NEW.status = 'completed' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic settlement storage failure'; END IF; END");
 		try {
@@ -519,6 +567,7 @@ describe('durable agent streaming', () => {
 			await application.queue.workNextJob('settlement');
 			const root = await AiRequest.findOrFail(queued.aiRequestId!);
 			expect(root.response).toMatchObject({ providerFinalized: true, finalOutput: 'Done' });
+			expect((await AiConversation.findOrFail(queued.conversationId)).streamState?.contextCheckpoint?.input[0]).toMatchObject({ type: 'compaction' });
 			expect((await application.ai.conversations.load(reader, { conversationId: queued.conversationId, view: 'admin' })).run).toMatchObject({ status: 'waiting', attempt: 1 });
 			expect(root.status).toBe('pending');
 		} finally { await database.db.raw('DROP TRIGGER stream_settlement_failure'); }

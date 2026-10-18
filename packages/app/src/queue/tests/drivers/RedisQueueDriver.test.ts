@@ -1,7 +1,8 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { randomUUID } from 'node:crypto';
 import { createConnection } from 'node:net';
 import { createClient, type RedisClientOptions } from '@redis/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../../../db';
 import { Queue, RedisQueueDriver, type JobEnvelope, type QueueJob } from '../../index';
 import type * as queue from '../../index';
@@ -27,6 +28,122 @@ describeRedis('RedisQueueDriver', () => {
 		afterEach(async () => { await driver?.close(); await clearRedisPrefix(prefix); });
 		queueSelectionContract(() => new Queue({} as Database, { driver, queueMonitor: false }));
 	});
+	describe('blocking idle waiting', () => {
+		let prefix: string;
+		let driver: RedisQueueDriver;
+		let cancellation: AbortController;
+		beforeEach(() => { prefix = testKeyPrefix(); driver = testDriver(prefix); cancellation = new AbortController(); });
+		afterEach(async () => { cancellation.abort(); await driver.close(); await clearRedisPrefix(prefix); });
+
+		it('broadcasts a dispatch to simultaneous blocked readers without claiming jobs', async () => {
+			const waits = [driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal }), driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal })];
+			try {
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(2);
+				await driver.push({ queue: 'default', payload: testPayload('WakeJob'), delaySeconds: 0, createdAt: unixTimestamp() });
+				await Promise.all(waits);
+				expect((await driver.pop('default', { retryAfterSeconds: 90 }))?.attempts).toBe(1);
+				expect(await driver.pop('default', { retryAfterSeconds: 90 })).toBeNull();
+			} finally { cancellation.abort(); await Promise.allSettled(waits); }
+		});
+
+		it('detects work published before waiting and honors a bounded empty wait', async () => {
+			await driver.push({ queue: 'default', payload: testPayload('ExistingJob'), delaySeconds: 0, createdAt: unixTimestamp() });
+			await driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal });
+			const job = await driver.pop('default', { retryAfterSeconds: 90 });
+			await driver.delete(job!);
+			const start = Date.now();
+			await driver.waitForWork({ queues: ['default'] }, { timeoutMs: 100, signal: cancellation.signal });
+			expect(Date.now() - start).toBeGreaterThanOrEqual(90);
+			expect(Date.now() - start).toBeLessThan(2000);
+		});
+
+		it('wakes at delayed-job and expired-reservation deadlines without another push', async () => {
+			await driver.push({ queue: 'default', payload: testPayload('DelayedWake'), delaySeconds: 1, createdAt: unixTimestamp() });
+			await driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal });
+			const job = await driver.pop('default', { retryAfterSeconds: 1 });
+			expect(job).not.toBeNull();
+			await driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal });
+			const reclaimed = await driver.pop('default', { retryAfterSeconds: 90 });
+			expect(reclaimed).toMatchObject({ id: job!.id, attempts: 2 });
+		});
+
+		it('wakes blocked readers when an owned job is released or deferred', async () => {
+			await driver.push({ queue: 'default', payload: testPayload('RescheduledWake'), delaySeconds: 0, createdAt: unixTimestamp() });
+			let job = (await driver.pop('default', { retryAfterSeconds: 90 }))!;
+			for (const action of ['release', 'defer'] as const) {
+				const waiting = driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal });
+				try {
+					await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
+					expect(await driver[action](job, 0)).toBe(true);
+					await waiting;
+					job = (await driver.pop('default', { retryAfterSeconds: 90 }))!;
+					expect(job).not.toBeNull();
+				} finally { if (!job) cancellation.abort(); }
+			}
+		});
+
+		it('keeps idle workers blocked, starts four slots promptly and preserves exclusions', async () => {
+			const manager = new Queue({} as Database, { driver, queueMonitor: false });
+			const pop = vi.spyOn(driver, 'pop');
+			const handled: string[] = [];
+			let release!: () => void;
+			const gate = new Promise<void>(resolve => { release = resolve; });
+			manager.registerHandler('SlotJob', async job => { handled.push(String(job.id)); await gate; });
+			const worker = manager.startWorker({ queues: '*', excludeQueues: ['images'], concurrency: 4, intervalMs: 5000 }, { force: true })!;
+			try {
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				const calls = pop.mock.calls.length;
+				await delay(350);
+				expect(pop.mock.calls.length).toBe(calls);
+				await manager.dispatch('SlotJob', {}, { queue: 'images' });
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				expect(handled).toHaveLength(0);
+				for (let i = 0; i < 4; i++) await manager.dispatch('SlotJob', {}, { queue: 'new-queue' });
+				await expect.poll(() => handled.length, { timeout: 2000 }).toBe(4);
+				expect(new Set(handled).size).toBe(4);
+				release();
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				const stopped = Date.now();
+				await worker.stopAndDrain();
+				expect(Date.now() - stopped).toBeLessThan(1000);
+				expect(await blockedWaitCount(prefix)).toBe(0);
+				expect(await driver.pop('images', { retryAfterSeconds: 90 })).not.toBeNull();
+			} finally { release(); await worker.stopAndDrain(); pop.mockRestore(); }
+		});
+
+		it('backs off and reconnects after a blocking socket is disconnected', async () => {
+			const errors: string[] = [];
+			const manager = new Queue({} as Database, { driver, queueMonitor: false });
+			const handled: string[] = [];
+			manager.registerHandler('ReconnectJob', async job => { handled.push(String(job.id)); });
+			const worker = manager.startWorker('default', { force: true, intervalMs: 100, logger: { info: () => {}, error: message => { errors.push(message); } } })!;
+			const client = createClient(redisClientOptions());
+			client.on('error', (): void => {});
+			await client.connect();
+			try {
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
+				const clients = await client.sendCommand<string>(['CLIENT', 'LIST']);
+				const line = clients.split('\n').find(value => value.includes(`name=${prefix}:wait `))!;
+				const id = line.match(/(?:^| )id=(\d+)/)![1]!;
+				await client.sendCommand(['CLIENT', 'KILL', 'ID', id]);
+				await expect.poll(() => errors.length).toBe(1);
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
+				await manager.dispatch('ReconnectJob', {});
+				await expect.poll(() => handled.length).toBe(1);
+			} finally { await worker.stopAndDrain(); await client.close(); }
+		});
+
+		it('closes an idle blocking connection immediately on cancellation', async () => {
+			const waiting = driver.waitForWork({ queues: ['default'] }, { signal: cancellation.signal });
+			try {
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
+				cancellation.abort();
+				await waiting;
+				expect(await blockedWaitCount(prefix)).toBe(0);
+			} finally { cancellation.abort(); await waiting; }
+		});
+	});
+
 	it('finds owned work in delayed, reserved and nested chained payloads without matching application data', async () => {
 		const keyPrefix = testKeyPrefix(); const driver = testDriver(keyPrefix);
 		try {
@@ -485,4 +602,15 @@ async function canConnect(host: string, port: number): Promise<boolean> {
  */
 function unixTimestamp(): number {
 	return Math.floor(Date.now() / 1000);
+}
+
+/** Counts only this test namespace's blocked sockets on the disposable Redis server. */
+async function blockedWaitCount(prefix: string): Promise<number> {
+	const client = createClient(redisClientOptions());
+	client.on('error', (): void => {});
+	await client.connect();
+	try {
+		const clients = await client.sendCommand<string>(['CLIENT', 'LIST']);
+		return clients.split('\n').filter(line => line.includes(`name=${prefix}:wait `) && line.includes('cmd=xread')).length;
+	} finally { await client.close(); }
 }

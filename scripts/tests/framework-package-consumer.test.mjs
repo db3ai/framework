@@ -448,6 +448,7 @@ const workerSelection = queueConsoleSelection(parseQueueConsoleArgs(['queue:work
 if (workerSelection.queues !== '*' || workerSelection.excludeQueues.join(',') !== 'articles,article-images') throw new Error('Installed queue selection failed.');
 const selectionConnection = knex({ client: 'mysql2' });
 const selectionApp = new App({ db: selectionConnection, queue: { workerEnabled: false, queueMonitor: false } });
+await selectionApp.queue.waitForWork({ queues: ['default'] }, { signal: AbortSignal.abort() });
 try {
 	const protectedWorker = new QueueWorker(selectionApp.queue, workerSelection);
 	await protectedWorker.stopAndDrain();
@@ -642,13 +643,19 @@ import { Cli, defineCommand, listDb3Commands, runRepl, type CliCommandInfo, type
 import { databaseCommands } from '@db3.ai/app/db/commands';
 import { StringField } from '@db3.ai/app/db/fields/StringField';
 import type { FieldConfig } from '@db3.ai/app/db/FieldType';
-import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueJobId, type QueueSelection, type QueueService } from '@db3.ai/app/queue';
+import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueJobId, type QueueSelection, type QueueService, type QueueWaitOptions } from '@db3.ai/app/queue';
 /** Confirms installed declarations expose the same awaited and non-awaited receipt contract. */
 async function acknowledgedDispatch(queue: QueueService): Promise<QueueJobId> {
 	const accepted: Promise<QueueJobId> = queue.dispatch('ConsumerJob', { requestId: 'request' }, { queue: 'agents' });
 	return await accepted;
 }
 void acknowledgedDispatch;
+/** Confirms installed queue consumers can await work without selecting a backend. */
+async function waitForQueuedWork(queue: QueueService, signal: AbortSignal): Promise<void> {
+	const options: QueueWaitOptions = { pollIntervalMs: 5000, timeoutMs: 30000, signal };
+	await queue.waitForWork({ queues: ['agents'] }, options);
+}
+void waitForQueuedWork;
 const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'], concurrency: 4, intervalMs: 5000, stagger: true };
 declare const consumingQueue: Queue;
 const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsPerTick: 1 });

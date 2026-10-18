@@ -47,6 +47,22 @@ async function connect(h: ReturnType<typeof harness>): Promise<void> {
 function admission(id = 'thread'): QueuedAgentRunResponse { return { conversationId: id, aiRequestId: `${id}-queued`, traceId: 'trace', jobId: 'job' }; }
 
 describe('best-effort conversation client', () => {
+	it('updates context from validated events and restores compaction after a reconnect', async () => {
+		const measured: stream.AgentContextState = { model: 'test-model', windowTokens: 1000, inputTokens: 600, status: 'measured', compactions: 0 };
+		const compacted: stream.AgentContextState = { ...measured, inputTokens: null, status: 'compacted', compactions: 1 };
+		const h = harness({ load: vi.fn().mockResolvedValueOnce({ ...snapshot(), context: measured }).mockResolvedValue({ ...snapshot(), context: compacted }) });
+		try {
+			await h.client.open('thread');
+			expect(h.client.getState().snapshot?.context).toEqual(measured);
+			await connect(h);
+			expect(h.client.getState().snapshot?.context).toEqual(compacted);
+			h.live().update(update({ type: 'context.changed', context: { ...compacted, status: 'compacting' } }, null));
+			expect(h.client.getState().snapshot?.context?.status).toBe('compacting');
+			h.live().update(update({ type: 'context.changed', context: { ...measured, inputTokens: -1 } }, null));
+			expect(h.client.getState().snapshot?.context?.status).toBe('compacting');
+		} finally { h.client.dispose(); }
+	});
+
 	it('loads first, backfills the connection gap and replaces partial output with saved items', async () => {
 		const read = pending<stream.AgentConversationSnapshot>();
 		const h = harness({ load: vi.fn().mockResolvedValueOnce(snapshot()).mockImplementationOnce(() => read.promise).mockResolvedValue(snapshot('thread', [message('6', 'Saved in the gap')])) });

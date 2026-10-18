@@ -1,3 +1,5 @@
+import type { QueueSelection } from './QueueSelection';
+import type { QueueWaitOptions } from './QueueWaitOptions';
 import type { JobEnvelope, QueueDriverName, QueueJob, QueueJobId } from './QueuePayload';
 
 /**
@@ -50,6 +52,14 @@ export interface QueueFailedJob {
  * recording. Queue owns handler execution and retry decisions.
  */
 export interface QueueDriver {
+	/**
+	 * Optional backend-native idle wait. Drivers without it use Queue's polling delay.
+	 * Resolves on possible work, a scheduling/lease deadline, timeout or cancellation.
+	 * This is a wake-up hint, never a claim: callers must still use atomic pop().
+	 * Implementations must close the check-to-wait race and isolate blocking connections.
+	 */
+	waitForWork?(selection: QueueSelection, options: QueueWaitOptions): Promise<void>;
+
 	/** Inspects pending, delayed, reserved and chained work for maintenance; callers must quiesce producers first. */
 	hasPendingJobs?(jobPrefix: string): Promise<boolean>;
 	/** Driver name stored on failed job records and shown in diagnostics. */

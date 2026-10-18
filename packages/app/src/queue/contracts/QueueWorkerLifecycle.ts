@@ -25,11 +25,11 @@ export interface QueueLogger {
 }
 
 /**
- * Runtime controls for a polling queue worker.
+ * Runtime controls for a queue worker with backend-owned idle waiting.
  */
 export interface QueueWorkerOptions {
 	/**
-	 * Number of milliseconds between worker ticks.
+	 * SQL polling delay and transport-error backoff in milliseconds.
 	 */
 	intervalMs?: number;
 	/**
@@ -55,7 +55,7 @@ export interface QueueWorkerOptions {
  */
 export interface QueueWorkerLifecycle {
 	/**
-	 * Starts polling the configured queue.
+	 * Starts consuming the configured queue, waiting through its backend when idle.
 	 */
 	start(): void;
 

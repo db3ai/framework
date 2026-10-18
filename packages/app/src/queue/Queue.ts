@@ -1,3 +1,4 @@
+import { waitForQueueDelay } from './waitForQueueDelay';
 import { RunnableJob } from './RunnableJob';
 import type { QueueableJobContract as QueueableJob } from './contracts/QueueableJobContract';
 import { QueueTerminalError } from './QueueTerminalError';
@@ -652,7 +653,22 @@ export class Queue implements queue.QueueService {
 	}
 
 	/**
-	 * Starts a polling worker for a named queue or selection unless disabled.
+	 * Waits for possible eligible work without claiming it. SQL/custom drivers retain
+	 * the polling delay; capable backends wait for notifications and due deadlines.
+	 * Cancellation resolves normally so graceful shutdown can drain active handlers.
+	 */
+	async waitForWork(selection: queue.QueueSelection, options: queue.QueueWaitOptions = {}): Promise<void> {
+		if (options.signal?.aborted) return;
+		if (this.driver.waitForWork) return this.driver.waitForWork(selection, options);
+		const interval = options.pollIntervalMs ?? 1000;
+		const timeout = options.timeoutMs ?? 30000;
+		if (!Number.isFinite(interval) || interval <= 0) throw new Error('Queue polling interval must be positive.');
+		if (!Number.isFinite(timeout) || timeout <= 0) throw new Error('Queue wait timeout must be positive.');
+		await waitForQueueDelay(Math.min(interval, timeout), options.signal);
+	}
+
+	/**
+	 * Starts a worker with backend-owned idle waiting for a named queue or selection unless disabled.
 	 * @example queue.startWorker({ queues: '*', excludeQueues: ['articles'] });
 	 */
 	startWorker(

@@ -198,7 +198,7 @@ export class AgentConversationClient {
 			const update = parseAgentUpdate(value);
 			if (update.conversationId !== this.#id || update.view !== this.options.view) throw new Error('Stream belongs to another conversation.');
 			if (!this.#subscribed) return;
-			const durable = ['item.changed', 'history.changed', 'run.state', 'message.completed', 'reasoning.summary.completed', 'tool.success', 'tool.error'].includes(update.event.type);
+			const durable = ['context.changed', 'item.changed', 'history.changed', 'run.state', 'message.completed', 'reasoning.summary.completed', 'tool.success', 'tool.error'].includes(update.event.type);
 			if (this.#refreshing) { if (durable) this.#refreshAgain = true; return; }
 			const snapshot = this.#state.snapshot;
 			if (!snapshot) return;
