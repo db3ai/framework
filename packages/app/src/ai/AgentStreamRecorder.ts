@@ -141,7 +141,7 @@ export class AgentStreamRecorder {
 	}
 
 	/** Settles a failed writer through a fresh transaction without overriding a newer owner. */
-	async fail(message: string): Promise<void> { await this.#service.settleQueuedStop(String(this.state.rootAiRequest.id), message, 'failed', this.#owner); }
+	async fail(message: string): Promise<void> { await this.#service.settleQueuedStop(String(this.state.rootAiRequest.id), message, 'failed', this.#claimed ? this.#owner : undefined); }
 
 	/** Releases only execution-owned resources. Cleanup never replaces an earlier failure. */
 	async close(): Promise<void> {

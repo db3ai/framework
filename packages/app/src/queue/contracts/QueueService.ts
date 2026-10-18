@@ -169,7 +169,8 @@ export interface QueueService {
 	 * @param job - Durable job name.
 	 * @param data - JSON-safe payload data.
 	 * @param options - Per-dispatch queue options.
-	 * @returns Queue driver id for the queued job.
+	 * @returns Opaque job id once the driver acknowledges storage; this does not wait for execution.
+	 * @throws When acceptance cannot be confirmed. A timeout may occur after storage succeeds.
 	 */
 	dispatch<TData extends Record<string, unknown>>(job: string, data: TData, options?: DispatchOptions): Promise<QueueJobId>;
 
@@ -178,7 +179,8 @@ export interface QueueService {
 	 *
 	 * @param job - Queueable job instance to serialize and dispatch.
 	 * @param options - Per-dispatch queue options.
-	 * @returns Queue driver id for the queued job.
+	 * @returns Opaque job id once the driver acknowledges storage; this does not wait for execution.
+	 * @throws When acceptance cannot be confirmed. A timeout may occur after storage succeeds.
 	 */
 	dispatch<TJob extends QueueableJob>(job: TJob, options?: DispatchOptions): Promise<QueueJobId>;
 

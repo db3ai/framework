@@ -76,7 +76,13 @@ const run = await new HelpAgent({
 // { conversationId, aiRequestId, jobId, traceId }
 ```
 
-Admission commits request, user message and SQL queue job together. A followup
+Admission saves the request, user message and conversation state before awaiting
+the ordinary queue dispatch API. Dispatch returns an opaque job ID after driver
+acceptance; AI does not inspect the queue driver. SQL and Redis are supported.
+A rejected dispatch retains the request as failed and clears its queued stream
+state. Saving records and publishing the job are not an atomic operation: a crash
+between them can leave an unqueued request. Commit any caller-owned SQL transaction
+before queuing through an external broker. A followup
 on an active conversation joins its FIFO queue; it does not interrupt the active
 provider call. Each turn loads fresh saved history when execution begins. Future
 queued messages are excluded from the current turn's provider input. The existing
@@ -90,7 +96,11 @@ product decisions on the root so a retry cannot change the original charge.
 The browser client creates one submission UUID per intentional send and keeps it
 for `retrySend()` after an uncertain HTTP response. A key is scoped to actor, scope
 and agent; changed input with the same key returns 409. Scheduled jobs can omit it.
-Atomic admission requires the database queue. Broker admission is unsupported.
+A concurrent duplicate briefly waits for the original queue acknowledgement; if
+it remains unconfirmed, it returns 409 and can be retried with the same key. A
+failed submission with no receipt returns 409; an intentional new send needs a new
+key. Existing receipts are reused even after execution completes. An outbox and
+automatic recovery of requests interrupted before dispatch are not provided.
 
 Workers emit live events without knowing whether anyone is watching. Text deltas
 coalesce in memory (100 ms by default) and never write SQL. Existing message/tool
@@ -527,6 +537,10 @@ provider success, rejection, deferral and transport failure. A real ambient
 deadlock regression also verifies rollback of an earlier caller write, error
 propagation and the absence of follow-up limiter queries in that transaction.
 The package is also installed and type-checked in an independent consumer.
+`tests/agentAdmission.integration.test.ts` checks acknowledged job IDs, duplicate
+submissions and execution-before-acknowledgement against SQL and Redis. Set
+`QUEUE_REDIS_URL` to an isolated Redis instance and `TEST_REDIS_REQUIRED=1` for
+the combined driver gate; required Redis infrastructure must not be skipped.
 
 Installed app developers run their own tests using a disposable database and
 an injected `ai.fetch`. No live key is needed for simulated provider tests.

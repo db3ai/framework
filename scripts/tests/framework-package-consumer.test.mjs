@@ -642,7 +642,13 @@ import { Cli, defineCommand, listDb3Commands, runRepl, type CliCommandInfo, type
 import { databaseCommands } from '@db3.ai/app/db/commands';
 import { StringField } from '@db3.ai/app/db/fields/StringField';
 import type { FieldConfig } from '@db3.ai/app/db/FieldType';
-import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueSelection } from '@db3.ai/app/queue';
+import { QueueWorker, type Queue, type QueueDriver, type QueueJob, type QueueJobId, type QueueSelection, type QueueService } from '@db3.ai/app/queue';
+/** Confirms installed declarations expose the same awaited and non-awaited receipt contract. */
+async function acknowledgedDispatch(queue: QueueService): Promise<QueueJobId> {
+	const accepted: Promise<QueueJobId> = queue.dispatch('ConsumerJob', { requestId: 'request' }, { queue: 'agents' });
+	return await accepted;
+}
+void acknowledgedDispatch;
 const protectedSelection: QueueSelection = { queues: '*', excludeQueues: ['articles', 'article-images'], concurrency: 4 };
 declare const consumingQueue: Queue;
 const selectedWorker = consumingQueue.startWorker(protectedSelection, { maxJobsPerTick: 1 });

@@ -227,7 +227,10 @@ export class Queue implements queue.QueueService {
 	}
 
 	/**
-	 * Pushes a job payload to the configured driver.
+	 * Pushes a job payload to the configured driver and resolves with its acknowledged job id.
+	 *
+	 * Await dispatch to confirm acceptance, even when the id is unused. A non-awaited
+	 * dispatch still returns a Promise and its rejection must be handled by the caller.
 	 *
 	 * Queueable job instances are auto-registered on first dispatch in the current process.
 	 */

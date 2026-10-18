@@ -309,6 +309,15 @@ describe('Queue', () => {
 		expect(driver.jobs[0].payload.uuid).toEqual(expect.any(String));
 	});
 
+	it('returns a usable dispatch promise when the caller does not immediately await it', async () => {
+		const driver = new MemoryQueueDriver();
+		const queue = queueWith(driver);
+		const pending = queue.dispatch('send_email', { to: 'steve@example.com' });
+		expect(pending).toBeInstanceOf(Promise);
+		await expect(pending).resolves.toBe(1);
+		expect(driver.jobs[0]?.id).toBe(1);
+	});
+
 	it('persists exponential retry policy and an absolute retry deadline', async () => {
 		const driver = new MemoryQueueDriver();
 		const queue = queueWith(driver);

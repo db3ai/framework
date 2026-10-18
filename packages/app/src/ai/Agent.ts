@@ -296,15 +296,23 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				const traceId = generateTraceId();
 				const prepared = await this.prepareRun(queueInput.message, 'queue', traceId);
 				if (binding) await prepared.state.rootAiRequest.assign(binding).setDb(app().ai.models.request.getDb()).save();
+				return prepared;
+			}, async prepared => {
+				let jobId: queue.QueueJobId;
 				try {
-					const jobId = await app().queue.dispatch(new AgentRunJob(this.queuedRunPayload(prepared, serializedAgent)), queueInput.options);
-					await this.markQueued(prepared.state, jobId);
-					return { jobId, conversationId: String(prepared.state.conversation.id), aiRequestId: String(prepared.state.rootAiRequest.id), traceId };
+					jobId = await app().queue.dispatch(new AgentRunJob(this.queuedRunPayload(prepared, serializedAgent)), queueInput.options);
 				} catch (error) {
-					// Atomic admission rolls back its audit rows; ordinary queue use retains the existing failure audit.
-					if (!app().ai.conversations.enabled && queueInput.options.idempotencyKey === undefined) await this.failTrackedRun(prepared.state, error instanceof Error ? error.message : String(error));
+					const current = await app().ai.models.request.findOrFail(prepared.state.rootAiRequest.id);
+					// A fast worker may already have recorded acceptance before the producer lost its reply.
+					if (current.status === AI_REQUEST_STATUS.pending && recordValue(current.request)?.queueJobId === undefined) {
+						const message = error instanceof Error ? error.message : 'Queue dispatch failed.';
+						await this.failTrackedRun(prepared.state, message, 'queue_dispatch_failed');
+						await this.#recorder?.fail(message);
+					}
 					throw error;
 				}
+				await this.markQueued(prepared.state, jobId);
+				return { jobId, conversationId: String(prepared.state.conversation.id), aiRequestId: String(prepared.state.rootAiRequest.id), traceId: prepared.traceId };
 			});
 		} finally {
 			await this.#recorder?.close();
@@ -398,6 +406,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				restored.conversation = await app().ai.models.conversation.findOrFail(restored.conversation.id);
 				restored.rootAiRequest = await app().ai.models.request.findOrFail(restored.rootAiRequest.id);
 				restored.aiRequest = restored.rootAiRequest;
+				// The delivery itself also proves acceptance if execution beats the producer acknowledgement.
+				if (context) await this.markQueued(restored, context.job.id);
 				await this.beforeQueuedRun(restored.rootAiRequest, restored.conversation);
 			});
 			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) return await this.resumeFinalizedTrackedRun(prepared);
@@ -2171,24 +2181,25 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	}
 
 	/**
-	 * Stores the queue job id on the pending AI request for debugging.
+	 * Saves an opaque queue acknowledgement without overwriting concurrent worker progress.
+	 * Both the producer and worker may record the same receipt; no lifecycle status is changed.
 	 *
-	 * @param state - Active run persistence state.
-	 * @param jobId - Queue job id returned by the queue driver.
+	 * @param state - Prepared or executing run whose request owns the receipt.
+	 * @param jobId - Identifier acknowledged by the queue service.
 	 */
-	private async markQueued(state: agent.AgentPersistenceState, jobId: unknown): Promise<void> {
-		state.aiRequest.assign({
-			request: {
-				...(recordValue(state.aiRequest.request) ?? {}),
-				queueJobId: jobId,
-			},
-			metadata: {
-				...(state.aiRequest.metadata ?? {}),
-				queueJobId: jobId,
-			},
-		});
-
-		await state.aiRequest.setDb(app().ai.models.request.getDb()).save();
+	private async markQueued(state: agent.AgentPersistenceState, jobId: queue.QueueJobId): Promise<void> {
+		// Transaction invariant: Concurrent receipt writers must merge current request/metadata JSON;
+		// a producer acknowledging a fast job must not restore its stale pre-execution prompt.
+		const current = await app().ai.models.request.getDb().transaction(transaction => ActiveRecord.withDb(transaction, async () => {
+			const request = await app().ai.models.request.where('id', state.rootAiRequest.id).forUpdate().firstOrFail();
+			request.assign({
+				request: { ...(recordValue(request.request) ?? {}), queueJobId: jobId },
+				metadata: { ...(request.metadata ?? {}), queueJobId: jobId },
+			});
+			return request.setDb(app().ai.models.request.getDb()).save();
+		}));
+		state.rootAiRequest = current;
+		state.aiRequest = current;
 	}
 
 	/**

@@ -570,6 +570,73 @@ describe('durable agent streaming', () => {
 		expect(fetch).not.toHaveBeenCalled();
 	});
 
+	it('commits request preparation before dispatch and returns the acknowledged delivery id', async () => {
+		let insideTransaction: boolean | undefined;
+		let savedInputs = 0;
+		const unsubscribe = application.queue.events.subscribe(async event => {
+			if (event.action !== 'dispatched' || event.queue !== 'acknowledged') return;
+			insideTransaction = ActiveRecord.getScopedDb()?.isTransaction ?? false;
+			savedInputs = await AiMessage.where('role', 'user').count();
+		});
+		try {
+			const accepted = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Saved first', { queue: 'acknowledged', idempotencyKey: 'receipt' });
+			expect(insideTransaction).toBe(false);
+			expect(savedInputs).toBe(1);
+			expect((await QueuedJob.findOrFail(accepted.jobId)).payload.data).toMatchObject({ aiRequestId: accepted.aiRequestId });
+			expect((await AiRequest.findOrFail(accepted.aiRequestId!)).request).toMatchObject({ queueJobId: accepted.jobId });
+			expect(fetch).not.toHaveBeenCalled();
+		} finally { unsubscribe(); }
+	});
+
+	it('retains failed dispatches and removes only their pending followup from the conversation', async () => {
+		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Original turn');
+		const before = (await AiConversation.findOrFail(first.conversationId)).streamState;
+		await database.db.raw("CREATE TRIGGER reject_agent_dispatch BEFORE INSERT ON jobs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic queue outage'");
+		try {
+			await expect(new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: first.conversationId }).queue('Followup rejected', { idempotencyKey: 'rejected' })).rejects.toThrow('Synthetic queue outage');
+		} finally { await database.db.raw('DROP TRIGGER reject_agent_dispatch'); }
+		const failed = await AiRequest.where('status', 'failed').firstOrFail();
+		expect(failed.errorCode).toBe('queue_dispatch_failed');
+		expect(failed.request).not.toHaveProperty('queueJobId');
+		expect(await AiMessage.where('aiRequest', failed.id).where('role', 'user').count()).toBe(1);
+		expect((await AiConversation.findOrFail(first.conversationId)).streamState).toMatchObject({ run: before!.run, pending: [] });
+		await expect(new StreamingAgent({ user: 'viewer', scope: 'team', conversationId: first.conversationId }).queue('Followup rejected', { idempotencyKey: 'rejected' })).rejects.toMatchObject({ statusCode: 409 });
+		expect(await QueuedJob.query().count()).toBe(1);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('retains a rejected initial request as failed rather than advertising nonexistent queued work', async () => {
+		await database.db.raw("CREATE TRIGGER reject_initial_agent_dispatch BEFORE INSERT ON jobs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Initial queue outage'");
+		try {
+			await expect(new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Rejected initial turn', { idempotencyKey: 'initial-rejected' })).rejects.toThrow('Initial queue outage');
+		} finally { await database.db.raw('DROP TRIGGER reject_initial_agent_dispatch'); }
+		expect(await QueuedJob.query().count()).toBe(0);
+		const failed = await AiRequest.query().firstOrFail();
+		expect(failed).toMatchObject({ status: 'failed', errorCode: 'queue_dispatch_failed' });
+		expect((await AiConversation.findOrFail(failed.conversation!.id)).streamState?.run.status).toBe('failed');
+		const accepted = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Try deliberately again', { idempotencyKey: 'new-send' });
+		expect(accepted.jobId).toBeDefined();
+		expect(await AiRequest.query().count()).toBe(2);
+		expect(fetch).not.toHaveBeenCalled();
+	});
+
+	it('preserves completed output and prompt data when a worker executes before dispatch returns', async () => {
+		const provider = controlledResponse(); provider.finish('Fast answer'); fetch.mockResolvedValueOnce(provider.response);
+		let execution: import('@db3.ai/app/queue').QueueProcessResult | null = null;
+		const unsubscribe = application.queue.events.subscribe(async event => {
+			if (event.action === 'dispatched' && event.queue === 'fast-worker') execution = await application.queue.workNextJob('fast-worker');
+		});
+		try {
+			const accepted = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Fast input', { queue: 'fast-worker', idempotencyKey: 'fast' });
+			expect(execution).toMatchObject({ status: 'succeeded' });
+			const request = await AiRequest.findOrFail(accepted.aiRequestId!);
+			expect(request).toMatchObject({ status: 'completed', request: { queueJobId: accepted.jobId, instructions: 'Answer briefly.' }, response: { finalOutput: 'Fast answer' }, metadata: { queueJobId: accepted.jobId } });
+			expect(await QueuedJob.query().count()).toBe(0);
+			expect(await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('Fast input', { queue: 'fast-worker', idempotencyKey: 'fast' })).toEqual(accepted);
+			expect(fetch).toHaveBeenCalledOnce();
+		} finally { unsubscribe(); }
+	});
+
 	it('rejects direct concurrent execution atomically without leaving an orphan pending request', async () => {
 		const first = await new StreamingAgent({ user: 'viewer', scope: 'team' }).queue('One turn');
 		const messages = await AiMessage.query().count();

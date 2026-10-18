@@ -31,6 +31,24 @@ Import application APIs from `@db3.ai/app/queue`. Keep the job and its business
 policy in your app. Queue owns dispatch, leases and retry transitions; Storage
 owns bytes; your application owns authorization, progress and idempotency.
 
+## Dispatch acknowledgement
+
+```ts
+const jobId = await app().queue.dispatch(job, { queue: 'agents' });
+```
+
+`dispatch()` returns `Promise<QueueJobId>` for both SQL and Redis. Treat the ID
+as opaque: it identifies the delivery in queue lifecycle events and job contexts.
+Resolution confirms driver acceptance, not successful execution. Storage durability
+depends on the configured backend. Rejection means acceptance could not be confirmed;
+a lost acknowledgement can occur after the backend stored the job.
+
+When the ID is unused, still use `await app().queue.dispatch(job)` to confirm
+acceptance and propagate infrastructure errors. A deliberate non-awaited dispatch
+must attach `.catch(...)` and its owner must keep the process alive until it settles.
+Ignoring the Promise neither makes dispatch synchronous nor guarantees acceptance
+before an HTTP response or process exit. No extra fire-and-forget overload is needed.
+
 ## Run a real report
 
 Start with Node.js 24 and an independent ESM app from
@@ -285,9 +303,10 @@ fails. There are no built-in batch counters, cancellation or completion callback
 
 ## Transactions and dispatch
 
-The default `app().queue` does not join a surrounding ActiveRecord transaction.
-Do not enqueue before commit and assume rollback removes the job or workers
-cannot see it. Commit, then dispatch for the simple case.
+For driver-independent behaviour, commit application records before dispatch.
+The SQL driver can join an explicit ActiveRecord scope (see below), but Redis
+cannot join a SQL transaction. Do not rely on rollback to remove a broker job
+or assume its worker cannot see an uncommitted dispatch.
 
 That still leaves a crash window between commit and dispatch. For work that
 must not be missed, write an application outbox in the same transaction and
