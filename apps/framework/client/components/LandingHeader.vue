@@ -46,6 +46,7 @@ function selectNavigation(target: string): void {
 
 		<nav class="landing-navigation" aria-label="Framework">
 			<a class="landing-navigation-link" href="/">Company</a>
+			<a class="landing-navigation-link" href="/framework/learn" data-docs-navigation>Learn</a>
 			<DomDropdown
 				:items="frameworkNavigation"
 				label="Framework"

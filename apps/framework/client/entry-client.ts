@@ -1,8 +1,4 @@
 import { initTheme } from '@getdom/studio/vue';
-import '@vue-flow/core/dist/style.css';
-import './dom-studio.css';
-import './landing.css';
-import './style.css';
 import { createDocsApp } from './createDocsApp';
 import { browserDocumentationLocation } from './siteRoutes';
 

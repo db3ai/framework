@@ -8,9 +8,11 @@ import DocsSidebar from './components/DocsSidebar.vue';
 import GlobalDocsRail from './components/GlobalDocsRail.vue';
 import LandingHeader from './components/LandingHeader.vue';
 import LandingPage from './components/LandingPage.vue';
+import LearningPage from './components/LearningPage.vue';
 import { articleNavigation, docArticles, findArticle, navigationGroups, type DocArticle } from './docs';
+import { findLearningCourse } from './learning';
 import { documentationPageMetadata, type DocumentationPageKind } from './pageMetadata';
-import { browserDocumentationLocation, documentationPath, LANDING_PATH, parseDocumentationRoute } from './siteRoutes';
+import { browserDocumentationLocation, documentationPath, parseDocumentationRoute } from './siteRoutes';
 
 const props = defineProps<{
 	initialLocation: string;
@@ -24,7 +26,9 @@ const initialArticle = routeArticle ?? findArticle(DEFAULT_ARTICLE_ID) ?? docArt
 const activeArticle = ref<DocArticle>(initialArticle);
 const activePackage = ref(initialArticle.packageName);
 const landingOpen = ref(initialRoute.kind === 'landing');
-const notFound = ref(initialRoute.kind === 'not-found' || (initialRoute.kind === 'article' && !routeArticle));
+const learningCourseId = ref(initialRoute.kind === 'learning' ? initialRoute.courseId : '');
+const learningOpen = ref(initialRoute.kind === 'learning' && (!initialRoute.courseId || Boolean(findLearningCourse(initialRoute.courseId))));
+const notFound = ref(initialRoute.kind === 'not-found' || (initialRoute.kind === 'article' && !routeArticle) || (initialRoute.kind === 'learning' && Boolean(initialRoute.courseId) && !findLearningCourse(initialRoute.courseId)));
 const searchOpen = ref(false);
 const navigationOpen = ref(false);
 
@@ -50,11 +54,11 @@ function selectArticle(article: DocArticle): void {
 /**
  * Opens a landing-page destination by its stable article identifier.
  *
- * @param target - Landing page path or documentation article identifier.
+ * @param target - Framework page path or documentation article identifier.
  */
 function navigateTo(target: string): void {
-	if (target === LANDING_PATH) {
-		navigateToLocation(LANDING_PATH);
+	if (target.startsWith('/framework')) {
+		navigateToLocation(target);
 		return;
 	}
 
@@ -157,8 +161,19 @@ function syncFromLocation(location: string): void {
 
 	if (route.kind === 'landing') {
 		landingOpen.value = route.kind === 'landing';
+		learningOpen.value = false;
 		notFound.value = false;
 		applyBrowserDocumentHead(route.kind, null);
+		scrollToSection(route.sectionId);
+		return;
+	}
+
+	if (route.kind === 'learning' && (!route.courseId || findLearningCourse(route.courseId))) {
+		landingOpen.value = false;
+		learningOpen.value = true;
+		learningCourseId.value = route.courseId;
+		notFound.value = false;
+		applyBrowserDocumentHead('learning', null, route.courseId);
 		scrollToSection(route.sectionId);
 		return;
 	}
@@ -168,6 +183,7 @@ function syncFromLocation(location: string): void {
 
 		if (article) {
 			landingOpen.value = false;
+			learningOpen.value = false;
 			notFound.value = false;
 			activeArticle.value = article;
 			activePackage.value = article.packageName;
@@ -185,6 +201,7 @@ function syncFromLocation(location: string): void {
 	}
 
 	landingOpen.value = false;
+	learningOpen.value = false;
 	notFound.value = true;
 	applyBrowserDocumentHead('not-found', null);
 	scrollToSection('');
@@ -222,8 +239,8 @@ function scrollToSection(sectionId: string): void {
  * @param kind - Resolved client page kind.
  * @param article - Canonical article for an article page.
  */
-function applyBrowserDocumentHead(kind: DocumentationPageKind, article: DocArticle | null): void {
-	const metadata = documentationPageMetadata(kind, article);
+function applyBrowserDocumentHead(kind: DocumentationPageKind, article: DocArticle | null, courseId = ''): void {
+	const metadata = documentationPageMetadata(kind, article, courseId);
 	const existingCanonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
 	const canonicalOrigin = existingCanonical?.href
 		? new URL(existingCanonical.href).origin
@@ -301,6 +318,11 @@ onBeforeUnmount(() => {
 				@open-search="openSearch"
 			/>
 			<LandingPage />
+		</template>
+
+		<template v-else-if="learningOpen">
+			<LandingHeader @navigate="navigateTo" @open-search="openSearch" />
+			<LearningPage :course="learningCourseId ? findLearningCourse(learningCourseId) : null" />
 		</template>
 
 		<template v-else-if="notFound">

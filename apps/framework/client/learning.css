@@ -1,0 +1,51 @@
+@reference "./dom-studio.css";
+
+.learning-page { @apply min-h-[calc(100vh-80px)] bg-canvas text-canvas-fg; }
+.learning-shell { @apply mx-auto max-w-[1240px] px-6 py-14 sm:px-10 lg:py-20; }
+.learning-intro { @apply max-w-3xl; }
+.learning-intro h1, .learning-course-header h1 { @apply mt-4 text-[clamp(2.6rem,5vw,4.7rem)] leading-[1.04] font-semibold tracking-[-0.055em]; }
+.learning-intro > p:not(.landing-section-label), .learning-course-summary { @apply mt-6 max-w-[65ch] text-lg leading-8 text-muted-fg; }
+.learning-notice { @apply mt-8 inline-flex items-start gap-3 rounded-lg border border-border bg-muted px-4 py-3 text-sm leading-6 text-canvas-fg; }
+.learning-notice svg { @apply mt-1 shrink-0 text-primary; }
+.learning-featured { @apply mt-20; }
+.learning-section-heading { @apply flex flex-col justify-between gap-4 md:flex-row md:items-end; }
+.learning-section-heading h2, .learning-priority h2 { @apply mt-3 text-[clamp(2rem,3vw,2.8rem)] leading-[1.1] font-semibold tracking-[-0.045em]; }
+.learning-section-heading > p { @apply max-w-md text-sm leading-6 text-muted-fg; }
+.learning-grid { @apply mt-8 grid gap-4 lg:grid-cols-3; }
+.learning-card { @apply flex min-h-[360px] flex-col rounded-xl border border-border bg-canvas p-7 text-canvas-fg shadow-xs transition hover:-translate-y-1 hover:border-primary/50 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none; }
+.learning-card-index { @apply text-xs font-bold tracking-[0.1em] text-primary uppercase; }
+.learning-card-index span { @apply font-medium tracking-normal text-muted-fg normal-case; }
+.learning-card-icon { @apply mt-8 grid size-12 place-items-center rounded-lg border border-primary/20 bg-accent text-primary; }
+.learning-card strong { @apply mt-5 text-2xl leading-tight tracking-[-0.025em]; }
+.learning-card-summary { @apply mt-3 text-sm leading-6 text-muted-fg; }
+.learning-card-meta { @apply mt-auto pt-8 text-xs text-muted-fg; }
+.learning-card-action { @apply mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary; }
+.learning-priority { @apply mt-20 flex flex-col justify-between gap-8 rounded-xl border border-border bg-muted px-7 py-9 lg:flex-row lg:items-end lg:px-10; }
+.learning-priority p:not(.landing-section-label) { @apply mt-4 max-w-[70ch] text-sm leading-7 text-muted-fg; }
+.learning-priority .landing-primary-action { @apply shrink-0; }
+.learning-back { @apply inline-flex items-center gap-2 text-sm font-semibold text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none; }
+.learning-course-header { @apply mt-10 border-b border-border pb-9; }
+.learning-course-meta { @apply mt-7 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-muted-fg; }
+.learning-course-meta span { @apply inline-flex items-center gap-2; }
+.learning-course-layout { @apply grid gap-12 py-12 lg:grid-cols-[minmax(0,1fr)_280px]; }
+.learning-lessons h2 { @apply text-2xl font-semibold tracking-[-0.03em]; }
+.learning-lessons-intro { @apply mt-2 text-sm leading-6 text-muted-fg; }
+.learning-lessons ol { @apply mt-8 list-none border-t border-border p-0; }
+.learning-lesson { @apply grid grid-cols-[42px_minmax(0,1fr)] gap-4 border-b border-border py-7; }
+.learning-lesson-number { @apply pt-1 text-sm font-bold text-primary; }
+.learning-lesson-heading { @apply flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1; }
+.learning-lesson-heading h3 { @apply text-lg font-semibold tracking-[-0.02em]; }
+.learning-lesson-heading span { @apply text-xs text-muted-fg; }
+.learning-lesson-body > p { @apply mt-2 text-sm leading-6 text-muted-fg; }
+.learning-lesson-body ul { @apply mt-3 list-disc space-y-1 pl-5 text-sm leading-6 text-canvas-fg; }
+.learning-lesson-body > a { @apply mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/35 focus-visible:outline-none; }
+.learning-course-aside { @apply h-fit rounded-xl border border-border bg-muted p-6; }
+.learning-course-aside h2 { @apply mt-6 text-sm font-semibold first:mt-0; }
+.learning-course-aside p { @apply mt-2 text-sm leading-6 text-muted-fg; }
+
+@media (max-width: 639px) {
+	.learning-shell { @apply px-4 py-10; }
+	.learning-featured, .learning-priority { @apply mt-14; }
+	.learning-priority { @apply px-5; }
+	.learning-priority .landing-primary-action { @apply w-full; }
+}

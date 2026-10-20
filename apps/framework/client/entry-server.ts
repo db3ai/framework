@@ -4,6 +4,7 @@ import { createDocsApp } from './createDocsApp';
 import { findArticle, type DocArticle } from './docs';
 import { documentationPageMetadata, type DocumentationPageKind } from './pageMetadata';
 import { parseDocumentationRoute } from './siteRoutes';
+import { findLearningCourse } from './learning';
 
 /** Hydration state shared with the documentation client entry. */
 interface DocsHydrationState {
@@ -25,10 +26,10 @@ export const render: SsrRenderer<DocsHydrationState> = async context => {
 	const location = `${url.pathname}${url.search}`;
 	const route = parseDocumentationRoute(location);
 	const article = route.kind === 'article' ? findArticle(route.articleId) : null;
-	const notFound = route.kind === 'not-found' || (route.kind === 'article' && !article);
+	const notFound = route.kind === 'not-found' || (route.kind === 'article' && !article) || (route.kind === 'learning' && Boolean(route.courseId) && !findLearningCourse(route.courseId));
 	const application = createDocsApp(location);
 
-	applyDocumentHead(context, article, notFound ? 'not-found' : route.kind, origin);
+	applyDocumentHead(context, article, notFound ? 'not-found' : route.kind, origin, route.kind === 'learning' ? route.courseId : '');
 
 	return {
 		appHtml: await renderToString(application, context),
@@ -50,14 +51,16 @@ export const render: SsrRenderer<DocsHydrationState> = async context => {
  * @param article - Resolved canonical article, when one exists.
  * @param kind - Resolved public page kind controlling search metadata.
  * @param origin - Trusted canonical origin selected by the owning HTTP server.
+ * @param courseId - Stable learning course identifier when rendering a course.
  */
 function applyDocumentHead(
 	context: Parameters<SsrRenderer<DocsHydrationState>>[0],
 	article: DocArticle | null,
 	kind: DocumentationPageKind,
 	origin: string,
+	courseId = '',
 ): void {
-	const metadata = documentationPageMetadata(kind, article);
+	const metadata = documentationPageMetadata(kind, article, courseId);
 	const canonical = metadata.canonicalPath ? canonicalUrl(metadata.canonicalPath, origin) : null;
 
 	context.head.title = metadata.title;

@@ -29,6 +29,16 @@ test('documentation paths preserve encoded article and section identifiers', () 
 	assert.equal(documentationPath('package/name', 'public api'), '/framework/docs/package%2Fname#public%20api');
 });
 
+test('learning catalogue and course URLs have distinct public routes', () => {
+	assert.deepEqual(parseDocumentationRoute('/framework/learn'), {
+		kind: 'learning', pathname: '/framework/learn', articleId: '', sectionId: '', courseId: '',
+	});
+	assert.deepEqual(parseDocumentationRoute('/framework/learn/ai-features'), {
+		kind: 'learning', pathname: '/framework/learn/ai-features', articleId: '', sectionId: '', courseId: 'ai-features',
+	});
+	assert.equal(parseDocumentationRoute('/framework/learn/ai-features/lesson-one').kind, 'not-found');
+});
+
 test('unsupported and incomplete paths resolve to the rendered not-found boundary', () => {
 	assert.equal(parseDocumentationRoute('/framework/docs').kind, 'not-found');
 	assert.equal(parseDocumentationRoute('/framework/docs/').kind, 'not-found');

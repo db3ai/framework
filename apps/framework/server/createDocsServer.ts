@@ -73,7 +73,7 @@ export async function createDocsServer(options: DocsServerOptions = {}): Promise
 
 	await server.register(fastifyViteSsr({
 		root,
-		routes: ['/framework', '/framework/', '/framework/docs', '/framework/docs/*'],
+		routes: ['/framework', '/framework/', '/framework/learn', '/framework/learn/*', '/framework/docs', '/framework/docs/*'],
 		mode,
 		viteConfigFile: 'vite.config.ts',
 		template: 'index.html',

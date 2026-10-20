@@ -26,6 +26,12 @@ test('the production runtime serves health, canonical feature documentation and 
 	const asset = guide.body.match(/src="(\/framework\/assets\/[^" ]+\.js)"/)?.[1];
 	assert.ok(asset, 'Built HTML references the framework browser bundle.');
 	assert.equal((await server.inject(asset)).statusCode, 200);
+	const stylesheet = guide.body.match(/href="(\/framework\/assets\/[^" ]+\.css)"/)?.[1];
+	assert.ok(stylesheet, 'Built HTML links its stylesheet before client hydration.');
+	const css = await server.inject(stylesheet);
+	assert.equal(css.statusCode, 200);
+	assert.match(css.headers['content-type'] ?? '', /text\/css/);
+	assert.match(css.body, /\.docs-header\s*\{/);
 	for (const name of ['processes', 'terminals', 'servers', 'routes']) {
 		const screenshot = await server.inject(`/framework/images/dock/${name}.png`);
 		assert.equal(screenshot.statusCode, 200);

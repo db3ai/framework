@@ -21,6 +21,7 @@ const useCaseIcons = [markRaw(Braces), markRaw(Bot), markRaw(ServerCog), markRaw
 						<ArrowRight :size="18" aria-hidden="true" />
 					</a>
 					<a class="landing-secondary-action" :href="documentationPath('ai')" data-docs-navigation>Explore AI</a>
+					<a class="landing-secondary-action" href="/framework/learn" data-docs-navigation>Explore courses</a>
 				</div>
 			</div>
 

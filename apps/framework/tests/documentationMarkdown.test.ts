@@ -8,6 +8,7 @@ import { docArticles, findArticle } from '../client/docs';
 import { documentationArticleMarkdown, documentationOrigin, documentationRobotsText, documentationSitemapXml, llmsFullText, llmsText } from '../client/documentationMarkdown';
 import { documentationSourceContent } from '../client/generated/documentation-sources';
 import { frameworkAuthority } from '../client/generated/framework-authority';
+import { learningCourses } from '../client/learning';
 
 test('all public framework assets remain product-independent', () => {
 	const websiteRoot = fileURLToPath(new URL('../', import.meta.url));
@@ -231,7 +232,9 @@ test('sitemap and robots discovery documents use canonical registry routes', () 
 
 	assert.match(sitemap, /^<\?xml version="1\.0" encoding="UTF-8"\?>/);
 	assert.match(sitemap, /<loc>https:\/\/docs\.example\.test\/framework\/docs\/welcome<\/loc>/);
-	assert.equal((sitemap.match(/<url>/g) ?? []).length, docArticles.length + 1);
+	assert.match(sitemap, /https:\/\/docs\.example\.test\/framework\/learn<\/loc>/);
+	assert.match(sitemap, /https:\/\/docs\.example\.test\/framework\/learn\/ai-features<\/loc>/);
+	assert.equal((sitemap.match(/<url>/g) ?? []).length, docArticles.length + learningCourses.length + 2);
 	assert.match(robots, /User-agent: \*/);
 	assert.match(robots, /Allow: \//);
 	assert.match(robots, /Sitemap: https:\/\/docs\.example\.test\/framework\/sitemap\.xml/);

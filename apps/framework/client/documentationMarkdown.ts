@@ -3,6 +3,7 @@ import { docAreas, docArticles, type DocArticle, type DocCodeSample } from './do
 import { documentationSourceContent } from './generated/documentation-sources';
 import { frameworkAuthority } from './generated/framework-authority';
 import { frameworkPackageMetadata } from './generated/framework-metadata';
+import { learningCourses, learningPath } from './learning';
 
 /** Canonical production origin for the db3.ai documentation website. */
 export const DEFAULT_DOCUMENTATION_ORIGIN = 'https://db3.ai';
@@ -286,6 +287,8 @@ export function documentationSitemapXml(options: DocumentationMarkdownOptions = 
 	const origin = documentationOrigin(options.origin);
 	const urls = [
 		new URL('/framework', origin).toString(),
+		new URL(learningPath(), origin).toString(),
+		...learningCourses.map(course => new URL(learningPath(course.id), origin).toString()),
 		...docArticles.map(article => articleUrl(article, origin)),
 	];
 	const entries = urls.map(url => `\t<url>\n\t\t<loc>${xmlText(url)}</loc>\n\t</url>`).join('\n');

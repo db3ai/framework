@@ -45,6 +45,7 @@ const versionLabel = `v${frameworkPackageMetadata.version}`;
 		</button>
 
 		<div class="flex items-center justify-end gap-2">
+			<a class="docs-header-link" href="/framework/learn" data-docs-navigation>Learn</a>
 			<button
 				class="docs-icon-button docs-mobile-search"
 				type="button"

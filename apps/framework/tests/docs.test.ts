@@ -7,6 +7,7 @@ import { frameworkPackageMetadata } from '../client/generated/framework-metadata
 import { serviceExampleOutputs, serviceExampleSources } from '../client/generated/service-examples';
 import { helloGuideSamples } from '../../../packages/app/src/apps/examples/helloGuideSamples';
 import { frameworkNavigation, guideNavigation, landingCapabilities, landingUseCases, mobileLandingNavigation, serviceNavigation } from '../client/landing';
+import { parseDocumentationRoute } from '../client/siteRoutes';
 
 test('every documentation area has navigable articles with unique identifiers', () => {
 	const ids = docArticles.map(article => article.id);
@@ -35,6 +36,10 @@ test('every landing-page destination resolves to a registered article', () => {
 	];
 
 	for (const destination of destinations) {
+		if (destination.startsWith('/framework/')) {
+			assert.equal(parseDocumentationRoute(destination).kind, 'learning');
+			continue;
+		}
 		assert.ok(findArticle(destination), `landing destination should resolve: ${destination}`);
 	}
 });

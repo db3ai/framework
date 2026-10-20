@@ -1,4 +1,5 @@
 export const LANDING_PATH = '/framework';
+export const LEARNING_PATH = '/framework/learn';
 export const DOCUMENTATION_PATH_PREFIX = '/framework/docs/';
 
 /**
@@ -6,6 +7,7 @@ export const DOCUMENTATION_PATH_PREFIX = '/framework/docs/';
  */
 export type DocumentationRoute =
 	| { kind: 'landing'; pathname: string; articleId: ''; sectionId: string }
+	| { kind: 'learning'; pathname: string; articleId: ''; sectionId: string; courseId: string }
 	| { kind: 'article'; pathname: string; articleId: string; sectionId: string }
 	| { kind: 'not-found'; pathname: string; articleId: ''; sectionId: string };
 
@@ -30,6 +32,18 @@ export function parseDocumentationRoute(value: string): DocumentationRoute {
 			articleId: '',
 			sectionId,
 		};
+	}
+
+	if (pathname === LEARNING_PATH) {
+		return { kind: 'learning', pathname, articleId: '', sectionId, courseId: '' };
+	}
+
+	if (pathname.startsWith(`${LEARNING_PATH}/`)) {
+		const encodedCourseId = pathname.slice(LEARNING_PATH.length + 1);
+
+		if (encodedCourseId && !encodedCourseId.includes('/')) {
+			return { kind: 'learning', pathname, articleId: '', sectionId, courseId: decodeSegment(encodedCourseId) };
+		}
 	}
 
 	if (pathname.startsWith(DOCUMENTATION_PATH_PREFIX)) {

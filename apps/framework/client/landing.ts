@@ -104,6 +104,7 @@ export const landingUseCases: LandingUseCase[] = [
 ];
 
 export const mobileLandingNavigation: LandingNavigationItem[] = [
+	{ label: 'Learn', value: '/framework/learn' },
 	...frameworkNavigation,
 	...guideNavigation,
 	...serviceNavigation,

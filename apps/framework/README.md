@@ -4,7 +4,9 @@
 
 This directory owns `https://db3.ai/framework`. Its root `index.ts` starts the
 framework SSR adapter and documentation router. The landing page is `/framework`;
-guides are `/framework/docs/...`. Assets, health, Markdown feeds and the sitemap
+guides are `/framework/docs/...`. The learning catalogue and planned course
+outlines are `/framework/learn` and `/framework/learn/...`; videos are not yet
+published. Assets, health, Markdown feeds and the sitemap
 also live under `/framework`. The company homepage and Cloud portal live in the
 separate private `db3.ai` repository.
 

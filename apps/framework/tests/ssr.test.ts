@@ -25,6 +25,9 @@ test('the docs server renders canonical, hydratable pages and a noindex 404', as
 	const landing = await server.inject({ method: 'GET', url: '/framework', headers: { 'x-db3-docs-origin': 'https://untrusted.example' } });
 	const framework = await server.inject({ method: 'GET', url: '/framework' });
 	const article = await server.inject({ method: 'GET', url: '/framework/docs/queue-overview' });
+	const learning = await server.inject({ method: 'GET', url: '/framework/learn' });
+	const aiCourse = await server.inject({ method: 'GET', url: '/framework/learn/ai-features' });
+	const missingCourse = await server.inject({ method: 'GET', url: '/framework/learn/not-a-course' });
 	const notes = await server.inject({ method: 'GET', url: '/framework/docs/guide-workspace-notes' });
 	const activeRecord = await server.inject({ method: 'GET', url: '/framework/docs/active-record' });
 	const missing = await server.inject({ method: 'GET', url: '/framework/docs/not-a-framework-page' });
@@ -44,6 +47,7 @@ test('the docs server renders canonical, hydratable pages and a noindex 404', as
 	assert.match(framework.body, /<link rel="canonical" href="https:\/\/db3\.ai\/framework">/);
 	assert.match(framework.body, /The TypeScript framework for apps with AI\./);
 	assert.match(landing.body, /id="platform-ssr-state" type="application\/json">\{"location":"\/framework"\}<\/script>/);
+	assert.match(landing.body, /<link rel="stylesheet" href="\/framework\/client\/site\.css">/);
 	assert.match(landing.body, /src="\/framework\/client\/entry-client\.ts"/);
 	assert.equal(landing.headers['cross-origin-opener-policy'], 'same-origin');
 	assert.equal(landing.headers['cross-origin-resource-policy'], 'same-origin');
@@ -53,6 +57,15 @@ test('the docs server renders canonical, hydratable pages and a noindex 404', as
 	assert.equal(landing.headers['x-frame-options'], 'DENY');
 
 	assert.equal(article.statusCode, 200);
+	assert.equal(learning.statusCode, 200);
+	assert.match(learning.body, /Learn by building\./);
+	assert.match(learning.body, /Videos have not been recorded or released/);
+	assert.match(learning.body, /href="\/framework\/learn\/ai-features"/);
+	assert.equal(aiCourse.statusCode, 200);
+	assert.match(aiCourse.body, /Build AI features into your app/);
+	assert.match(aiCourse.body, /href="\/framework\/docs\/ai-agents"/);
+	assert.equal(missingCourse.statusCode, 404);
+	assert.match(missingCourse.body, /Page not found/);
 	assert.match(article.body, /<link rel="canonical" href="https:\/\/db3\.ai\/framework\/docs\/queue-overview">/);
 	assert.match(article.body, /<h1>Queue<\/h1>/);
 	assert.match(article.body, /href="\/framework\/docs\/scheduler" data-docs-navigation/);
@@ -144,6 +157,7 @@ test('local development serves Vite assets for the explicit db3 hostname only', 
 
 	const client = await server.inject({ method: 'GET', url: '/framework/@vite/client', headers: { host: 'local.db3.ai' } });
 	const entry = await server.inject({ method: 'GET', url: '/framework/client/entry-client.ts', headers: { host: 'local.db3.ai' } });
+	const stylesheet = await server.inject({ method: 'GET', url: '/framework/client/site.css', headers: { host: 'local.db3.ai', accept: 'text/css' } });
 	const rejected = await server.inject({ method: 'GET', url: '/framework/@vite/client', headers: { host: 'untrusted.example' } });
 	const article = await server.inject({ method: 'GET', url: '/framework/docs/welcome.md', headers: { host: 'local.db3.ai' } });
 	const rendered = await server.inject({ method: 'GET', url: '/framework/docs/welcome', headers: { host: 'local.db3.ai', 'x-db3-docs-origin': 'https://untrusted.example' } });
@@ -152,6 +166,10 @@ test('local development serves Vite assets for the explicit db3 hostname only', 
 	assert.match(client.headers['content-type'] ?? '', /javascript/);
 	assert.equal(entry.statusCode, 200);
 	assert.match(entry.headers['content-type'] ?? '', /javascript/);
+	assert.equal(stylesheet.statusCode, 200);
+	assert.match(stylesheet.headers['content-type'] ?? '', /text\/css/);
+	assert.match(stylesheet.body, /\.landing-header\s*\{/);
+	assert.match(stylesheet.body, /\.docs-header\s*\{/);
 	assert.equal(rejected.statusCode, 403);
 	assert.equal(article.statusCode, 200);
 	assert.equal(article.headers.link, '<https://local.db3.ai/framework/docs/welcome>; rel="canonical"');
