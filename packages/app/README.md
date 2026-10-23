@@ -187,6 +187,13 @@ Start from the committed example when local credentials are needed:
 cp packages/app/.env.test.example packages/app/.env.test
 ```
 
+Framework test files run in two isolated workers by default. Their SQL suites create
+and remove unique disposable databases under the test-only namespace, while
+Redis suites use unique key prefixes. To diagnose a concurrency-sensitive failure,
+run the same command with `-- --maxWorkers=1`; to benchmark a larger runner,
+use `-- --maxWorkers=N` with the desired worker count. Keep the MariaDB and Redis
+services running for the complete suite.
+
 Framework integration suites create and remove unique disposable databases
 under that test-only namespace. They do not read application configuration or connect
 to an application's named database. A `DATABASE_URL` supplied by CI must itself
