@@ -11,7 +11,7 @@ export default defineConfig({
 		],
 		// Each file owns disposable SQL and Redis resources; cap concurrent files to protect CI services.
 		fileParallelism: true,
-		maxWorkers: 2,
+		maxWorkers: 4,
 		// Share compiled source across reruns without sharing application or database state.
 		experimental: createVitestCacheOptions(new URL('./', import.meta.url), new URL('../../package-lock.json', import.meta.url)),
 		coverage: {

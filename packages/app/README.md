@@ -187,7 +187,7 @@ Start from the committed example when local credentials are needed:
 cp packages/app/.env.test.example packages/app/.env.test
 ```
 
-Framework test files run in two isolated workers by default. Their SQL suites create
+Framework test files run in four isolated workers by default. Their SQL suites create
 and remove unique disposable databases under the test-only namespace, while
 Redis suites use unique key prefixes. To diagnose a concurrency-sensitive failure,
 run the same command with `-- --maxWorkers=1`; to benchmark a larger runner,
