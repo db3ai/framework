@@ -60,6 +60,13 @@ describe('contextual embedding text chunks', () => {
 		expect(chunks.some(chunk => chunk.heading?.includes('Not a section'))).toBe(false);
 	});
 
+	it('bounds raw metadata before tokenization while preserving the source body', () => {
+		const text = 'A small body with useful evidence.';
+		const chunks = chunkEmbeddingText(text, { context: 'adversarial-metadata '.repeat(100_000), maxTokens: 128 });
+		expect(chunks.map(chunk => chunk.text).join('')).toBe(text);
+		expect(chunks.every(chunk => chunk.tokens <= 128 && chunk.input.length < 1500)).toBe(true);
+	});
+
 	it('rejects invalid budgets and omits blank text', () => {
 		expect(chunkEmbeddingText('  \n')).toEqual([]);
 		expect(() => chunkEmbeddingText('text', { maxTokens: 8192 })).toThrow('maxTokens');

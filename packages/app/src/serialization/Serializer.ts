@@ -16,9 +16,16 @@ import {
 import type * as serialization from './contracts';
 
 const OBJECT_PATH_KEY = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const MAX_STATE_DEPTH = 64;
+const MAX_STATE_NODES = 20_000;
+const MAX_STATE_CHARACTERS = 4_000_000;
+const MAX_STATE_MODEL_REFERENCES = 256;
 
 interface TraversalContext {
 	readonly ancestors: Map<object, string>;
+	nodes: number;
+	characters: number;
+	references: number;
 }
 
 interface RestoreContext {
@@ -97,6 +104,7 @@ export class Serializer implements serialization.SerializerService {
 				'$.state',
 				{
 					ancestors: new Map(),
+					nodes: 0, characters: 0, references: 0,
 				},
 				'serialize',
 			),
@@ -162,6 +170,11 @@ export class Serializer implements serialization.SerializerService {
 		context: TraversalContext,
 		operation: SerializationOperation,
 	): SerializedValue {
+		context.nodes += 1;
+		if (typeof value === 'string') context.characters += value.length;
+		if (context.ancestors.size >= MAX_STATE_DEPTH || context.nodes > MAX_STATE_NODES || context.characters > MAX_STATE_CHARACTERS) {
+			throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer depth, node or text budget.');
+		}
 		if (isSerializedPrimitive(value)) {
 			if (
 				typeof value === 'number'
@@ -190,10 +203,12 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		if (operation === 'serialize' && value instanceof ActiveRecord) {
+			if (++context.references > MAX_STATE_MODEL_REFERENCES) throw failure(operation, 'invalid_value', path, 'Constructor state exceeds the model-reference budget.');
 			return this.#serializeActiveRecord(value, path);
 		}
 
 		if (Array.isArray(value)) {
+			if (value.length > MAX_STATE_NODES - context.nodes) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer node budget.');
 			return this.#withAncestor(operation, value, path, context, () => {
 				return arrayValues(value, path, operation).map((item, index) => {
 					return this.#normalizeValue(
@@ -207,12 +222,16 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		const entries = plainObjectEntries(value, path, operation);
+		if (entries.length > MAX_STATE_NODES - context.nodes) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer node budget.');
+		context.characters += entries.reduce((total, [key]) => total + key.length, 0);
+		if (context.characters > MAX_STATE_CHARACTERS) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer text budget.');
 		const hasReferenceMarker = entries.some(([key]) => {
 			return key === SERIALIZED_REFERENCE_KEY;
 		});
 
 		if (hasReferenceMarker) {
 			if (operation === 'deserialize') {
+				if (++context.references > MAX_STATE_MODEL_REFERENCES) throw failure(operation, 'invalid_payload', path, 'Constructor state exceeds the model-reference budget.');
 				return this.#validateActiveRecordReference(entries, path);
 			}
 
@@ -372,6 +391,7 @@ export class Serializer implements serialization.SerializerService {
 				'$.state',
 				{
 					ancestors: new Map(),
+					nodes: 0, characters: 0, references: 0,
 				},
 				'deserialize',
 			),

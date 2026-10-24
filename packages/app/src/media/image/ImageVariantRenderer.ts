@@ -12,6 +12,7 @@ const IMAGE_VARIANT_CACHE_VERSION = 'v1';
 const DEFAULT_IMAGE_VARIANT_CACHE_PREFIX = 'image-cache';
 const IMAGE_VARIANT_OUTPUT_MIME_TYPE = 'image/webp';
 const MAX_CONCURRENT_IMAGE_RENDERS = 2;
+const MAX_PENDING_IMAGE_RENDERS = 32;
 const PASSTHROUGH_IMAGE_MIME_TYPES = new Set([
 	'image/gif',
 	'image/svg+xml',
@@ -209,6 +210,9 @@ export class ImageVariantRenderer {
 	 */
 	async #withRenderSlot<TResult>(task: () => Promise<TResult>): Promise<TResult> {
 		if (this.#activeRenders >= MAX_CONCURRENT_IMAGE_RENDERS) {
+			if (this.#renderWaiters.length >= MAX_PENDING_IMAGE_RENDERS) {
+				throw Object.assign(new Error('Image rendering is busy. Retry shortly.'), { statusCode: 503, code: 'image_render_capacity' });
+			}
 			await new Promise<void>(resolve => {
 				this.#renderWaiters.push(resolve);
 			});

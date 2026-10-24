@@ -41,6 +41,13 @@ try {
 It sends requests with the runtime's global `fetch`, so tests that replace
 `globalThis.fetch` keep working.
 
+Destination validation does not bound response size. Use
+`readResponseText(response, maxBytes)` or `readResponseBytes(response, maxBytes)`
+to enforce a decoded-byte budget while streaming, before buffering or parsing.
+Oversized bodies are cancelled and raise `RangeError`. Keep the fetch's abort
+deadline active until body consumption finishes. Focused verification:
+`npm test --workspace @db3.ai/app -- src/network/tests`.
+
 ## Local development
 
 Pass `allowPrivate: true` to reach private hosts, for example a webhook

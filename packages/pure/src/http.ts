@@ -52,7 +52,10 @@ export function safeRedirectPath(
 ): string | null {
 	if (typeof path !== 'string') return null;
 	if (!path.startsWith('/') || path.startsWith('//')) return null;
-	if (blockedPrefixes.some(prefix => path.startsWith(prefix))) return null;
+	if (/[\\\u0000-\u001f\u007f]/.test(path)) return null;
+	const target = new URL(path, 'https://redirect.invalid');
+	if (target.origin !== 'https://redirect.invalid') return null;
+	if (blockedPrefixes.some(prefix => path.startsWith(prefix) || target.pathname.startsWith(prefix))) return null;
 
 	return path;
 }

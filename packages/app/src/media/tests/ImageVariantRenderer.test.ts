@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { Transform, type Readable } from 'node:stream';
 
 import sharp from 'sharp';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ImageVariantRenderer, type ImageProcessor, type ImageProcessorCommand, type ImageProcessorReconstructionCommand, MediaFile, MediaLibrary, MediaManager } from '..';
 import { Storage } from '../../storage';
 
@@ -167,6 +167,29 @@ describe('ImageVariantRenderer', () => {
 		await expect(storage.disk('tmp').exists(regenerated.path || '')).resolves.toBe(true);
 	});
 
+	it('rejects excess pending renders, drains admitted work and recovers its slots', async () => {
+		const { storage } = await createImageRenderer();
+		let release!: () => void;
+		const gate = new Promise<void>(resolve => { release = resolve; });
+		const renderer = new ImageVariantRenderer(storage, { cacheDisk: 'tmp' }, new TrackingImageProcessor(gate));
+		const file = managedImageFile(12);
+		await storage.disk('local').put(file.path || '', Buffer.from('image-source'), { mimeType: 'image/jpeg', visibility: 'public' });
+		let refused = 0;
+		const pending = Promise.allSettled(Array.from({ length: 45 }, (_, index) => renderer.render(file, { width: index + 1 }).catch(error => { refused += 1; throw error; })));
+		await vi.waitFor(() => expect(refused).toBe(11)).finally(async () => { release(); await pending; });
+		const results = await pending;
+		const admitted = results.filter(result => result.status === 'fulfilled');
+		const rejected = results.filter(result => result.status === 'rejected');
+		expect(admitted).toHaveLength(34);
+		expect(rejected).toHaveLength(11);
+		for (const result of results) {
+			if (result.status === 'fulfilled') result.value.stream.destroy();
+			else expect(result.reason).toMatchObject({ statusCode: 503, code: 'image_render_capacity' });
+		}
+		const recovered = await renderer.render(file, { width: 100 });
+		recovered.stream.destroy();
+	});
+
 	it('limits concurrent cache-generating processor work', async () => {
 		const { storage } = await createImageRenderer();
 		const processor = new TrackingImageProcessor();
@@ -202,6 +225,8 @@ describe('ImageVariantRenderer', () => {
  * Test processor that records concurrent transforms while passing bytes through.
  */
 class TrackingImageProcessor implements ImageProcessor {
+	/** Holds transforms until a test-controlled provider gate opens. */
+	constructor(private readonly gate?: Promise<void>) {}
 	/** Number of transforms currently processing source bytes. */
 	#active = 0;
 
@@ -222,9 +247,8 @@ class TrackingImageProcessor implements ImageProcessor {
 		return new Transform({
 			transform: (chunk, encoding, callback) => {
 				void encoding;
-				setTimeout(() => {
-					callback(null, chunk);
-				}, 20);
+				if (this.gate) void this.gate.then(() => callback(null, chunk));
+				else setTimeout(() => callback(null, chunk), 20);
 			},
 			flush: callback => {
 				this.#active -= 1;

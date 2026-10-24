@@ -11,6 +11,10 @@ Platform-only naming gate is unavailable; tests and type checks still run.
 Environment-independent TypeScript utilities shared by DB3 framework
 packages and applications.
 
+`safeRedirectPath` rejects backslashes and control characters before browser URL
+normalization, then applies blocked prefixes to the canonical path as well as
+the supplied value. Verify this boundary with `npm test --workspace @db3.ai/pure`.
+
 ## Installation
 
 After installing the package, copy `node_modules/@db3.ai/pure/examples/`

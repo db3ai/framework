@@ -14,6 +14,11 @@ The framework serializer reconstructs one registered root class from durable
 constructor state. It produces a versioned JSON-safe envelope and restores that
 object inside a bootstrapped application process.
 
+Both directions reject constructor state exceeding 64 nesting levels, 20,000
+values, four million text/key characters or 256 model-reference occurrences.
+Deserialization validates the complete state before starting any model lookups.
+These budgets bound queue payload mistakes and untrusted restoration fan-out.
+
 The service is available through `app().serializer`. Its application-scoped
 allowlist is available through `app().serializer.registry`.
 

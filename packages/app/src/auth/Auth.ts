@@ -1,6 +1,6 @@
 import { ActiveRecord, type Database } from '../db';
 import type { Knex } from 'knex';
-import { isPromiseLike } from '@db3.ai/pure';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Config } from '../config';
 import { AuthProvider, PASSWORD_AUTH_PROVIDER } from './AuthProvider';
 import { AuthToken, type AuthTokenUsage, type CreateAuthTokenOptions } from './AuthToken';
@@ -305,6 +305,7 @@ const AUTH_TOKEN_RECORD_CONTEXT_KEY = 'auth.token.record';
  * Authentication service for the current app/request scope.
  */
 export class Auth<TIdentity extends UserIdentity = UserIdentity> {
+	readonly #fallbackScope = new AsyncLocalStorage<{ user: TIdentity | null; token: AuthToken | null }>();
 	private fallbackAuthenticatedUser: TIdentity | null = null;
 	private fallbackAuthenticatedToken: AuthToken | null = null;
 	private readonly db: Database;
@@ -391,7 +392,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return this.requestContext.get<TIdentity | null>(AUTH_USER_CONTEXT_KEY) ?? null;
 		}
 
-		return this.fallbackAuthenticatedUser;
+		const scope = this.#fallbackScope.getStore();
+		return scope ? scope.user : this.fallbackAuthenticatedUser;
 	}
 
 	/**
@@ -402,7 +404,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return this.requestContext.get<AuthToken | null>(AUTH_TOKEN_RECORD_CONTEXT_KEY) ?? null;
 		}
 
-		return this.fallbackAuthenticatedToken;
+		const scope = this.#fallbackScope.getStore();
+		return scope ? scope.token : this.fallbackAuthenticatedToken;
 	}
 
 	/**
@@ -425,7 +428,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			});
 		}
 
-		return this.runWithFallbackUser(user, callback);
+		return this.#fallbackScope.run({ user, token: null }, callback);
 	}
 
 	/**
@@ -556,9 +559,10 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			...userInput
 		} = input;
 
-		const user = new this.IdentityModel(userInput, {
+		const user = new this.IdentityModel({}, {
 			db: this.db.knex,
 		});
+		user.assignFromRequest(userInput, { guarded: [...(this.IdentityModel.requestGuarded ?? []), 'emailVerifiedAt', 'rememberToken', 'twoFactorSecret', 'twoFactorRecoveryCodes', 'twoFactorConfirmedAt'] });
 
 		await user.save();
 		await this.setPasswordProvider(user, input.password);
@@ -1281,7 +1285,9 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return;
 		}
 
-		this.fallbackAuthenticatedUser = user;
+		const scope = this.#fallbackScope.getStore();
+		if (scope) scope.user = user;
+		else this.fallbackAuthenticatedUser = user;
 	}
 
 	/**
@@ -1295,39 +1301,9 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return;
 		}
 
-		this.fallbackAuthenticatedToken = token;
-	}
-
-	/**
-	 * Runs a callback with a temporary fallback user outside request scope.
-	 *
-	 * @param user - User to expose during the callback.
-	 * @param callback - Work to run with the temporary user.
-	 * @returns The callback result.
-	 */
-	private runWithFallbackUser<TResult>(
-		user: TIdentity | null,
-		callback: () => TResult,
-	): TResult {
-		const previousUser = this.fallbackAuthenticatedUser;
-
-		this.fallbackAuthenticatedUser = user;
-
-		try {
-			const result = callback();
-
-			if (isPromiseLike(result)) {
-				return Promise.resolve(result).finally(() => {
-					this.fallbackAuthenticatedUser = previousUser;
-				}) as TResult;
-			}
-
-			this.fallbackAuthenticatedUser = previousUser;
-			return result;
-		} catch (error) {
-			this.fallbackAuthenticatedUser = previousUser;
-			throw error;
-		}
+		const scope = this.#fallbackScope.getStore();
+		if (scope) scope.token = token;
+		else this.fallbackAuthenticatedToken = token;
 	}
 
 	/**

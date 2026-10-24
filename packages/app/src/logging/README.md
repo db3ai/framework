@@ -54,7 +54,11 @@ escaped HTML, excluding arbitrary nested payloads. Common credentials are masked
 There is no grouping, deduplication, cooldown, retry or database dependency.
 Operation backoff remains the caller's responsibility.
 
-Sends are asynchronous and ordered; flush/close drains them. Abrupt exits lose pending
+Sends are asynchronous and ordered. Admission defaults to 100 pending messages
+and 60 accepted messages per minute, configurable through `maxPending` and
+`maxPerMinute`. Excess records remain in other configured log destinations;
+flush reports the suppressed email count to stderr. Flush/close drains accepted
+messages. Abrupt exits lose pending
 mail. Refusals go to stderr without recursive emails; later sends continue. Keep raw logs:
 acceptance is not inbox delivery. App supplies the lazy Mail resolver accepted by `Log`.
 Database, PostHog and OpenTelemetry transports are not included.

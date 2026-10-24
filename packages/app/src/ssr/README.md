@@ -14,6 +14,11 @@ Document substitution treats rendered values literally, including `$&` and
 marker-like text in application output. Body markup still must be trusted;
 literal insertion is not HTML sanitization.
 
+Head attribute names must follow the HTML attribute-name grammar. Invalid names
+and event-handler attributes are omitted. Inline script bodies and script
+destinations remain application-owned trusted content. Verify head output with
+`npm test --workspace @db3.ai/app -- src/ssr/tests`.
+
 `@db3.ai/app/ssr` provides the transport-neutral boundary for rendering public
 HTML. It deliberately does not live on `App`: SSR is an optional web delivery
 concern, while queues, schedulers, APIs and other processes can continue using

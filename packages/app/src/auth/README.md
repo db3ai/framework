@@ -4,6 +4,12 @@
 bearer tokens, password reset tokens, password hashing, and request-scoped
 authenticated-user state.
 
+Password registration applies the identity model's request-fill rules and never
+accepts verification, remembered-session or two-factor state from registration
+input. `runWithUser` isolates concurrent asynchronous callbacks even when an
+independent `Auth` instance has no application request context. Run
+`npm test --workspace @db3.ai/app -- src/auth/tests` after changing these boundaries.
+
 The package is deliberately HTTP-framework agnostic. An app owns its routes,
 request validation, cookies or bearer-token transport, rate limiting, and UI.
 The auth service owns provider verification, account/provider persistence, and

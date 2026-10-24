@@ -36,6 +36,7 @@ export function renderDocumentHead(head: DocumentHead): string {
  */
 function renderAttributes(attributes: DocumentHeadAttributes = {}): string {
 	return Object.entries(attributes)
+		.filter(([name]) => /^[A-Za-z_:][A-Za-z0-9_.:-]*$/.test(name) && !/^on/i.test(name))
 		.filter(([, value]) => value !== undefined && value !== null && value !== false)
 		.map(([name, value]) => value === true
 			? ` ${name}`

@@ -33,7 +33,7 @@ export function chunkEmbeddingText(text: string, options: EmbeddingTextChunkOpti
 	const headings = markdownHeadings(text);
 	const chunks: EmbeddingTextChunk[] = [];
 	const fullInput = embeddingInput(context, null, text);
-	if (tokens(fullInput) <= maximum) return [{ index: 0, text, heading: null, input: fullInput, start: 0, end: text.length, tokens: tokens(fullInput) }];
+	if (fullInput.length <= maximum * 8 && tokens(fullInput) <= maximum) return [{ index: 0, text, heading: null, input: fullInput, start: 0, end: text.length, tokens: tokens(fullInput) }];
 	let start = 0;
 	let contentStart = 0;
 	while (start < text.length) {
@@ -41,7 +41,7 @@ export function chunkEmbeddingText(text: string, options: EmbeddingTextChunkOpti
 		const heading = activeHeading ? boundedPrefix(activeHeading, contextBudget) : null;
 		const prefix = embeddingInput(context, heading, '');
 		const available = maximum - tokens(prefix) - 8;
-		let end = start + fittingPrefixLength(text.slice(start), available);
+		let end = start + fittingPrefixLength(text.slice(start, start + maximum * 8), available);
 		if (end < text.length) end = naturalBoundary(text, start, end, headings.map(item => item.start));
 		let input = embeddingInput(context, heading, text.slice(start, end));
 		// BPE merges across the prefix boundary are verified against the final input.
@@ -84,7 +84,10 @@ function fittingPrefixLength(text: string, maximum: number): number {
 
 /** Bounds repeated context so even unusually long metadata leaves room for source text. */
 function boundedPrefix(text: string, maximum: number): string {
-	return text.slice(0, fittingPrefixLength(text, maximum)).trim();
+	// Context is optional evidence, so bound raw characters before invoking BPE.
+	// This generous window retains ordinary metadata without tokenizing hostile megabyte titles.
+	const candidate = text.slice(0, maximum * 8);
+	return candidate.slice(0, fittingPrefixLength(candidate, maximum)).trim();
 }
 
 /** Locates a bounded overlap suffix on Unicode code-point boundaries. */

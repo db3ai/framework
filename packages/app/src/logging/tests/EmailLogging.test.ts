@@ -23,13 +23,13 @@ function fixture(send?: (message: ResolvedMailMessage) => Promise<void>) {
 	return { log, mail, messages };
 }
 
-it('sends 200 identical exceptions as 200 separate emails, without deduplication or digests', async () => {
+it('bounds an exception burst while retaining individual delivery for admitted messages', async () => {
 	const { log, messages } = fixture();
 	for (let index = 0; index < 200; index++) log.error({ err: new Error('Same failure'), incidentKey: 'same', index }, 'Job failed');
 	await log.close();
-	expect(messages).toHaveLength(200);
+	expect(messages).toHaveLength(60);
 	expect(messages.every(message => message.subject === 'Scout: Job failed' && !message.idempotencyKey)).toBe(true);
-	expect(messages[199].text).toContain('"index": 199');
+	expect(messages[59].text).toContain('"index": 59');
 });
 
 it('routes error/fatal, direct Error calls and child loggers through redaction and escaped formatting', async () => {
