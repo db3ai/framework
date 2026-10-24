@@ -20,11 +20,11 @@
 		"@vue-flow/minimap": "^1.5.4"
 	},
 	"peerDependencies": {
-		"vue": "^3.5.0"
+		"vue": "^3.5.44"
 	},
 	"devDependencies": {
 		"typescript": "^6.0.3",
-		"vue": "^3.5.33",
+		"vue": "^3.5.44",
 		"vue-tsc": "^3.3.4"
 	},
 	"files": [
