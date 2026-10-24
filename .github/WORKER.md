@@ -8,7 +8,9 @@ workflow code. This workflow routes pull request jobs to GitHub-hosted runners.
 The repository-scoped runner is `worker-framework-ci`, labelled `self-hosted`,
 `Linux`, `ARM64`, and `framework-ci`. On the Ubuntu VM it lives at
 `/home/steve/actions-runner-framework` and runs as the enabled user service
-`actions-runner-framework.service`. Check it with:
+`actions-runner-framework.service`. Its unit starts the runner in the `docker`
+group with `sg docker` and uses `KillMode=control-group` to stop every child
+listener cleanly. Check it with:
 
 ```sh
 ssh steve@worker 'systemctl --user status actions-runner-framework.service'

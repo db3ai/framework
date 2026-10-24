@@ -35,7 +35,8 @@ jobs:
       OPENAI_API_KEY: ''
     services:
       mariadb:
-        image: mariadb:11.8.3@sha256:1cc14cc479613f2925315a5da7aa0eb5288f938565d94b56cd137b724d2ea12b
+        # Pin the multi-platform index for hosted amd64 and worker ARM64.
+        image: mariadb:11.8.3@sha256:ae6119716edac6998ae85508431b3d2e666530ddf4e94c61a10710caec9b0f71
         env:
           MARIADB_ROOT_PASSWORD: root
         ports:
@@ -49,7 +50,8 @@ jobs:
           --health-timeout=5s
           --health-retries=10
       redis:
-        image: redis:8.2.1-alpine@sha256:f887e6dacdcfa8e14af2f625fdf4474ff8c37dc36ce13b9e89e6e9a901f155ad
+        # Pin the multi-platform index for hosted amd64 and worker ARM64.
+        image: redis:8.2.1-alpine@sha256:987c376c727652f99625c7d205a1cba3cb2c53b92b0b62aade2bd48ee1593232
         ports:
           - 16379:6379
         volumes:
