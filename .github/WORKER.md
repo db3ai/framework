@@ -2,7 +2,7 @@
 
 Automatic push and pull request checks stay on GitHub-hosted Ubuntu runners. To
 run the same checks on the ARM64 worker, open **Actions → Framework checks → Run
-workflow** and select `worker`. This manual route only uses trusted repository
+workflow**. Manual dispatch uses `worker` automatically. This manual route only uses trusted repository
 workflow code. This workflow routes pull request jobs to GitHub-hosted runners.
 
 The repository-scoped runner is `worker-framework-ci`, labelled `self-hosted`,

@@ -6,20 +6,12 @@ on:
   pull_request:
     branches: [main, '[0-9]*.x']
   workflow_dispatch:
-    inputs:
-      runner:
-        description: Runner for this manual Framework check
-        type: choice
-        default: worker
-        options:
-          - github-hosted
-          - worker
 
 permissions:
   contents: read
 
 concurrency:
-  group: framework-checks-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'automatic' }}
+  group: framework-checks-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && 'worker' || 'automatic' }}
   cancel-in-progress: true
 
 jobs:
@@ -27,7 +19,7 @@ jobs:
     # This workflow is exported into the dedicated public repository only.
     if: github.repository == 'db3ai/framework' && github.event.repository.visibility == 'public'
     # Self-hosted execution is manual so pull requests never run on the persistent worker.
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'worker' && fromJSON('["self-hosted","Linux","ARM64","framework-ci"]') || 'ubuntu-24.04' }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["self-hosted","Linux","ARM64","framework-ci"]') || 'ubuntu-24.04' }}
     timeout-minutes: 30
     env:
       DB_CONNECTION: mariadb
