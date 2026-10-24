@@ -6,11 +6,9 @@ sits above `@db3.ai/app/storage`.
 Storage owns disks, paths, streams, and bytes. Media owns durable file ULIDs,
 library scopes, metadata, and optional browser tree rows.
 
-Responsive image generation admits two active and at most 32 waiting renders
-per process. Excess cache misses fail with `image_render_capacity` and HTTP
-status metadata 503; cached variants remain available. HTTP applications should
-also limit public width choices and request rates. Run
-`npm test --workspace @db3.ai/app -- src/media/tests` after rendering changes.
+Per process: 2 active/32 waiting renders. Excess misses fail
+`image_render_capacity` (HTTP metadata 503); cache hits work. Apps bound widths/rates.
+`npm test -w @db3.ai/app -- src/media/tests`.
 
 ## Tables
 
