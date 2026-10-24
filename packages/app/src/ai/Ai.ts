@@ -1,4 +1,6 @@
 /// <reference path="./sdkNodeCompatibility.d.ts" preserve="true" />
+import { providerBudgetFetch } from './providerBudgetFetch.js';
+import type { AIProviderBudgetInput } from './contracts/AIProviderBudget.js';
 import { AgentConversations } from './AgentConversations';
 import type { GenerateEmbeddingOptions } from './contracts/AI';
 import { AIProviderTransport } from './AIProviderTransport';
@@ -389,7 +391,7 @@ export class Ai {
 					baseUrl: attempt.baseUrl,
 					apiKey: attempt.apiKey,
 					request,
-					fetcher: this.providerTransport.transport(attempt, this.fetcher(timeoutMs)),
+					fetcher: this.providerTransport.transport(attempt, this.fetcher(timeoutMs, { provider: attempt.provider, model: attempt.model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: tracked?.scopeId ?? options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: tracked?.userId ?? options.user, usage: options.usage })),
 				});
 				const { payload, metadata } = result;
 				const providerFailure = this.providerTransport.requestFailure(attempt, null);
@@ -1253,9 +1255,16 @@ export class Ai {
 	/**
 	 * Fetch implementation used by provider calls.
 	 */
-	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000): typeof fetch {
+	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000, context?: Omit<AIProviderBudgetInput, 'request'>): typeof fetch {
 		const transport = this.options.fetch || fetch;
-		return (url, init) => transport(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(timeoutMs) });
+		return (url, init) => {
+			const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
+			if (!this.options.providerBudget) return transport(url, { ...init, signal });
+			const state = aiExecutionContext.getStore();
+			const aiRequest = context?.aiRequest ?? state?.aiRequest ?? null;
+			const input: Omit<AIProviderBudgetInput, 'request'> = context ?? { provider: (aiRequest?.provider ?? AI_PROVIDER.openai) as AIProvider, model: aiRequest?.model ?? this.config('model', 'gpt-4.1-mini'), operation: aiRequest?.operation ?? 'agents.run.stream', aiRequest, rootAiRequest: state?.rootAiRequest ?? null, scope: aiRequest ? aiRequest.get(this.scopeField) as AIRecordIdentity | string | null : null, user: aiRequest?.user as AIRecordIdentity | string | null };
+			return providerBudgetFetch(transport, url, { ...init, signal }, input, this.options.providerBudget);
+		};
 	}
 
 	/**
@@ -1416,7 +1425,7 @@ export class Ai {
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 
 			providerStarted = true;
-			const response = await this.providerTransport.transport(providerAttempt, this.fetcher())(this.imagesUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher(undefined, { provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.imagesUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -1596,7 +1605,7 @@ export class Ai {
 
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 			providerStarted = true;
-			const response = await this.providerTransport.transport(providerAttempt, this.fetcher())(this.embeddingsUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher(undefined, { provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.embeddingsUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,

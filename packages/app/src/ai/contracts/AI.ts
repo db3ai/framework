@@ -145,6 +145,8 @@ export interface AIOptions {
 	rateLimiter?: AIRateLimiter | false;
 	/** Optional customer allowance hook. Defaults to no-op until billing limits exist. */
 	allowance?: AIAllowanceChecker | false;
+	/** Durable cumulative spending reservation at each provider HTTP boundary. */
+	providerBudget?: import('./AIProviderBudget').AIProviderBudgetHook | false;
 }
 
 /**

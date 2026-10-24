@@ -40,3 +40,5 @@ export { AgentConversations, AgentConversationReadError } from './AgentConversat
 
 export type * from './contracts/AgentStreamingOptions';
 export type * from './contracts/AgentConversationAttention';
+
+export type * from './contracts/AIProviderBudget';

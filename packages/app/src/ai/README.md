@@ -597,3 +597,26 @@ side effects are never replayed automatically. Recovery runs before model capaci
 admission. The application must validate operation ownership and await or recover
 only work it can safely identify. This is history continuation, not a guarantee
 that an external provider side effect occurs exactly once.
+
+## Cumulative provider budgets
+
+`AIOptions.providerBudget` is an application-owned, asynchronous reservation hook
+at the actual HTTP boundary. It runs for every SDK model turn, provider fallback,
+retry, direct response, image and embedding call. The input contains trusted
+tracked ownership, the endpoint path and parsed outbound JSON. Throwing prevents
+dispatch. A returned reservation can lower the outgoing output-token ceiling and
+add a logical-run deadline; the request timeout and caller cancellation remain
+active too. Compaction has a distinct endpoint and may not accept generation
+output controls.
+
+The reservation's `settle` callback receives JSON usage or the terminal streamed
+response, including failed responses with known usage. Original SSE bytes and
+backpressure are preserved. Cancellation, network failure and streams without a
+terminal response are marked uncertain. Apps must persist holds, fence duplicate
+settlement, release definitely unused capacity, and retain ambiguous work for
+provider reconciliation rather than charge a reserved estimate as actual usage.
+Do not keep a SQL transaction open during provider work. The hook is separate
+from `allowance` (product admission) and the provider rate limiter (API capacity).
+
+Run `npm test --workspace @db3.ai/app -- src/ai/tests/providerBudgetFetch.test.ts`
+for this boundary, plus the AI service suite when changing dispatch or streaming.
