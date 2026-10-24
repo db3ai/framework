@@ -5,28 +5,38 @@ on:
     branches: [main, '[0-9]*.x']
   pull_request:
     branches: [main, '[0-9]*.x']
+  workflow_dispatch:
+    inputs:
+      runner:
+        description: Runner for this manual Framework check
+        type: choice
+        default: worker
+        options:
+          - github-hosted
+          - worker
 
 permissions:
   contents: read
 
 concurrency:
-  group: framework-checks-${{ github.event.pull_request.number || github.ref }}
+  group: framework-checks-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'workflow_dispatch' && inputs.runner || 'automatic' }}
   cancel-in-progress: true
 
 jobs:
   framework:
     # This workflow is exported into the dedicated public repository only.
     if: github.repository == 'db3ai/framework' && github.event.repository.visibility == 'public'
-    runs-on: ubuntu-24.04
+    # Self-hosted execution is manual so pull requests never run on the persistent worker.
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && inputs.runner == 'worker' && fromJSON('["self-hosted","Linux","ARM64","framework-ci"]') || 'ubuntu-24.04' }}
     timeout-minutes: 30
     env:
       DB_CONNECTION: mariadb
       DB_HOST: 127.0.0.1
-      DB_PORT: 3306
+      DB_PORT: 13306
       DB_USER: root
       DB_PASSWORD: root
       TEST_DB_PASSWORD: root
-      QUEUE_REDIS_URL: redis://127.0.0.1:6379
+      QUEUE_REDIS_URL: redis://127.0.0.1:16379
       QUEUE_REDIS_PREFIX: db3:ci
       TEST_REDIS_REQUIRED: '1'
       OPENAI_API_KEY: ''
@@ -36,7 +46,10 @@ jobs:
         env:
           MARIADB_ROOT_PASSWORD: root
         ports:
-          - 3306:3306
+          - 13306:3306
+        # The worker's post-job hook removes only this run's disposable database volume.
+        volumes:
+          - framework-ci-mariadb-${{ github.run_id }}-${{ github.run_attempt }}:/var/lib/mysql
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=10s
@@ -45,7 +58,9 @@ jobs:
       redis:
         image: redis:8.2.1-alpine@sha256:f887e6dacdcfa8e14af2f625fdf4474ff8c37dc36ce13b9e89e6e9a901f155ad
         ports:
-          - 6379:6379
+          - 16379:6379
+        volumes:
+          - framework-ci-redis-${{ github.run_id }}-${{ github.run_attempt }}:/data
         options: >-
           --health-cmd="redis-cli ping"
           --health-interval=10s
@@ -76,7 +91,12 @@ jobs:
       - name: Test Pure, Create and Starter
         run: npm test --workspace @db3.ai/pure && npm test --workspace @db3.ai/create && npm test --workspace db3-starter
 
-      - name: Install Chromium for browser network guard tests
+      - name: Install Chromium on the Framework worker
+        if: runner.environment == 'self-hosted'
+        run: npx playwright install chromium
+
+      - name: Install Chromium on GitHub-hosted runners
+        if: runner.environment == 'github-hosted'
         run: npx playwright install --with-deps chromium
 
       - name: Test App with coverage and required MariaDB and Redis
