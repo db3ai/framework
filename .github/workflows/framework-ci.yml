@@ -33,6 +33,7 @@ jobs:
       DB_CONNECTION: mariadb
       DB_HOST: 127.0.0.1
       DB_PORT: 13306
+      TEST_DB_PORT: 13306
       DB_USER: root
       DB_PASSWORD: root
       TEST_DB_PASSWORD: root
