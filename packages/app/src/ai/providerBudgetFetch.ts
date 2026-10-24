@@ -1,7 +1,11 @@
-import type { AIProviderBudgetHook, AIProviderBudgetInput, AIProviderBudgetReservation } from './contracts/AIProviderBudget.js';
+import type { AIProviderBudgetHook, AIProviderBudgetInput, AIProviderBudgetReservation, AIProviderBudgetResult } from './contracts/AIProviderBudget.js';
 
-/** Applies app-owned reservation to one actual HTTP call, without changing provider retry classification. */
-export async function providerBudgetFetch(transport: typeof fetch, url: Parameters<typeof fetch>[0], init: RequestInit, input: Omit<AIProviderBudgetInput, 'request'>, reserve: AIProviderBudgetHook): Promise<Response> {
+/**
+ * Applies app-owned admission before one HTTP call. Admission errors propagate;
+ * post-call settlement failures report through the optional safe diagnostic
+ * callback while retaining the original provider output or transport error.
+ */
+export async function providerBudgetFetch(transport: typeof fetch, url: Parameters<typeof fetch>[0], init: RequestInit, input: Omit<AIProviderBudgetInput, 'request'>, reserve: AIProviderBudgetHook, onSettlementError?: (error: unknown) => void): Promise<Response> {
 	if (typeof init.body !== 'string') throw new Error('Budgeted AI requests require a JSON body.');
 	const request: unknown = JSON.parse(init.body);
 	if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Budgeted AI requests require an object body.');
@@ -12,23 +16,23 @@ export async function providerBudgetFetch(transport: typeof fetch, url: Paramete
 	let response: Response;
 	const cancelled = signals.find(signal => signal.aborted);
 	if (cancelled) {
-		await reservation.settle({ status: 499, payload: { error: 'Cancelled before provider dispatch.' }, uncertain: false });
+		await settleProviderBudget(reservation, { status: 499, payload: { error: 'Cancelled before provider dispatch.' }, uncertain: false }, onSettlementError);
 		cancelled.throwIfAborted();
 	}
 	try {
 		response = await transport(url, { ...init, ...(reservation.request ? { body: JSON.stringify(reservation.request) } : {}), ...(signals.length ? { signal: AbortSignal.any(signals) } : {}) });
 	} catch (error) {
-		await reservation.settle({ status: null, payload: null, uncertain: true });
+		await settleProviderBudget(reservation, { status: null, payload: null, uncertain: true }, onSettlementError);
 		throw error;
 	}
-	if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) return observeBudgetStream(response, reservation);
+	if (response.headers.get('content-type')?.includes('text/event-stream') && response.body) return observeBudgetStream(response, reservation, onSettlementError);
 	const payload = await response.clone().json().catch(() => null) as Record<string, unknown> | null;
-	await reservation.settle({ status: response.status, payload, uncertain: !payload });
+	await settleProviderBudget(reservation, { status: response.status, payload, uncertain: !payload }, onSettlementError);
 	return response;
 }
 
 /** Streams original bytes unchanged while retaining only bounded terminal usage events for settlement. */
-function observeBudgetStream(response: Response, reservation: AIProviderBudgetReservation): Response {
+function observeBudgetStream(response: Response, reservation: AIProviderBudgetReservation, onSettlementError?: (error: unknown) => void): Response {
 	const reader = response.body!.getReader();
 	const decoder = new TextDecoder();
 	let pending = '';
@@ -39,7 +43,7 @@ function observeBudgetStream(response: Response, reservation: AIProviderBudgetRe
 	const settle = async (uncertain: boolean): Promise<void> => {
 		if (settled) return;
 		settled = true;
-		await reservation.settle({ status: response.status, payload, uncertain });
+		await settleProviderBudget(reservation, { status: response.status, payload, uncertain }, onSettlementError);
 	};
 	/** Reads provider data lines without retaining image/output payloads between events. */
 	const observe = (chunk: Uint8Array): void => {
@@ -61,7 +65,7 @@ function observeBudgetStream(response: Response, reservation: AIProviderBudgetRe
 		if (pending.length > 2_097_152) pending = '';
 	};
 	const body = new ReadableStream<Uint8Array>({
-		/** Preserves backpressure and waits for durable usage before exposing successful EOF. */
+		/** Preserves backpressure and attempts settlement before EOF without discarding paid output on bookkeeping failure. */
 		async pull(controller) {
 			try {
 				const next = await reader.read();
@@ -74,4 +78,17 @@ function observeBudgetStream(response: Response, reservation: AIProviderBudgetRe
 		async cancel(reason) { try { await reader.cancel(reason); } finally { await settle(!terminal); } },
 	});
 	return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+/**
+ * Keeps paid provider output and the original transport outcome when post-call
+ * accounting fails. Durable holds remain pending; reporting must not turn a
+ * bookkeeping failure into a second paid request or discard an observed result.
+ */
+async function settleProviderBudget(reservation: AIProviderBudgetReservation, result: AIProviderBudgetResult, onError?: (error: unknown) => void): Promise<void> {
+	try { await reservation.settle(result); }
+	catch (error) {
+		try { onError?.(error); }
+		catch { /* A diagnostic failure cannot replace a paid provider result. */ }
+	}
 }

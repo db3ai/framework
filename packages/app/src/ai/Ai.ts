@@ -1263,7 +1263,12 @@ export class Ai {
 			const state = aiExecutionContext.getStore();
 			const aiRequest = context?.aiRequest ?? state?.aiRequest ?? null;
 			const input: Omit<AIProviderBudgetInput, 'request'> = context ?? { provider: (aiRequest?.provider ?? AI_PROVIDER.openai) as AIProvider, model: aiRequest?.model ?? this.config('model', 'gpt-4.1-mini'), operation: aiRequest?.operation ?? 'agents.run.stream', aiRequest, rootAiRequest: state?.rootAiRequest ?? null, scope: aiRequest ? aiRequest.get(this.scopeField) as AIRecordIdentity | string | null : null, user: aiRequest?.user as AIRecordIdentity | string | null };
-			return providerBudgetFetch(transport, url, { ...init, signal }, input, this.options.providerBudget);
+			/** Reports a pending hold without copying provider, user or SQL error text. */
+			const onSettlementError = (error: unknown): void => {
+				const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
+				app().log.warn({ action: 'provider-budget:settle-deferred', aiRequestId: aiRequest?.id ?? null, provider: input.provider, model: input.model, errorCode: code && /^[A-Z0-9_]{1,80}$/.test(code) ? code : null }, 'Provider result retained; spending reservation remains pending for reconciliation.');
+			};
+			return providerBudgetFetch(transport, url, { ...init, signal }, input, this.options.providerBudget, onSettlementError);
 		};
 	}
 

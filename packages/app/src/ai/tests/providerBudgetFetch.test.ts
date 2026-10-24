@@ -32,7 +32,7 @@ describe('provider budget HTTP lifecycle', () => {
 		const results: AIProviderBudgetResult[] = [];
 		const controller = new AbortController();
 		controller.abort(new Error('stopped'));
-		await expect(providerBudgetFetch(async () => { calls++; return Response.json({}); }, 'https://provider.test/responses', { body: JSON.stringify({ model: 'gpt-6-astra' }), signal: controller.signal }, context, async input => { model = input.model; return { async settle(result) { results.push(result); } }; })).rejects.toThrow('stopped');
+		await expect(providerBudgetFetch(async () => { calls++; return Response.json({}); }, 'https://provider.test/responses', { body: JSON.stringify({ model: 'gpt-6-astra' }), signal: controller.signal }, context, async input => { model = input.model; return { async settle(result) { results.push(result); throw new Error('Accounting unavailable during cancellation'); } }; }, () => undefined)).rejects.toThrow('stopped');
 		expect(model).toBe('gpt-6-astra');
 		expect(calls).toBe(0);
 		expect(results[0]).toMatchObject({ status: 499, uncertain: false });
@@ -42,4 +42,27 @@ describe('provider budget HTTP lifecycle', () => {
 		await expect(providerBudgetFetch(async () => { calls++; return Response.json({}); }, 'https://provider.test/responses', { body: '{}' }, context, async () => { throw new Error('exhausted'); })).rejects.toThrow('exhausted');
 		expect(calls).toBe(0);
 	});
+	it('retains a successful JSON result when settlement fails without repeating the provider', async () => {
+		let calls = 0;
+		const errors: unknown[] = [];
+		const failure = Object.assign(new Error('Ledger lock timed out'), { code: 'ER_LOCK_WAIT_TIMEOUT' });
+		const response = await providerBudgetFetch(async () => { calls++; return Response.json({ usage: { input_tokens: 3, output_tokens: 2 }, output_text: 'Paid result' }); }, 'https://provider.test/responses', { body: '{}' }, context, async () => ({ async settle() { throw failure; } }), error => { errors.push(error); });
+		expect(await response.json()).toMatchObject({ output_text: 'Paid result' });
+		expect(calls).toBe(1);
+		expect(errors).toEqual([failure]);
+	});
+	it('retains terminal SSE bytes when settlement fails and reports the bookkeeping failure once', async () => {
+		const data = 'data: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":3,"output_tokens":2}}}\n\n';
+		const errors: unknown[] = [];
+		const response = await providerBudgetFetch(async () => new Response(data, { headers: { 'content-type': 'text/event-stream' } }), 'https://provider.test/responses', { body: '{}' }, context, async () => ({ async settle() { throw new Error('Ledger lock timed out'); } }), error => { errors.push(error); });
+		expect(await response.text()).toBe(data);
+		expect(errors).toHaveLength(1);
+	});
+	it('keeps the original provider error when uncertain-hold settlement also fails', async () => {
+		const original = new TypeError('Provider connection lost');
+		const errors: unknown[] = [];
+		await expect(providerBudgetFetch(async () => { throw original; }, 'https://provider.test/responses', { body: '{}' }, context, async () => ({ async settle() { throw new Error('Ledger unavailable'); } }), error => { errors.push(error); })).rejects.toBe(original);
+		expect(errors).toHaveLength(1);
+	});
+
 });
