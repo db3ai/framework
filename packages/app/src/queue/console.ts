@@ -43,17 +43,26 @@ export interface QueueConsoleOptions {
 	app: () => QueueConsoleApp;
 	/** Checked-in worker selections selected with --pool=<name>; credentials remain in the application environment. */
 	workers?: Readonly<Record<string, queue.QueueSelection>>;
+	/** Optional caller-owned shutdown signal; worker invocation is awaited until drained. */
+	signal?: AbortSignal;
+	/** Defaults to true; false lets the embedding CLI close its app exactly once. */
+	closeApp?: boolean;
 	bootstrap?: () => void | Promise<void>;
 	commands?: QueueConsoleCommand[];
 	helpText?: string;
 	unknownCommandMessage?: (command: string) => string;
 }
 
+/** Runs legacy argv-based queue commands; embedded callers can supply parsed input directly. */
 export async function runQueueConsole(
 	options: QueueConsoleOptions,
 	argv = process.argv.slice(2),
 ): Promise<void> {
-	const parsed = parseQueueConsoleArgs(argv);
+	return runQueueCommand(options, parseQueueConsoleArgs(argv));
+}
+
+/** Executes validated queue input through the same worker/dispatch/retry adapters as the legacy console. */
+export async function runQueueCommand(options: QueueConsoleOptions, parsed: ParsedQueueConsoleArgs): Promise<void> {
 
 	switch (parsed.command) {
 		case 'queue:work':
@@ -69,7 +78,7 @@ export async function runQueueConsole(
 				try {
 					await dispatchQueueJob(app, parsed);
 				} finally {
-					await app.close();
+					if (options.closeApp !== false) await app.close();
 				}
 			}
 			return;
@@ -82,7 +91,7 @@ export async function runQueueConsole(
 				try {
 					await retryFailedQueueJob(app, parsed);
 				} finally {
-					await app.close();
+					if (options.closeApp !== false) await app.close();
 				}
 			}
 			return;
@@ -109,7 +118,7 @@ export async function runQueueConsole(
 			await command.run(context);
 		} finally {
 			if (command.close !== false) {
-				await context.app.close();
+				if (options.closeApp !== false) await context.app.close();
 			}
 		}
 
@@ -292,6 +301,7 @@ async function workQueue(
 	options: QueueConsoleOptions,
 	parsed: ParsedQueueConsoleArgs,
 ): Promise<void> {
+	if (options.signal?.aborted) return;
 	const selection = queueConsoleSelection(parsed, options.workers);
 	const queue = selection.queues === '*' ? '*' : selection.queues?.join(', ') ?? 'default';
 	const once = queueConsoleOptionBoolean(parsed, 'once');
@@ -324,7 +334,7 @@ async function workQueue(
 				verbose,
 			});
 		} finally {
-			await app.close();
+			if (options.closeApp !== false) await app.close();
 		}
 		return;
 	}
@@ -343,6 +353,16 @@ async function workQueue(
 		throw new Error('Queue worker could not start.');
 	}
 
+	if (options.signal) {
+		try {
+			await waitForQueueStop(options.signal);
+		} finally {
+			try { await worker.stopAndDrain(); }
+			finally { if (options.closeApp !== false) await app.close(); }
+		}
+		return;
+	}
+
 	let shuttingDown = false;
 	const shutdown = async (signal: string) => {
 		if (shuttingDown) return;
@@ -350,7 +370,7 @@ async function workQueue(
 		shuttingDown = true;
 		console.log(`[queue] Received ${signal}; stopping worker.`);
 		await worker.stopAndDrain();
-		await app.close();
+		if (options.closeApp !== false) await app.close();
 		process.exit(0);
 	};
 
@@ -548,4 +568,15 @@ function queueConsoleNextJobLabel(job: queue.QueueJob): string | null {
 	const [next] = job.payload.chained ?? [];
 
 	return next ? next.displayName || next.job : null;
+}
+
+/** Resolves on cooperative shutdown, including a signal already aborted during startup. */
+async function waitForQueueStop(signal: AbortSignal): Promise<void> {
+	if (signal.aborted) return;
+	await new Promise<void>(resolve => {
+		/** Removes the listener before settling the owned wait. */
+		const stop = (): void => { signal.removeEventListener('abort', stop); resolve(); };
+		signal.addEventListener('abort', stop, { once: true });
+		if (signal.aborted) stop();
+	});
 }

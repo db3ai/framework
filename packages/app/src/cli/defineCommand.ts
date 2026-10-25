@@ -11,6 +11,9 @@ import type * as cli from './contracts';
 export function defineCommand<TResult>(definition: cli.CommandDefinition<TResult>): cli.CliCommand {
 	return {
 		name: definition.name,
+		aliases: definition.aliases,
+		options: definition.options,
+		execution: definition.execution,
 		description: definition.description,
 		arguments: definition.parameters,
 		/** Establishes app context, maps parameters and adapts the action result for the terminal. */

@@ -1,9 +1,10 @@
 # Command line
 
 `@db3.ai/app/cli` owns the shared `db3` executable, command help, positional
-argument validation, output and application shutdown. Each service owns its
+argument/option validation, output and application shutdown. Each service owns its
 commands and calls the same programmatic operations used by application code.
-Applications register the services they use in `server/cli.config.ts`.
+Applications supply their factory, operational configuration and custom additions
+in `server/cli.config.ts`.
 
 ## In a generated app
 
@@ -11,12 +12,31 @@ From the app root:
 
 ```sh
 npx db3 --help
+npx db3 list --json
+npx db3 queue --pool=reports
+npx db3 queue --once
+npx db3 scheduler
+npx db3 scheduler:list
 npx db3 repl
 npx db3 db:migrate
 npx db3 db:check
 npx db3 queue:make-job GenerateReportJob
 npm run db:make:migration -- add_note_field
 ```
+
+`queue` aliases `queue:work`; `scheduler` aliases `scheduler:work`. They start
+workers and stay alive until SIGINT/SIGTERM requests orderly shutdown. Queue
+finishes its active jobs and scheduler finishes its active tick before the CLI
+closes its app. `queue --once` processes at most one available delivery. Existing
+service consoles remain available during application migration.
+
+Configure `queue.workers` in `server/cli.config.ts` for named pools. Use the
+optional `prepareApp(application)` hook to register operational jobs/schedules
+or call `application.apps.boot()` for installed nested apps. It runs once per
+operational invocation. Help, discovery and database/source-generation commands
+do not call it, so pending migrations cannot prevent maintenance operations.
+Use `scheduler.checkpoint` and `scheduler.onTick` for app-owned durable progress
+and health reporting. The service commands own their execution and validation.
 
 The starter also provides `npm run repl` and `npm run db3 -- <command>`.
 `npx` resolves the installed package executable; `node db3 repl` would require
@@ -66,13 +86,16 @@ The starter keeps this configuration under `server/cli.config.ts`:
 ```ts
 import type { CliConfig } from '@db3.ai/app/cli';
 import { databaseCommands } from '@db3.ai/app/db/commands';
+import { appsCommands } from '@db3.ai/app/apps/commands';
 import { createApplication } from './app';
 import { readConfig } from './config';
 
 export default {
 	/** Creates the app without starting an HTTP listener. */
 	createApp: () => createApplication(readConfig()),
-	commands: databaseCommands,
+	/** Prepares installed nested apps for operational commands. */
+	prepareApp: application => application.apps.boot(),
+	commands: [...databaseCommands, ...appsCommands],
 } satisfies CliConfig;
 ```
 
@@ -87,10 +110,15 @@ resources they own.
 
 `repl` is registered by the framework and requires an app factory.
 `queue:make-job` is registered by the framework and works without an app configuration.
-Other service commands are explicitly registered. Duplicate command names fail
+Queue worker/dispatch/retry and scheduler worker/run/list/history commands are
+registered by the framework too; applications configure their policy rather than
+redeclare them. Database and Apps commands remain explicitly registered. Duplicate command names fail
 instead of silently overriding another service. The interactive REPL keeps its
-invocation open until session exit. Long-running workers and their signal/drain
-policies remain owned by their existing worker entry points.
+invocation open until session exit. Long-running commands declare `execution: 'worker'` and cooperate with
+`context.signal`; their service owns draining and the CLI awaits it.
+`CliOptions.signal` also permits cancellation by an embedding caller.
+`context.prepareApp()` shares one operational preparation promise, while
+`context.app()` only creates the host.
 
 ## Service, command and action
 
@@ -129,7 +157,14 @@ export const databaseCommands = [defineCommand({
 ```
 
 Positional values map to declared parameter names; required parameters precede
-optional ones. Unknown flags and extra values fail before app startup. The
+optional ones. `options` declares string, boolean and numeric long options with
+descriptions, required/default values, numeric bounds and repeatable strings.
+Handlers read validated values through `context.options`. Both `--name=value`
+and `--name value` work; `--` preserves subsequent literal positional values.
+Boolean switches accept explicit `=true`/`=false`. Unknown options, duplicate
+non-repeatable options, missing values and extra arguments fail before startup.
+`aliases` adds invocation names without duplicating handlers or bootstrap.
+Use command-specific `--help` to see the same declarations. The
 adapter formats results for the terminal and maps domain results to exit codes.
 Use `needsApp: false` for operations such as source generation that do not need
 an application. `formatResult` can provide a concise terminal message.
@@ -167,17 +202,25 @@ app, then generates, applies and checks actual migrations through `db3`.
 
 `listDb3Commands({ directory })` returns serializable `CliCommandInfo` records
 for the same built-in and app-registered commands as `runDb3`. Each record has
-`name`, `description`, ordered `arguments`, and `interactive`. Discovery imports
+`name`, `aliases`, `description`, ordered `arguments`, declared `options`,
+`execution`, and `interactive`. Discovery imports
 registration without calling `createApp`, validates duplicate/invalid definitions,
 and releases its scoped TypeScript loader. Invalid configuration rejects the
 promise. `new Cli(config).commands()` exposes the same metadata for an already
 registered runner, with detached argument declarations.
 
-Set `interactive: true` on a custom `CliCommand` when it requires a terminal
-session. The built-in REPL does this. Visual one-shot runners must exclude these
+Use `execution: 'interactive'` (or `interactive: true`) for terminal input and
+`execution: 'worker'` for long-running processing. Discovery marks both kinds
+`interactive: true` to keep existing one-shot visual runners from launching them. The built-in REPL does this. Visual one-shot runners must exclude these
 commands from execution. Registration and discovery do not grant HTTP access.
 
 The separate `@db3.ai/dev` panel uses discovery for its Commands tab and runs the
 ordinary CLI in isolated local processes. It captures the same output and exit
 status without adding endpoints to consuming applications. Structured service
 results remain available by calling the underlying action directly.
+
+`db3 list --json` writes `{ formatVersion: 1, commands }` with this catalogue,
+without creating an app or reading its database. This command catalogue is the
+current inspection surface; the broader application graph and visual manager are
+separate work. Application command namespaces may retain nested app IDs with
+underscores. This does not yet add automatic nested command/agent contributions.

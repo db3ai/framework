@@ -2,6 +2,8 @@
 export interface CliOptions {
 	/** Application root. Defaults to the current working directory. */
 	directory?: string;
+	/** Optional caller-owned cancellation; commands cooperate and retain their drain semantics. */
+	signal?: AbortSignal;
 	/** Interactive input used by `db3 repl`. Defaults to process.stdin. */
 	input?: NodeJS.ReadableStream;
 	/** Interactive output used by `db3 repl`. Defaults to process.stdout. */

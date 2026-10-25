@@ -1,5 +1,27 @@
 # Queue
 
+## Shared console commands
+
+Run `db3 queue` to start a worker (`queue:work` is the explicit form), or use
+`db3 queue --once` for one available delivery. Framework commands also include
+`queue:dispatch`, `queue:retry` and `queue:make-job`. Run a command with `--help`
+for its declared options. Configure named `queue.workers` pools and operational
+`prepareApp` in `server/cli.config.ts`; the [CLI](../cli/README.md) owns argument
+validation, signal handling and one application lifetime. `createQueueCommands`
+is exported by `@db3.ai/app/queue/commands` for embedded runners.
+
+The copyable [createReportCli.ts](./examples/createReportCli.ts) composes real queue commands,
+a `reports` pool and an application-owned seed action using `Cli`. With migrated
+queue tables and local report storage, run it with `report:seed`, then
+`queue:dispatch reports.write.v1 '{"reportId":"weekly-v1"}' --queue=reports`,
+then `queue --pool=reports --once`. Its companion test exercises the same source
+against disposable SQL and real storage.
+
+The existing `runQueueConsole` remains available for applications migrating their
+entry points. Embedded adapters can use `runQueueCommand` with validated input,
+`signal` for awaited cooperative worker shutdown, and `closeApp: false` when an
+outer runner owns cleanup. Legacy invocations retain their existing lifecycle.
+
 The framework's `db3 queue:make-job NameJob` command is registered in
 `queue/commands/index.ts`; its `makeJob.ts` action calls `createJob()`.
 Command parsing, help and process

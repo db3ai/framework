@@ -37,7 +37,13 @@ The framework owns the `db3` executable and shared CLI runner. Services expose
 commands through their public barrels and keep command adapters in their owning
 modules. Apps register configured commands in `server/cli.config.ts`; keep help,
 argument parsing, exit statuses and app lifecycle out of app-owned scripts.
-Commands call the service's existing programmatic operations.
+Commands call the service's existing programmatic operations. Queue and
+scheduler worker operations are built in; `db3 queue` aliases `queue:work` and
+`db3 scheduler` aliases `scheduler:work`. Configure pools, durable scheduler
+progress and a single operational `prepareApp` callback in `cli.config.ts`.
+Migrations/help do not invoke that callback. Use `db3 list --json` for the same
+command definitions used by help and discovery. Keep command metadata imports
+free of listeners, database connections and provider work.
 
 `npx db3 repl` opens a terminal REPL inside the same app lifecycle. It exposes
 `app()` and named models from the `models` array in `server/database/models.ts`.

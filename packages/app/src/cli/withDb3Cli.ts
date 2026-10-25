@@ -9,10 +9,12 @@ import type * as cli from './contracts';
 
 // Cache the import before scoped loaders alter hooks; avoid the CLI/Queue barrel cycle.
 let queueModule: Promise<typeof import('../queue/commands')> | undefined;
+let schedulerModule: Promise<typeof import('../scheduler/commands')> | undefined;
 
 /** Loads one app's command registry and releases its TypeScript loader after use. */
 export async function withDb3Cli<T>(options: cli.CliOptions, use: (runner: Cli) => Promise<T>): Promise<T> {
-	const { queueCommands } = await (queueModule ??= import('../queue/commands'));
+	const { queueCommands, createQueueCommands } = await (queueModule ??= import('../queue/commands'));
+	const { createSchedulerCommands } = await (schedulerModule ??= import('../scheduler/commands'));
 	const loader = register({ namespace: `db3-cli-${randomUUID()}` });
 	try {
 		const directory = resolve(options.directory ?? process.cwd());
@@ -21,7 +23,16 @@ export async function withDb3Cli<T>(options: cli.CliOptions, use: (runner: Cli) 
 		// Validate app config before combining it with commands that need no app bootstrap.
 		if (!config || !Array.isArray(config.commands)) throw new Error('CLI configuration must export a commands array.');
 		const repl = createReplCommand(async () => loadReplModels(directory, loader.import), options);
-		return await use(new Cli({ ...config, commands: [repl, ...queueCommands, ...config.commands] }, { ...options, directory }));
+		let runner: Cli;
+		const list: cli.CliCommand = { name: 'list', description: 'List registered command definitions without starting the application.', options: [{ name: 'json', type: 'boolean', description: 'Write a versioned JSON command catalogue.' }],
+			/** Uses the exact metadata catalogue shared with programmatic discovery. */
+			run(context) {
+				const commands = runner.commands();
+				context.write(context.options.json ? JSON.stringify({ formatVersion: 1, commands }, null, 2) : commands.map(command => `${command.name}  ${command.description}${command.aliases.length ? ` (aliases: ${command.aliases.join(', ')})` : ''}`).join('\n'));
+			},
+		};
+		runner = new Cli({ ...config, commands: [repl, list, ...queueCommands, ...createQueueCommands(config.queue), ...createSchedulerCommands(config.scheduler), ...config.commands] }, { ...options, directory });
+		return await use(runner);
 	} finally {
 		await loader.unregister();
 	}

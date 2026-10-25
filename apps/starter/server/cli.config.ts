@@ -8,5 +8,7 @@ import { readConfig } from './config';
 export default {
 	/** Creates the same app used by HTTP, without starting a listener. */
 	createApp: () => createApplication(readConfig()),
+	/** Prepares installed nested apps only for operational commands, keeping migrations usable. */
+	prepareApp: application => application.apps.boot(),
 	commands: [...databaseCommands, ...appsCommands],
 } satisfies CliConfig;

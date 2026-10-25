@@ -36,6 +36,10 @@ export interface SchedulerConsoleOptions {
 	checkpoint?: SchedulerWorkerOptions['checkpoint'];
 	/** Resolves the active application instance after bootstrap. */
 	app: () => SchedulerConsoleApp;
+	/** Caller-owned shutdown signal; no process signal handlers are installed when supplied. */
+	signal?: AbortSignal;
+	/** Defaults to true; embedded runners can retain application cleanup ownership. */
+	closeApp?: boolean;
 	/** Prepares schema, queue jobs, and schedule definitions. */
 	bootstrap?: () => void | Promise<void>;
 	/** Optional application-specific help text. */

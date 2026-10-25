@@ -568,7 +568,16 @@ try {
 	await new Mail({ transport: new ResendTransport({ apiKey: 'synthetic-consumer-key' }) }).send({ to: 'consumer@example.test', subject: 'Ready', text: 'Ready', idempotencyKey: 'consumer/setup' });
 	if (mailRequest.headers['Idempotency-Key'] !== 'consumer/setup') throw new Error('Installed mail retry identity failed.');
 } finally { globalThis.fetch = originalFetch; }
-if (!(await listDb3Commands()).some(command => command.name === 'queue:make-job')) throw new Error('Installed command discovery failed.');
+const installedCommands = await listDb3Commands();
+if (!installedCommands.some(command => command.name === 'queue:make-job')) throw new Error('Installed command discovery failed.');
+if (!installedCommands.find(command => command.name === 'queue:work')?.aliases.includes('queue')) throw new Error('Installed queue alias discovery failed.');
+if (!installedCommands.find(command => command.name === 'scheduler:work')?.aliases.includes('scheduler')) throw new Error('Installed scheduler alias discovery failed.');
+let parsedInputs;
+const optionsCli = new Cli({ commands: [{ name: 'consumer:options', aliases: ['options'], description: 'Installed option parser.', options: [{ name: 'count', type: 'number', integer: true, min: 1, description: 'Count.' }],
+	/** Observes the parser result without opening an application. */
+	run(context) { parsedInputs = context.options; },
+}] });
+if (await optionsCli.run(['options', '--count=3']) !== 0 || parsedInputs.count !== 3) throw new Error('Installed alias/option invocation failed.');
 if (await new Cli({ commands: [{ name: 'consumer:check', description: 'Check the installed runner.', run: () => 3 }] }).run(['consumer:check']) !== 3) throw new Error('Installed CLI runtime failed.');
 if (RuntimeEventEmitter !== EventEmitter) throw new Error('SDK compatibility declarations must not replace the runtime emitter.');
 const config = new Config({ app: { name: 'Consumer' } });
@@ -639,7 +648,7 @@ void [storageBytes, storageMime, clonedValues];
 const lockedUser: Promise<UserIdentity | null> = UserIdentity.where('id', 'example').forUpdate().first();
 void lockedUser;
 import { Config } from '@db3.ai/app/config';
-import { Cli, defineCommand, listDb3Commands, runRepl, type CliCommandInfo, type ReplOptions, type CliConfig, type CliCommand } from '@db3.ai/app/cli';
+import { Cli, defineCommand, listDb3Commands, runRepl, type CliCommandInfo, type ReplOptions, type CliConfig, type CliCommand, type CliOption } from '@db3.ai/app/cli';
 import { databaseCommands } from '@db3.ai/app/db/commands';
 import { StringField } from '@db3.ai/app/db/fields/StringField';
 import type { FieldConfig } from '@db3.ai/app/db/FieldType';
@@ -750,6 +759,9 @@ void revokeAllTokens;
 const completionMessage: MailMessage = { to: 'consumer@example.test', subject: 'Ready', text: 'Ready', idempotencyKey: 'consumer/setup' };
 void completionMessage;
 const customCommand: CliCommand = { name: 'consumer:check', description: 'Typed command.', arguments: [{ name: 'name', required: true }], async run(context) { const name: string | undefined = context.args[0]; context.write(name ?? ''); return 0; } };
+const typedOption: CliOption = { name: 'count', type: 'number', integer: true, min: 1, default: 2, description: 'Count.' };
+const typedWorker: CliCommand = { name: 'worker', execution: 'worker', options: [typedOption], description: 'Typed lifecycle.', async run(context) { const signal: AbortSignal = context.signal; const instance = await context.prepareApp(); const directory: string = instance.directory; void [signal, directory, context.options.count]; } };
+void typedWorker;
 const commandCatalog: Promise<CliCommandInfo[]> = listDb3Commands();
 void commandCatalog;
 const cliConfig: CliConfig = { commands: [customCommand] };

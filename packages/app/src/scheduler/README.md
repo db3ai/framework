@@ -131,6 +131,19 @@ asserts both the recovered output and the retained audit state.
 
 ## Console
 
+`db3 scheduler` starts the long-running worker and aliases `scheduler:work`.
+The shared CLI also registers `scheduler:run`, `scheduler:list` and
+`scheduler:history`. It validates declared options before app startup and awaits
+the current scheduler tick on SIGINT/SIGTERM before closing the app. Configure
+operational `prepareApp`, `scheduler.checkpoint` and optional `scheduler.onTick`
+in `server/cli.config.ts`; see [the CLI guide](../cli/README.md).
+`createSchedulerCommands` is available through `@db3.ai/app/scheduler/commands`
+for embedded runners. A one-off run/list/history never advances the worker cursor.
+
+Legacy adapters can continue using `runSchedulerConsole`. Embedded callers can
+supply validated input to `runSchedulerCommand`, pass their own `signal` and set
+`closeApp: false` to retain outer cleanup ownership.
+
 Applications can expose the framework console with `runSchedulerConsole(...)`:
 
 ```text

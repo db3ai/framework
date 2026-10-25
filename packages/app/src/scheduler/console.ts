@@ -19,7 +19,11 @@ export async function runSchedulerConsole(
 	options: scheduler.SchedulerConsoleOptions,
 	argv = process.argv.slice(2),
 ): Promise<void> {
-	const parsed = parseSchedulerConsoleArgs(argv);
+	return runSchedulerCommand(options, parseSchedulerConsoleArgs(argv));
+}
+
+/** Runs validated input through the scheduler console without reparsing its literal values. */
+export async function runSchedulerCommand(options: scheduler.SchedulerConsoleOptions, parsed: scheduler.ParsedSchedulerConsoleArgs): Promise<void> {
 
 	switch (parsed.command) {
 		case 'scheduler:work':
@@ -134,7 +138,7 @@ async function runWithApp(
 	try {
 		await callback(app);
 	} finally {
-		await app.close();
+		if (options.closeApp !== false) await app.close();
 	}
 }
 
@@ -146,6 +150,7 @@ async function runWithApp(
 async function workScheduler(
 	options: scheduler.SchedulerConsoleOptions,
 ): Promise<void> {
+	if (options.signal?.aborted) return;
 	process.title = process.env.SCHEDULER_NAME?.trim() || 'scheduler';
 
 	const app = options.app();
@@ -186,15 +191,18 @@ async function workScheduler(
 		shutdown('SIGTERM');
 	};
 
-	process.once('SIGINT', onSigint);
-	process.once('SIGTERM', onSigterm);
+	/** Requests the same orderly stop for an embedding CLI's cooperative signal. */
+	const onAbort = (): void => { shutdown('abort'); };
+	if (options.signal) options.signal.addEventListener('abort', onAbort, { once: true });
+	else { process.once('SIGINT', onSigint); process.once('SIGTERM', onSigterm); }
 
 	try {
 		await worker.start();
 	} finally {
+		options.signal?.removeEventListener('abort', onAbort);
 		process.removeListener('SIGINT', onSigint);
 		process.removeListener('SIGTERM', onSigterm);
-		await app.close();
+		if (options.closeApp !== false) await app.close();
 	}
 }
 

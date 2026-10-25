@@ -11,3 +11,5 @@ export const queueCommands = [defineCommand({
 	handle: (parameters, context) => makeJob({ appDirectory: context.directory, name: parameters.name! }),
 	formatResult: result => `Created ${result.path}\nImplement handle(), then register the class in your application bootstrap.`,
 })];
+
+export { createQueueCommands } from './createQueueCommands';

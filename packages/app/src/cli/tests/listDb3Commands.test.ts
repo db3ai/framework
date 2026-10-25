@@ -8,7 +8,7 @@ describe('visual command discovery', () => {
 	it('returns detached serializable metadata without creating an app', async () => {
 		const runner = new Cli({ createApp: () => { throw new Error('Must not boot'); }, commands: [{ name: 'test:run', description: 'Test', arguments: [{ name: 'value', required: true }], run() {} }] });
 		const commands = runner.commands();
-		expect(commands).toEqual([{ name: 'test:run', description: 'Test', arguments: [{ name: 'value', required: true }], interactive: false }]);
+		expect(commands).toEqual([{ name: 'test:run', aliases: [], description: 'Test', arguments: [{ name: 'value', required: true }], options: [], execution: 'once', interactive: false }]);
 		commands[0]!.name = 'changed';
 		expect(runner.commands()[0]!.name).toBe('test:run');
 	});
@@ -19,8 +19,10 @@ describe('visual command discovery', () => {
 			await mkdir(join(directory, 'server'));
 			await writeFile(join(directory, 'server/cli.config.mjs'), `export default { createApp() { throw new Error('Must not boot'); }, commands: [{ name: 'demo:inspect', description: 'Inspect', run() {} }] };`);
 			const commands = await listDb3Commands({ directory });
-			expect(commands.map(command => command.name)).toEqual(['repl', 'queue:make-job', 'demo:inspect']);
+			expect(commands.map(command => command.name)).toEqual(['repl', 'list', 'queue:make-job', 'queue:work', 'queue:dispatch', 'queue:retry', 'scheduler:work', 'scheduler:run', 'scheduler:list', 'scheduler:history', 'demo:inspect']);
 			expect(commands[0]!.interactive).toBe(true);
+			expect(commands.find(command => command.name === 'queue:work')).toMatchObject({ aliases: ['queue'], execution: 'worker', interactive: true });
+			expect(commands.find(command => command.name === 'scheduler:work')).toMatchObject({ aliases: ['scheduler'], execution: 'worker', interactive: true });
 			await writeFile(join(directory, 'server/cli.config.mjs'), 'export default {};');
 			await expect(listDb3Commands({ directory })).rejects.toThrow('commands array');
 		} finally { await rm(directory, { recursive: true, force: true }); }

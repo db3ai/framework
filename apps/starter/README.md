@@ -300,6 +300,11 @@ The `db3` executable belongs to the framework. `server/cli.config.ts` supplies
 the app factory and registers its database commands; there is no app-owned
 command parser or CLI entry point. Run `npx db3 --help` from the app root to see
 available commands. The existing npm database scripts invoke that shared CLI.
+`npx db3 queue` starts a queue worker and `npx db3 scheduler` starts the scheduler;
+the explicit `queue:work` and `scheduler:work` forms remain available. The
+configuration's `prepareApp` boots installed nested apps only for operational
+commands. `npx db3 list --json` lists the same aliases, arguments and options
+without starting the app or connecting to SQL.
 
 Run `npx db3 repl` or `npm run repl` to explore the app in a terminal. The REPL
 boots the same app and loads this project's model registry, so `app()`, `Note`

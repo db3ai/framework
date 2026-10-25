@@ -73,6 +73,7 @@
 		"./queue": "./src/queue/index.ts",
 		"./queue/commands": "./src/queue/commands/index.ts",
 		"./scheduler": "./src/scheduler/index.ts",
+		"./scheduler/commands": "./src/scheduler/commands/index.ts",
 		"./security": "./src/security/index.ts",
 		"./serialization": "./src/serialization/index.ts",
 		"./server": "./src/server/index.ts",
