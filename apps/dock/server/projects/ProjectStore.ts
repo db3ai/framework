@@ -2,9 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 
+import { APP_PROFILE_FILE, AppProfileError, missingProfileScripts } from '../../shared/appProfile.js';
 import type { AddProcessRequest, ProcessDefinition, ProjectDefinition } from '../../shared/contracts.js';
 import { consoleArgs } from '../../shared/consoleArgs.js';
 import { DEFAULT_SCRIPT_NAMES, processKind } from '../../shared/processKind.js';
+import { readAppProfile } from './readAppProfile.js';
 import { readPackageScripts } from './readPackageScripts.js';
 
 interface StoredConfig {
@@ -85,8 +87,9 @@ export class ProjectStore {
 	}
 
 	/**
-	 * Adds a project folder with its conventional db3 scripts (`api`, `dev`, `web`,
-	 * `queue`, `worker`, `scheduler`) as initial processes.
+	 * Adds a project folder. Its initial processes come from `db3.app.json` when
+	 * present (each process's `dev` script, else its `script`), otherwise from the
+	 * conventional db3 scripts (`api`, `dev`, `web`, `queue`, `worker`, `scheduler`).
 	 *
 	 * @param folder - Path to a folder containing package.json; `~` is expanded.
 	 * @param name - Optional display name; defaults to the folder name.
@@ -107,8 +110,26 @@ export class ProjectStore {
 		} catch {
 			throw new DockRequestError(`No readable package.json in "${folder}".`);
 		}
+		let profile;
+		try {
+			profile = await readAppProfile(path);
+		} catch (error) {
+			throw new DockRequestError(error instanceof AppProfileError ? error.message : `Could not read ${APP_PROFILE_FILE} in "${folder}".`);
+		}
 		const projectName = name?.trim() || basename(path);
 		const project: ProjectDefinition = { id: uniqueId(projectName), name: projectName, path, processes: [] };
+		if (profile) {
+			const missing = missingProfileScripts(profile, info.scripts.map(script => script.name));
+			if (missing.length) throw new DockRequestError(`${APP_PROFILE_FILE}: ${missing.join('; ')}, which package.json does not define.`);
+			for (const process of profile.processes) {
+				const script = process.dev ?? process.script;
+				const body = info.scripts.find(item => item.name === script)?.body ?? '';
+				project.processes.push({ id: uniqueId(`${projectName}-${process.name}`), name: process.name, script, args: consoleArgs(body, process.args), kind: process.kind, saved: true });
+			}
+			this.projects.push(project);
+			await this.save();
+			return project;
+		}
 		for (const scriptName of DEFAULT_SCRIPT_NAMES) {
 			const script = info.scripts.find(item => item.name === scriptName);
 			if (!script) continue;

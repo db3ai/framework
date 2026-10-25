@@ -5,6 +5,10 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+- Create: new apps include `db3.app.json`, an app profile naming their processes,
+	build script, database and environment variable names; Dock reads it to set
+	up a project's processes.
+
 ## [0.1.0] - 2026-10-11
 
 - Release Pure, App and Create together without the beta suffix on npm `latest`.

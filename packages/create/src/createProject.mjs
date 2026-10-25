@@ -28,6 +28,11 @@ export async function createProject(destination, options = {}) {
 	const manifest = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'));
 	manifest.name = name;
 	await writeFile(join(target, 'package.json'), `${JSON.stringify(manifest, null, '\t')}\n`);
+	if (files.includes('db3.app.json')) {
+		const profile = JSON.parse(await readFile(join(target, 'db3.app.json'), 'utf8'));
+		profile.name = name;
+		await writeFile(join(target, 'db3.app.json'), `${JSON.stringify(profile, null, '\t')}\n`);
+	}
 	const example = await readFile(join(target, '.env.example'), 'utf8');
 	const environment = options.docker
 		? example.replace('DB_PORT=3306', 'DB_PORT=33067').replace('DB_PASSWORD=\n', `DB_PASSWORD=${randomBytes(24).toString('hex')}\n`)
