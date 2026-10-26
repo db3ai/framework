@@ -124,7 +124,7 @@ export class ProjectStore {
 			for (const process of profile.processes) {
 				const script = process.dev ?? process.script;
 				const body = info.scripts.find(item => item.name === script)?.body ?? '';
-				project.processes.push({ id: uniqueId(`${projectName}-${process.name}`), name: process.name, script, args: consoleArgs(body, process.args), kind: process.kind, saved: true });
+				project.processes.push({ id: uniqueId(`${projectName}-${process.name}`), name: process.name, script, args: process.kind === 'queue' || process.kind === 'scheduler' ? consoleArgs(body, process.args) : process.args, kind: process.kind, saved: true });
 			}
 			this.projects.push(project);
 			await this.save();

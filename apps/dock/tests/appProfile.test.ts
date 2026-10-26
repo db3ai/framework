@@ -64,7 +64,7 @@ describe('ProjectStore with db3.app.json', () => {
 			version: 1,
 			name: 'demo-app',
 			processes: [
-				{ name: 'web', script: 'dev' },
+				{ name: 'web', script: 'dev', args: ['node', '--inspect'] },
 				{ name: 'emails', kind: 'queue', script: 'queue', args: ['queue:work', '--queues=emails'] },
 				{ name: 'scheduler', kind: 'scheduler', script: 'scheduler', args: ['scheduler:work'] },
 			],
@@ -72,7 +72,9 @@ describe('ProjectStore with db3.app.json', () => {
 		const store = new ProjectStore(fixture.configFile);
 		const project = await store.addProject(fixture.path);
 		expect(project.processes.map(process => [process.name, process.script, process.kind, process.args])).toEqual([
-			['web', 'dev', 'web', []],
+			// Only console commands are dropped when the script names them, so a web
+			// process keeps its arguments even though `dev` runs `node dev.mjs`.
+			['web', 'dev', 'web', ['node', '--inspect']],
 			['emails', 'queue', 'queue', ['queue:work', '--queues=emails']],
 			// The fixture's scheduler script already runs scheduler:work.
 			['scheduler', 'scheduler', 'scheduler', []],
