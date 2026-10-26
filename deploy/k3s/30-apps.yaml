@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Service
+metadata: { name: web, namespace: db3-starter }
+spec:
+  type: ClusterIP
+  selector: { app: web }
+  ports: [{ name: http, port: 3001, targetPort: http }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: web, namespace: db3-starter }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: web } }
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    metadata: { labels: { app: web } }
+    spec:
+      securityContext: { runAsUser: 1000, runAsGroup: 1000, runAsNonRoot: true }
+      containers:
+        - name: web
+          image: db3-starter:local
+          imagePullPolicy: Never
+          command: ["npm", "start"]
+          envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
+          resources: { requests: { memory: 256Mi, cpu: 50m }, limits: { memory: 512Mi } }
+          ports: [{ containerPort: 3001, name: http }]
+          # Keeps serving while the endpoint is withdrawn, so rollouts drop no requests.
+          lifecycle: { preStop: { exec: { command: ["sleep", "5"] } } }
+          readinessProbe: { httpGet: { path: /health, port: http }, periodSeconds: 3, failureThreshold: 2 }
+          livenessProbe: { httpGet: { path: /health, port: http }, initialDelaySeconds: 20, periodSeconds: 10 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: queue, namespace: db3-starter }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: queue } }
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    metadata: { labels: { app: queue } }
+    spec:
+      securityContext: { runAsUser: 1000, runAsGroup: 1000, runAsNonRoot: true }
+      containers:
+        - name: queue
+          image: db3-starter:local
+          imagePullPolicy: Never
+          command: ["npm", "run", "queue", "--", "queue:work"]
+          envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
+          resources: { requests: { memory: 256Mi, cpu: 50m }, limits: { memory: 512Mi } }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: scheduler, namespace: db3-starter }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: scheduler } }
+  strategy: { type: RollingUpdate, rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } }
+  template:
+    metadata: { labels: { app: scheduler } }
+    spec:
+      securityContext: { runAsUser: 1000, runAsGroup: 1000, runAsNonRoot: true }
+      containers:
+        - name: scheduler
+          image: db3-starter:local
+          imagePullPolicy: Never
+          command: ["npm", "run", "scheduler", "--", "scheduler:work"]
+          envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
+          resources: { requests: { memory: 256Mi, cpu: 50m }, limits: { memory: 512Mi } }
