@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: db3-env, namespace: db3-starter }
+data:
+  NODE_ENV: production
+  APP_NAME: db3 Starter
+  # Production requires an exact HTTPS origin; set this to the public address.
+  APP_ORIGIN: https://starter.test
+  HOST: 0.0.0.0
+  PORT: "3001"
+  APPS_MANAGE_ONLINE: "false"
+  DB_CONNECTION: mariadb
+  DB_HOST: mariadb
+  DB_PORT: "3306"
+  DB_DATABASE: db3_app
+  DB_USER: db3_app
