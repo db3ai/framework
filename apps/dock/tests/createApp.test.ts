@@ -33,11 +33,12 @@ async function until(check: () => boolean, ms = 15000): Promise<void> {
 }
 
 describe('create app', () => {
-	it('generates the starter with create-db3 and adds it with its dev script', async () => {
+	it('generates the starter with create-db3 and adds the processes from its app profile', async () => {
 		const { project, setupProcessId } = await dock.createApp({ name: 'fresh-app', folder, database: 'docker', setup: false });
 		expect(project.path).toBe(join(folder, 'fresh-app'));
 		expect(project.name).toBe('fresh-app');
-		expect(project.processes.map(process => process.name)).toContain('dev');
+		expect(project.processes.map(process => [process.name, process.script])).toEqual([['web', 'dev'], ['queue', 'queue'], ['scheduler', 'scheduler']]);
+		expect(JSON.parse(await readFile(join(project.path, 'db3.app.json'), 'utf8')).name).toBe('fresh-app');
 		expect(setupProcessId).toBeNull();
 		expect(JSON.parse(await readFile(join(project.path, 'package.json'), 'utf8')).name).toBe('fresh-app');
 		// --docker gives the bundled database a generated password.

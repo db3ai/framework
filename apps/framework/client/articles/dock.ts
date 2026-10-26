@@ -24,12 +24,12 @@ export const dockArticles: DocArticle[] = [
 			], codeSampleId: 'dock-launch' },
 			{ id: 'first-project', title: 'Add your first project', paragraphs: [
 				'Choose Add project in the header and enter the folder containing your application’s `package.json`, for example `~/Sites/my-app`. Dock reads the scripts in that folder. In a monorepo, choose the application folder that owns the scripts you want to run.',
-				'Dock adds `api`, `dev`, `web`, `queue`, `worker` and `scheduler` when those scripts exist. Nothing starts automatically by default. Press a process’s Start control to run it, or use the project’s Start all control.',
+				'Dock adds the processes in `db3.app.json`, or else the `api`, `dev`, `web`, `queue`, `worker` and `scheduler` scripts that exist. Nothing starts automatically. Press Start on a process, or Start all on the project.',
 				'Select a process row to open its output. Once it announces or opens a port, use the port link to open the application. The branch label shows which checkout you are running; change branches in your editor or Git client.',
 			], links: [{ label: 'Run processes, add workers and use terminals', articleId: 'dock-processes' }] },
 			{ id: 'create-app', title: 'Create a new app', paragraphs: [
 				'Choose Add project → Create app to generate the db3 starter in a new folder. Enter an app name and parent folder, then choose MariaDB in Docker or a local MariaDB. Dock adds the generated project to your workspace.',
-				'Select Install and migrate now to open a temporary setup terminal. For Docker, it starts the database; for a local database, it waits while you complete the DB_ settings in the generated .env. Setup then installs dependencies and runs the migrations. Start the dev process when setup finishes.',
+				'Select Install and migrate now to open a temporary setup terminal. For Docker, it starts the database; for a local database, it waits while you complete the DB_ settings in the generated .env. Setup then installs dependencies and runs the migrations. Start the web process when setup finishes.',
 				'Use Node.js 24 or newer in the shell that launches Dock. If setup fails, read its terminal output and correct the reported configuration before running the setup commands again.',
 			], links: [{ label: 'Explore the generated starter app', articleId: 'starter-app' }] },
 			{ id: 'desktop', title: 'Use the desktop app', paragraphs: [

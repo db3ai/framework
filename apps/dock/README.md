@@ -34,10 +34,26 @@ npm run dev:dock
 ```
 
 Open http://127.0.0.1:5179 and choose **Add project** with a folder such as
-`~/Sites/scout`. Dock adds the project's `api`, `dev`, `web`, `queue`, `worker`
-and `scheduler` scripts if present. Queue and scheduler scripts get
-`queue:work` / `scheduler:work` unless the script already includes it.
+`~/Sites/scout`. If the folder has a `db3.app.json` (see [App profile](#app-profile)),
+Dock adds the processes it lists. Otherwise it adds the project's `api`, `dev`,
+`web`, `queue`, `worker` and `scheduler` scripts if present. Queue and scheduler
+scripts get `queue:work` / `scheduler:work` unless the script already includes it.
 Nothing starts until you press start (or set `DOCK_AUTOSTART=1`).
+
+### App profile
+
+`db3.app.json` in a project's root describes how the app is built and run,
+wherever it runs: its processes, build script, database and environment
+variable names (never values). Dock uses it to set up processes; deployment
+tooling will read the same file. New apps from `create-db3` include one; see
+`apps/starter/db3.app.json`.
+
+Each process runs an npm script: `script` once deployed, `dev` (if set) in Dock.
+`kind` (`api`, `web`, `queue`, `scheduler` or `script`) defaults from the name.
+`port` and `health` say where a process listens and which path answers once it
+is ready. Database connection variables come from the host, so they are not
+listed. Dock refuses an invalid profile, or one naming a script `package.json`
+lacks, and says which field is wrong. The format lives in `shared/appProfile.ts`.
 
 ### Create a new app
 
@@ -46,7 +62,7 @@ starter: login, private notes, optional AI) in a folder you choose, then adds
 it like any other project. Pick MariaDB in Docker or a local MariaDB. With
 **Install and migrate now**, a session-only `setup` terminal starts the Docker
 database (or waits while you fill in the `DB_` values in `.env`), runs
-`npm install` and `npm run db:migrate`; then press start on `dev`. Setup needs
+`npm install` and `npm run db:migrate`; then press start on `web`. Setup needs
 Node 24 or newer in Dock's terminals, so start Dock from a Node 24 shell.
 
 For a single built server instead of Vite: `npm start --workspace db3-dock`,

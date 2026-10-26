@@ -14,6 +14,9 @@ test('creates an independent client/server app with optional AI and no inherited
 		const target = await createProject(join(root, 'my-app'));
 		const manifest = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'));
 		assert.equal(manifest.name, 'my-app');
+		const profile = JSON.parse(await readFile(join(target, 'db3.app.json'), 'utf8'));
+		assert.equal(profile.name, 'my-app');
+		assert.deepEqual(profile.processes.map(process => process.name), ['web', 'queue', 'scheduler']);
 		const release = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 		assert.equal(manifest.dependencies['@db3.ai/app'], release.version);
 		assert.match(manifest.scripts['db:make:migration'], /^npm run check && /);

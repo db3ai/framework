@@ -1,0 +1,15 @@
+{
+	"version": 1,
+	"name": "db3-starter",
+	"build": { "script": "build" },
+	"processes": [
+		{ "name": "web", "kind": "web", "script": "start", "dev": "dev", "port": 3001, "health": "/health" },
+		{ "name": "queue", "kind": "queue", "script": "queue", "args": ["queue:work"] },
+		{ "name": "scheduler", "kind": "scheduler", "script": "scheduler", "args": ["scheduler:work"] }
+	],
+	"database": { "engine": "mariadb", "migrate": "db:migrate" },
+	"env": {
+		"required": ["APP_ORIGIN"],
+		"optional": ["APP_NAME", "APP_ADMIN_EMAIL", "APPS_MANAGE_ONLINE", "OPENAI_API_KEY", "OPENAI_MODEL", "GOOGLE_AUTH_CLIENT_ID", "DEMO_ROOM_CODE"]
+	}
+}

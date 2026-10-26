@@ -3,7 +3,7 @@ import { extname, join } from 'node:path';
 
 /** Reviewed app roots shared by source export, creator packaging and generation. */
 export const STARTER_SOURCE_ENTRIES = new Set([
-	'.env.example', '.gitignore', 'AGENTS.md', 'README.md', 'package.json', 'docker-compose.yml',
+	'.env.example', '.gitignore', 'AGENTS.md', 'README.md', 'db3.app.json', 'package.json', 'docker-compose.yml',
 	'index.html', 'tsconfig.json', 'vite.config.ts', 'vitest.config.ts',
 	'apps', 'client', 'scripts', 'server', 'tests', 'plans',
 ]);
