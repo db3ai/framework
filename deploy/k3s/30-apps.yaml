@@ -20,6 +20,7 @@ spec:
       containers:
         - name: web
           image: db3-starter:local
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           imagePullPolicy: Never
           command: ["npm", "start"]
           envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
@@ -44,6 +45,7 @@ spec:
       containers:
         - name: queue
           image: db3-starter:local
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           imagePullPolicy: Never
           command: ["npm", "run", "queue", "--", "queue:work"]
           envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
@@ -63,6 +65,7 @@ spec:
       containers:
         - name: scheduler
           image: db3-starter:local
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           imagePullPolicy: Never
           command: ["npm", "run", "scheduler", "--", "scheduler:work"]
           envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]

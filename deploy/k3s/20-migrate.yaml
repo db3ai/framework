@@ -11,6 +11,7 @@ spec:
       containers:
         - name: migrate
           image: db3-starter:local
+          securityContext: { allowPrivilegeEscalation: false, capabilities: { drop: [ALL] } }
           imagePullPolicy: Never
           command: ["npm", "run", "db:migrate"]
           envFrom: [{ configMapRef: { name: db3-env } }, { secretRef: { name: db3-secrets } }]
