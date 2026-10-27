@@ -3,9 +3,10 @@ import { computed } from 'vue';
 
 import type { ProcessDefinition } from '../../shared/contracts.js';
 import { useDockContext } from '../dock/context.js';
-import { formatUsage, isUp, statusOf } from '../dock/presentation.js';
+import { isUp, statusOf } from '../dock/presentation.js';
 import Icon from './Icon.vue';
 import KindTile from './KindTile.vue';
+import UsageSparks from './UsageSparks.vue';
 
 /** One process in the list view. Selecting it shows its output below the list. */
 const props = defineProps<{ process: ProcessDefinition; projectName: string; selected: boolean }>();
@@ -47,7 +48,10 @@ function remove(): void {
 			<span v-if="otherPorts.length" class="more" :title="`Also listening on ${otherPorts.map(port => `:${port}`).join(', ')}`">+{{ otherPorts.length }}</span>
 			<span v-if="!link" class="faint">—</span>
 		</div>
-		<div class="usage mono">{{ formatUsage(snapshot) }}</div>
+		<div class="usage mono">
+			<UsageSparks v-if="snapshot?.status === 'running' && snapshot.cpu !== null" :history="snapshot.history" :cpu="snapshot.cpu" :memory="snapshot.memory" :name="fullName" />
+			<span v-else class="faint">—</span>
+		</div>
 		<div class="actions">
 			<button type="button" class="icon-btn" :aria-label="`Restart ${fullName}${snapshot?.external ? ' inside Dock' : ''}`" :title="snapshot?.external ? 'Restart inside Dock' : 'Restart'" @click="dock.restart(props.process.id)"><Icon name="restart" :size="15" /></button>
 			<button
@@ -158,7 +162,7 @@ function remove(): void {
 }
 
 .usage {
-	width: 130px;
+	width: 150px;
 	font-size: 12px;
 	color: var(--muted);
 }

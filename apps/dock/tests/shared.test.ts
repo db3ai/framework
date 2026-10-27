@@ -4,6 +4,7 @@ import { stripAnsi } from '../shared/ansi.js';
 import { consoleArgs } from '../shared/consoleArgs.js';
 import { detectPort } from '../shared/detectPort.js';
 import { processKind } from '../shared/processKind.js';
+import { emptyHistory, HISTORY_LENGTH, pushSample } from '../shared/usageHistory.js';
 import { displayCommand, workerArgs, workerLabel, workerProcessName } from '../shared/workerArgs.js';
 
 describe('processKind', () => {
@@ -72,5 +73,19 @@ describe('stripAnsi', () => {
 	it('removes colour, cursor and title sequences', () => {
 		expect(stripAnsi('a\u001b[31mred\u001b[0m b')).toBe('ared b');
 		expect(stripAnsi('\u001b[2J\u001b[H\u001b]0;title\u0007ready\r')).toBe('ready');
+	});
+});
+
+describe('usage history', () => {
+	it('keeps the latest samples, oldest first, without changing the input', () => {
+		const start = pushSample(emptyHistory(), 1, 100);
+		const next = pushSample(start, null, 200);
+		expect(start).toEqual({ cpu: [1], memory: [100] });
+		expect(next).toEqual({ cpu: [1, null], memory: [100, 200] });
+		let full = emptyHistory();
+		for (let index = 0; index < HISTORY_LENGTH + 5; index++) full = pushSample(full, index, index);
+		expect(full.cpu).toHaveLength(HISTORY_LENGTH);
+		expect(full.cpu[0]).toBe(5);
+		expect(full.memory.at(-1)).toBe(HISTORY_LENGTH + 4);
 	});
 });

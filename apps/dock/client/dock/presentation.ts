@@ -80,15 +80,6 @@ export function formatMemory(bytes: number | null): string {
 
 /**
  * @param snapshot - Process state.
- * @returns `2.1% · 184 MB` while running, else `—`.
- */
-export function formatUsage(snapshot: ProcessSnapshot | undefined): string {
-	if (!snapshot || snapshot.status !== 'running' || snapshot.cpu === null) return '—';
-	return `${snapshot.cpu.toFixed(1)}% · ${formatMemory(snapshot.memory)}`;
-}
-
-/**
- * @param snapshot - Process state.
  * @returns Whether the process is up or shutting down.
  */
 export function isUp(snapshot: ProcessSnapshot | undefined): boolean {

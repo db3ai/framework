@@ -2,6 +2,7 @@ import * as pty from 'node-pty';
 
 import type { OutputChunk, ProcessDefinition, ProcessSnapshot, ProcessStatus } from '../../shared/contracts.js';
 import { detectPort } from '../../shared/detectPort.js';
+import { emptyHistory, pushSample, type UsageHistory } from '../../shared/usageHistory.js';
 import { displayCommand } from '../../shared/workerArgs.js';
 import { ScrollbackBuffer } from './ScrollbackBuffer.js';
 
@@ -58,6 +59,7 @@ export class SupervisedProcess {
 	private killTimer: NodeJS.Timeout | null = null;
 	private exitWaiters: Array<() => void> = [];
 	private stats: { cpu: number | null; memory: number | null } = { cpu: null, memory: null };
+	private history: UsageHistory = emptyHistory();
 	/** A job started outside Dock that this definition is showing. */
 	private external: { pid: number } | null = null;
 	private externalPoll: NodeJS.Timeout | null = null;
@@ -112,6 +114,7 @@ export class SupervisedProcess {
 			ports: this.isRunning ? this.listening : [],
 			cpu: this.isRunning ? this.stats.cpu : null,
 			memory: this.isRunning ? this.stats.memory : null,
+			history: this.isRunning ? this.history : emptyHistory(),
 			command: this.commandText(),
 			external: !!this.external,
 		};
@@ -128,6 +131,7 @@ export class SupervisedProcess {
 		this.listening = [];
 		this.pendingLine = '';
 		this.stats = { cpu: null, memory: null };
+		this.history = emptyHistory();
 		this.note(`$ ${this.commandText()}`);
 		let term: pty.IPty;
 		try {
@@ -187,6 +191,7 @@ export class SupervisedProcess {
 		this.listening = job.ports;
 		this.exitCode = null;
 		this.stats = { cpu: null, memory: null };
+		this.history = emptyHistory();
 		this.note(`Found running outside Dock (pid ${job.pid}), started from a terminal or editor.`);
 		this.note('Its output goes to that terminal, so it cannot be shown here. Restart it to run it inside Dock.');
 		this.setStatus('running');
@@ -284,15 +289,16 @@ export class SupervisedProcess {
 	}
 
 	/**
-	 * Records sampled resource use.
+	 * Records sampled resource use. Every sample is published, even when unchanged,
+	 * so the sparklines keep moving.
 	 *
 	 * @param cpu - CPU percentage.
 	 * @param memory - Resident bytes.
 	 */
 	setStats(cpu: number | null, memory: number | null): void {
 		if (!this.isRunning) return;
-		if (cpu === this.stats.cpu && memory === this.stats.memory) return;
 		this.stats = { cpu, memory };
+		this.history = pushSample(this.history, cpu, memory);
 		this.events.change(this.snapshot());
 	}
 

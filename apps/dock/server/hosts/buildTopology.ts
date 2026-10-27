@@ -1,4 +1,5 @@
 import type { AppGroup, ContainerRole, ContainerSnapshot, DiskUsage, HostDefinition, InboundRoute, ListeningPort, RequestStats, SlotGroup, TunnelInfo } from '../../shared/hostContracts.js';
+import { emptyHistory, type UsageHistory } from '../../shared/usageHistory.js';
 import type { InspectRow, PsRow, StatsRow } from './parseDocker.js';
 import { upstreamRole, type NginxRoutes } from './parseNginxRoutes.js';
 import type { TunnelLog, TunnelMetrics } from './parseRuntime.js';
@@ -24,6 +25,8 @@ export interface TopologyInput {
 	tunnelMetrics?: Map<string, { metrics: TunnelMetrics; requestRate: number | null; errorRate: number | null }>;
 	/** nginx access-log request rates by container name. */
 	requests?: Map<string, RequestStats>;
+	/** Recent CPU and memory samples by container name. */
+	history?: Map<string, UsageHistory>;
 	host: Pick<HostDefinition, 'publicNetworks' | 'apps'>;
 }
 
@@ -108,6 +111,7 @@ export function buildTopology(input: TopologyInput): Topology {
 			cpu: stats?.cpu ?? null,
 			memory: stats?.memory ?? null,
 			pids: stats?.pids ?? null,
+			history: running ? input.history?.get(row.name) ?? emptyHistory() : emptyHistory(),
 			rxRate: rate?.rx ?? null,
 			txRate: rate?.tx ?? null,
 			pending: input.pending?.get(row.name) ?? null,

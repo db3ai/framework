@@ -5,7 +5,7 @@
 A local process manager for db3 apps. Add a project folder and Dock runs its
 `npm run` scripts (api, dev/web, queue workers, scheduler, anything else in
 `package.json`) in their own folders. Each process gets live output, status,
-port, CPU and memory, and controls for start, stop and restart. You no longer
+port, live CPU and memory sparklines, and controls for start, stop and restart. You no longer
 need a terminal tab per process.
 
 - **List view:** one card per project, with the selected process's output docked below.
@@ -267,6 +267,8 @@ that exist in a project's `package.json`, with arguments chosen in the UI.
   and links ports to their local domains (`:8000` → `local.growthscout.io`,
   `:8300` → `local.db3.ai/framework`). Hover a link to see every address.
 - CPU and memory are summed over the process group from `ps` every 3s (macOS/Linux).
+  The server keeps the last 40 samples per process and container (two to three
+  minutes) for the sparklines, so they are already drawn when the page opens.
 - Every 4s Dock scans for `npm run <script>` jobs started elsewhere (a terminal,
   Cursor), using `ps` and `lsof`, so it works in the browser and in Electron. A job is
   matched to a project by its working folder and to a process by script name;

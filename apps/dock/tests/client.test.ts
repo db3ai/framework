@@ -24,7 +24,7 @@ function chunk(seq: number, data = `c${seq}`): OutputChunk {
 }
 
 function snap(id: string, status: ProcessSnapshot['status']): ProcessSnapshot {
-	return { id, projectId: 'p', status, pid: null, startedAt: null, exitCode: status === 'crashed' ? 1 : null, port: null, cpu: null, memory: null, command: '', external: false, ports: [] };
+	return { id, projectId: 'p', status, pid: null, startedAt: null, exitCode: status === 'crashed' ? 1 : null, port: null, cpu: null, memory: null, history: { cpu: [], memory: [] }, command: '', external: false, ports: [] };
 }
 
 const projects: ProjectDefinition[] = [
