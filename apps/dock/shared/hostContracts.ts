@@ -3,6 +3,8 @@
  * machine). Everything here is plain JSON so it can cross HTTP and server-sent events.
  */
 
+import type { UsageHistory } from './usageHistory.js';
+
 /** A Docker host saved in the Dock config. */
 export interface HostDefinition {
 	/** Stable id, such as `mac-server`. */
@@ -205,6 +207,8 @@ export interface ContainerSnapshot {
 	cpu: number | null;
 	memory: number | null;
 	pids: number | null;
+	/** Recent CPU and memory samples for the sparklines; empty while stopped. */
+	history: UsageHistory;
 	/** Network throughput in bytes per second between the last two samples. */
 	rxRate: number | null;
 	txRate: number | null;

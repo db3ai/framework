@@ -1,6 +1,7 @@
 import type { ChildProcess } from 'node:child_process';
 
 import type { ContainerAction, ContainerSnapshot, DiskUsage, HostActivity, HostDefinition, HostSnapshot, ListeningPort, RequestStats } from '../../shared/hostContracts.js';
+import { emptyHistory, pushSample, type UsageHistory } from '../../shared/usageHistory.js';
 import { DockRequestError } from '../projects/ProjectStore.js';
 import { buildTopology } from './buildTopology.js';
 import { cpuPercent, INSPECT_FORMAT, parseApiStats, parseEvent, parseInfo, parseInspect, parsePs, parseStats, splitSections, type ApiStats, type EngineInfo, type InspectRow, type PsRow, type StatsRow } from './parseDocker.js';
@@ -65,6 +66,7 @@ export class HostWatcher {
 	#tunnelLogAt = 0;
 	#tunnelMetrics = new Map<string, { metrics: TunnelMetrics; requestRate: number | null; errorRate: number | null; at: number }>();
 	#requests = new Map<string, RequestStats>();
+	#history = new Map<string, UsageHistory>();
 	#accessAt = 0;
 	#activity: HostActivity[] = [];
 	#snapshot: HostSnapshot;
@@ -404,6 +406,14 @@ export class HostWatcher {
 			this.#stats = stats;
 			this.#rates = rates;
 		}
+
+		const history = new Map<string, UsageHistory>();
+		for (const row of this.#ps) {
+			if (row.state !== 'running') continue;
+			const stats = this.#stats.get(row.name);
+			history.set(row.name, pushSample(this.#history.get(row.name) ?? emptyHistory(), stats?.cpu ?? null, stats?.memory ?? null));
+		}
+		this.#history = history;
 	}
 
 	#build(): HostSnapshot {
@@ -419,6 +429,7 @@ export class HostWatcher {
 			tunnelLogs: this.#tunnelLogs,
 			tunnelMetrics: this.#tunnelMetrics,
 			requests: this.#requests,
+			history: this.#history,
 			host: this.#host,
 		});
 		return {

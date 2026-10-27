@@ -5,6 +5,7 @@ import type { ContainerAction, ContainerSnapshot } from '../../../shared/hostCon
 import { useDockContext } from '../../dock/context.js';
 import { confirmAction, containerDetail, containerLabel, containerStatus, formatContainerUsage, formatPorts, formatRate, isRunning, requestSummary, roleMeta, trafficOf } from '../../hosts/presentation.js';
 import Icon from '../Icon.vue';
+import UsageSparks from '../UsageSparks.vue';
 import RoleTile from './RoleTile.vue';
 
 /** One container on a server. Selecting it shows its logs below the list. */
@@ -52,7 +53,8 @@ function run(action: ContainerAction): void {
 			</span>
 		</div>
 		<div class="usage mono">
-			<span>{{ formatContainerUsage(props.container) }}</span>
+			<UsageSparks v-if="running && props.container.cpu !== null" :history="props.container.history" :cpu="props.container.cpu" :memory="props.container.memory" :name="props.container.name" />
+			<span v-else>{{ formatContainerUsage(props.container) }}</span>
 			<span v-if="running && (props.container.rxRate !== null || props.container.pids !== null)" class="sub" :title="`Network in / out${props.container.pids !== null ? ` · ${props.container.pids} processes` : ''}`">
 				↓{{ formatRate(props.container.rxRate) }} ↑{{ formatRate(props.container.txRate) }}<template v-if="props.container.pids !== null"> · {{ props.container.pids }}p</template>
 			</span>

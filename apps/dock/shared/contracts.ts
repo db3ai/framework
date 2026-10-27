@@ -3,6 +3,8 @@
  * Everything here is plain JSON so it can cross HTTP and server-sent events.
  */
 
+import type { UsageHistory } from './usageHistory.js';
+
 /** Broad role of a process, used for its icon, colour and add-process defaults. */
 export type ProcessKind = 'api' | 'web' | 'queue' | 'scheduler' | 'script';
 
@@ -59,6 +61,8 @@ export interface ProcessSnapshot {
 	cpu: number | null;
 	/** Summed resident memory in bytes of the process group, when sampled. */
 	memory: number | null;
+	/** Recent CPU and memory samples for the sparklines; empty while stopped. */
+	history: UsageHistory;
 	/** Full command line as it is spawned. */
 	command: string;
 	/**
