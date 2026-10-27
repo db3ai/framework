@@ -1,4 +1,4 @@
-import type { WebSocketEndpoint } from './WebSocketEndpoint';
+import type { WebSocketEndpoint, WebSocketTokenEndpoint } from './WebSocketEndpoint';
 import type { IncomingMessage } from 'node:http';
 
 /** Mount configuration for one app-owned HTTP/S server. No additional port is opened. */
@@ -13,8 +13,8 @@ export interface WebSocketOptions {
 	/** Exact HTTP(S) origins allowed to upgrade. Missing origins are rejected. */
 	origins: readonly string[];
 	/** Exact paths to endpoint actions. Query parameters are available on request.url. */
-	endpoints: Readonly<Record<string, WebSocketEndpoint<any, any>>>;
-	/** Resolves an existing session from the upgrade request, e.g. an HttpOnly cookie. Origin checks still apply. Public endpoints never invoke this. */
+	endpoints: Readonly<Record<string, WebSocketEndpoint<any, any> | WebSocketTokenEndpoint<any, any>>>;
+	/** Resolves an existing session from the upgrade request, e.g. an HttpOnly cookie. Origin checks still apply. Public and token endpoints never invoke this. */
 	resolveToken?(request: IncomingMessage): string | null | Promise<string | null>;
 	/** Maximum simultaneous sockets, including unauthenticated handshakes. Default 1000. */
 	maxConnections?: number;

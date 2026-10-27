@@ -126,6 +126,39 @@ Use `context.signal` to cancel application work and `close({ id, userId, code })
 to dispose listeners. Close callbacks run without authenticated request context.
 They must settle promptly; shutdown is bounded even if application work hangs.
 
+## Machine and service clients
+
+An agent running on a customer's server, a CLI or another service is not a
+user, so it cannot hold a framework session. Give its endpoint `auth: 'token'`
+and an `authenticate(token, request)` callback that resolves the client's own
+bearer token, for example a hashed agent token, to a principal with a stable `id`:
+
+```ts
+const agentEndpoint = defineWebSocket<AgentCommand, { id: string }>({
+	auth: 'token',
+	/** Your application's token lookup; return null for unknown or revoked tokens. */
+	authenticate: token => findMachineByToken(token),
+	async open({ principal, send }) { await send({ type: 'hello', machine: principal.id }); },
+	async message({ principal }, command) { await handleAgentCommand(principal.id, command); },
+});
+registerWebSockets(server, { app: application, origins: [appOrigin], endpoints: { '/ws/agent': agentEndpoint } });
+```
+
+`authenticate` runs again before every action, send and heartbeat, so revoking
+the token disconnects the client within one heartbeat. The principal may not
+change during a connection. Context `user` and `userId` are null, cookie
+resolvers are never consulted, and private channels are not available;
+`close` receives the principal ID as `userId`. Because no ambient browser
+credential is involved, an upgrade without an Origin header is accepted; a
+present Origin must still be in `origins`.
+
+The wire protocol is small enough for a dependency-free client such as Node's
+built-in `WebSocket`: send `{ "type": "authenticate", "token": "..." }` first,
+wait for `{ "type": "ready" }`, then exchange `{ "type": "message", "data": ... }`
+text frames. Answer pings (Node and browsers do this automatically), reconnect
+with backoff on any close except 4401/4403, and keep each frame under the
+endpoint's `maxPayloadBytes` (64 KiB by default).
+
 ## One connection, multiple authorized channels
 
 Own one `WebSocketClient` per browser tab at app startup and share it across

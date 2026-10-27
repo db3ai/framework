@@ -44,3 +44,39 @@ export interface WebSocketEndpoint<TMessage = unknown, TUser extends UserIdentit
 	/** Releases application subscriptions. Must settle promptly and must not send data. */
 	close?(context: WebSocketClosed): void | Promise<void>;
 }
+
+/** A non-user client, such as a machine agent, identified by the endpoint's own token check. */
+export interface WebSocketPrincipal {
+	/** Stable identity; a different ID on revalidation closes the connection. */
+	readonly id: string;
+}
+
+/** Connection context for a token endpoint. There is no framework user; `principal` is what `authenticate` returned. */
+export interface WebSocketTokenContext<TPrincipal extends WebSocketPrincipal = WebSocketPrincipal> extends Omit<WebSocketContext<null>, 'send'> {
+	/** Freshly authenticated principal for this action. */
+	readonly principal: TPrincipal;
+	/** Sends JSON after the token and endpoint policy are checked again. */
+	send(data: unknown, authorize?: (context: Omit<WebSocketTokenContext<TPrincipal>, 'send' | 'close'>) => boolean | Promise<boolean>): Promise<boolean>;
+}
+
+/**
+ * Endpoint for machine or service clients that hold their own bearer token rather than a user session.
+ * The first frame is `{ "type": "authenticate", "token": "..." }`; cookies are never read. Upgrades
+ * without an Origin header are accepted because no ambient browser credential is involved; a present
+ * Origin must still be allowed. Private channels are not available to principals.
+ */
+export interface WebSocketTokenEndpoint<TMessage = unknown, TPrincipal extends WebSocketPrincipal = WebSocketPrincipal> {
+	auth: 'token';
+	/** Resolves the bearer token. Rerun on every action, send and heartbeat; null rejects or revokes. */
+	authenticate(token: string, request: IncomingMessage): TPrincipal | null | Promise<TPrincipal | null>;
+	/** Additional policy, rerun with the fresh principal before each action and send. */
+	authorize?(context: Omit<WebSocketTokenContext<TPrincipal>, 'send' | 'close'>): boolean | Promise<boolean>;
+	/** Called once after authentication. */
+	open?(context: WebSocketTokenContext<TPrincipal>): void | Promise<void>;
+	/** Validates untrusted JSON. Throwing closes with 1008. */
+	parse?(data: unknown): TMessage | Promise<TMessage>;
+	/** Called sequentially for validated application messages. */
+	message?(context: WebSocketTokenContext<TPrincipal>, data: TMessage): void | Promise<void>;
+	/** Releases application state; `userId` is the principal ID. Must settle promptly and must not send data. */
+	close?(context: WebSocketClosed): void | Promise<void>;
+}
