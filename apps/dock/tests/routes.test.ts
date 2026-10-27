@@ -17,7 +17,7 @@ function host(): HostSnapshot {
 		['scout-hosted-blog-tunnel-1', log([{ hostname: null, service: 'http://growthscout:80' }])],
 	]);
 	const { containers, apps } = buildTopology(input);
-	return { id: 'm', name: 'mac-server', target: '', status: 'online', error: null, sampledAt: 0, latencyMs: 0, engine: null, disks: null, containers, apps, activity: [] };
+	return { id: 'm', name: 'mac-server', target: '', status: 'online', error: null, sampledAt: 0, latencyMs: 0, engine: null, kubernetes: null, disks: null, containers, apps, activity: [] };
 }
 
 describe('route graph', () => {

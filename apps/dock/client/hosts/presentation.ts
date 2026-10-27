@@ -284,6 +284,7 @@ export function confirmAction(container: ContainerSnapshot, action: ContainerAct
 	if (container.role === 'database') lines.push('It is a database: everything that uses it will fail until it is back.');
 	if (container.role === 'worker' && action === 'stop') lines.push('Docker waits for its stop timeout so the current job can finish.');
 	if (container.slot) lines.push('Its slot is normally managed by the deploy script; a deploy may undo this.');
+	if (container.runtime === 'kubernetes') lines.push('Its pod is deleted and Kubernetes starts a fresh one.');
 	return lines.join('\n\n');
 }
 

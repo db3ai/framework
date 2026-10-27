@@ -1,10 +1,11 @@
 import type { ChildProcess } from 'node:child_process';
 
-import type { ContainerAction, ContainerSnapshot, DiskUsage, HostActivity, HostDefinition, HostSnapshot, ListeningPort, RequestStats } from '../../shared/hostContracts.js';
+import type { ContainerAction, ContainerSnapshot, DiskUsage, HostActivity, HostDefinition, HostSnapshot, KubernetesInfo, ListeningPort, RequestStats } from '../../shared/hostContracts.js';
 import { emptyHistory, pushSample, type UsageHistory } from '../../shared/usageHistory.js';
 import { DockRequestError } from '../projects/ProjectStore.js';
 import { buildTopology } from './buildTopology.js';
 import { cpuPercent, INSPECT_FORMAT, parseApiStats, parseEvent, parseInfo, parseInspect, parsePs, parseStats, splitSections, type ApiStats, type EngineInfo, type InspectRow, type PsRow, type StatsRow } from './parseDocker.js';
+import { KUBE_PRELUDE, parseKubeNodes, parseKubePods, type KubeNodes, type KubeTarget } from './parseKube.js';
 import { parseNginxRoutes, type NginxRoutes } from './parseNginxRoutes.js';
 import { LISTEN_OK, NO_MOUNTS, parseAccessCounts, parseDisks, parseListening, parseTunnelLog, parseTunnelMetrics, type TunnelLog, type TunnelMetrics } from './parseRuntime.js';
 import { CONTAINER_NAME, RemoteShell } from './RemoteShell.js';
@@ -13,6 +14,8 @@ import { CONTAINER_NAME, RemoteShell } from './RemoteShell.js';
 const TUNNEL_LOG_EVERY_MS = 5 * 60 * 1000;
 /** cloudflared's default metrics port when its log does not say. */
 const DEFAULT_METRICS_PORT = 20241;
+
+const KUBE_DENIED = 'k3s is installed, but this user cannot read the cluster. On the machine, run: mkdir -p ~/.kube && sudo k3s kubectl config view --raw > ~/.kube/config && chmod 600 ~/.kube/config';
 
 /** Sampling intervals; tests shorten them. */
 export interface WatcherOptions {
@@ -67,6 +70,9 @@ export class HostWatcher {
 	#tunnelMetrics = new Map<string, { metrics: TunnelMetrics; requestRate: number | null; errorRate: number | null; at: number }>();
 	#requests = new Map<string, RequestStats>();
 	#history = new Map<string, UsageHistory>();
+	#kubeTargets = new Map<string, KubeTarget>();
+	#kubeNodes: KubeNodes | null = null;
+	#kube: 'none' | 'ok' | 'denied' = 'none';
 	#accessAt = 0;
 	#activity: HostActivity[] = [];
 	#snapshot: HostSnapshot;
@@ -160,6 +166,8 @@ export class HostWatcher {
 	 * @param action - Action.
 	 */
 	async action(name: string, action: ContainerAction): Promise<void> {
+		const pod = this.#kubeTargets.get(name);
+		if (pod) return this.#podAction(name, pod, action);
 		this.#container(name);
 		this.#pending.set(name, action === 'start' ? 'starting' : action === 'stop' ? 'stopping' : 'restarting');
 		this.#refresh();
@@ -184,8 +192,10 @@ export class HostWatcher {
 	 * @returns Stop function.
 	 */
 	logs(name: string, onData: (text: string) => void, onEnd: (message: string) => void, tail = 500): () => void {
-		this.#container(name);
-		const { child, stop } = this.#shell.stream(`${this.#docker} logs -f --tail ${Math.max(0, Math.min(tail, 10000))} ${name} 2>&1`);
+		const lines = Math.max(0, Math.min(tail, 10000));
+		const pod = this.#kubeTargets.get(name);
+		if (!pod) this.#container(name);
+		const { child, stop } = this.#shell.stream(pod ? `${KUBE_PRELUDE}\n$KC logs -f --tail ${lines} -n ${pod.namespace} ${pod.pod} -c ${pod.container} 2>&1` : `${this.#docker} logs -f --tail ${lines} ${name} 2>&1`);
 		// docker logs prints bare newlines; a terminal needs carriage returns too.
 		child.stdout!.on('data', (text: string) => onData(text.replace(/\r?\n/g, '\r\n')));
 		let stderr = '';
@@ -193,6 +203,26 @@ export class HostWatcher {
 		child.on('close', () => onEnd(stderr.trim() ? stderr.trim().split('\n').at(-1)! : 'Log stream ended.'));
 		child.on('error', error => onEnd(error.message));
 		return stop;
+	}
+
+	/**
+	 * Restarts a pod's container by deleting the pod, so its Deployment or
+	 * StatefulSet replaces it. Kubernetes keeps pods running, so stop and start
+	 * are refused: scaling belongs to whatever deployed it.
+	 */
+	async #podAction(name: string, pod: KubeTarget, action: ContainerAction): Promise<void> {
+		if (action !== 'restart') throw new DockRequestError(`${name} runs in Kubernetes, which starts it again if stopped. Restart replaces the pod; scale it where it is deployed.`, 400);
+		this.#pending.set(name, 'restarting');
+		this.#refresh();
+		try {
+			await this.#shell.run(`${KUBE_PRELUDE}\n$KC delete pod -n ${pod.namespace} ${pod.pod} --wait=false`, 60 * 1000);
+		} catch (error) {
+			throw new DockRequestError(`Could not restart ${name}: ${(error as Error).message}`, 502);
+		} finally {
+			this.#pending.delete(name);
+			this.#dirty = true;
+			void this.sample();
+		}
 	}
 
 	/**
@@ -232,8 +262,15 @@ export class HostWatcher {
 		const lines = [
 			'J=$(mktemp -d) || exit 4',
 			`trap 'rm -rf "$J"' EXIT`,
+			KUBE_PRELUDE,
+			'case "$KC" in',
+			'\tdenied) echo @@k8s-denied ;;',
+			// Each ends with `echo`: `--raw` output has no final newline to end its section.
+			`\t?*) { echo @@k8s-pods; $KC get pods -A -o json; echo; } > "$J/k" & { echo @@k8s-metrics; $KC get --raw /apis/metrics.k8s.io/v1beta1/pods 2>/dev/null; echo; } > "$J/km" &${slow ? ` { echo @@k8s-nodes; $KC get nodes -o json; echo; } > "$J/kn" &` : ''} ;;`,
+			'esac',
 			'echo @@ps',
-			`${docker} ps -a --no-trunc --format '{{json .}}' || exit 3`,
+			// A k3s machine may have no Docker at all.
+			`${docker} ps -a --no-trunc --format '{{json .}}' 2>/dev/null || [ -n "$KC" ] || exit 3`,
 			// The Engine API gives exact counters and is faster than `docker stats`.
 			`SOCK=$(${docker} context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null | sed -n 's#^unix://##p')`,
 			'[ -S "$SOCK" ] || SOCK=/var/run/docker.sock',
@@ -321,7 +358,11 @@ export class HostWatcher {
 
 	#apply(output: string, slow: boolean, at: number): void {
 		const sections = splitSections(output);
-		this.#ps = parsePs(sections.get('ps') ?? []);
+		const kube = parseKubePods(sections.get('k8s-pods'), sections.get('k8s-metrics'));
+		this.#kube = sections.has('k8s-denied') ? 'denied' : sections.has('k8s-pods') ? 'ok' : 'none';
+		this.#kubeTargets = kube.targets;
+		if (sections.has('k8s-nodes')) this.#kubeNodes = parseKubeNodes(sections.get('k8s-nodes'));
+		this.#ps = [...parsePs(sections.get('ps') ?? []), ...kube.ps];
 		const signature = this.#ps.map(row => `${row.id}:${row.state}`).sort().join(',');
 		if (slow) {
 			this.#inspect = new Map(parseInspect(sections.get('inspect') ?? []).map(row => [row.name, row]));
@@ -407,6 +448,9 @@ export class HostWatcher {
 			this.#rates = rates;
 		}
 
+		for (const [name, row] of kube.inspect) this.#inspect.set(name, row);
+		for (const [name, row] of kube.stats) this.#stats.set(name, row);
+
 		const history = new Map<string, UsageHistory>();
 		for (const row of this.#ps) {
 			if (row.state !== 'running') continue;
@@ -441,11 +485,19 @@ export class HostWatcher {
 			sampledAt: this.#sampledAt,
 			latencyMs: this.#latencyMs,
 			engine: this.#engine,
+			kubernetes: this.#kubernetes(),
 			disks: this.#disks,
 			containers: topology.containers,
 			apps: topology.apps,
 			activity: this.#activity,
 		};
+	}
+
+	#kubernetes(): KubernetesInfo | null {
+		if (this.#kube === 'none') return null;
+		if (this.#kube === 'denied') return { version: '', nodes: 0, cpus: 0, memory: 0, error: KUBE_DENIED };
+		const nodes = this.#kubeNodes;
+		return { version: nodes?.version ?? '', nodes: nodes?.nodes ?? 0, cpus: nodes?.cpus ?? 0, memory: nodes?.memory ?? 0, error: null };
 	}
 
 	#followEvents(): void {

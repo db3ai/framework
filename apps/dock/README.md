@@ -123,6 +123,13 @@ For each server Dock shows:
   containers on a public network (`edge`). What that reaches through `*_active` or
   direct routes is **Live**; what sits behind a `*_previous` upstream is **Standby**,
   the rollback target. A slot no gateway routes to is **Idle**.
+- **k3s.** On a machine with k3s, Dock also lists the cluster's pods with the
+  containers: each namespace is an app, the `app` label names the process, and
+  CPU and memory come from metrics-server. Logs work as for Docker; restart deletes
+  the pod so Kubernetes starts a fresh one, and stop/start are left to whatever
+  deployed it. Dock uses `~/.kube/config` or k3s's own kubeconfig when readable,
+  else `sudo -n`. If none works, the machine says so with the command to copy the
+  kubeconfig: `mkdir -p ~/.kube && sudo k3s kubectl config view --raw > ~/.kube/config`.
 - **Load:** CPU, memory, processes and network throughput, from the Engine API's
   exact counters (or `docker stats` where its socket or `curl` is unavailable).
 - **Listening ports** from each container's own socket table (`/proc/net/tcp`),
