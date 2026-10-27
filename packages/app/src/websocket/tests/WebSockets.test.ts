@@ -316,6 +316,72 @@ describe('authenticated WebSocket endpoints', () => {
 	});
 });
 
+describe('token endpoints for machine clients', () => {
+	/** A machine registry the test can revoke; stands in for an application's hashed agent tokens. */
+	const machines = new Map([['machine-token-1234567890', 'machine-1']]);
+	const opened: { principal: string; userId: null; user: null }[] = [];
+	const closed: (string | null)[] = [];
+	/** Echoes commands from authenticated machines. */
+	const machineEndpoint = defineWebSocket<{ text: string }, { id: string; name: string }>({
+		auth: 'token',
+		authenticate: token => machines.has(token) ? { id: machines.get(token)!, name: 'worker' } : null,
+		authorize: ({ principal }) => principal.name === 'worker',
+		async open(context) { opened.push({ principal: context.principal.id, userId: context.userId, user: context.user }); await context.send({ type: 'hello', machine: context.principal.id }); },
+		parse(data) { if (!data || typeof data !== 'object' || typeof (data as any).text !== 'string') throw new Error('Expected text.'); return { text: (data as any).text }; },
+		async message({ send, principal }, data) { await send({ type: 'echo', machine: principal.id, text: data.text }); },
+		close({ userId }) { closed.push(userId); },
+	});
+
+	/** Connects like a Node agent: no Origin header unless one is given. */
+	async function machine(credential: string, headers: Record<string, string> = {}, target = url.replace('/ws/me', '/ws/machine')) {
+		const ws = new WebSocket(target, { headers }); clients.push(ws);
+		const frames: any[] = []; let closeCode = 0;
+		ws.on('message', value => frames.push(JSON.parse(value.toString())));
+		ws.on('error', () => {}); ws.on('close', code => { closeCode = code; });
+		await once(ws, 'open');
+		ws.send(JSON.stringify({ type: 'authenticate', token: credential }));
+		return { ws, frames, closed: () => closeCode };
+	}
+
+	beforeEach(() => { machines.set('machine-token-1234567890', 'machine-1'); opened.length = 0; closed.length = 0; });
+
+	it('authenticates a machine without Origin, runs actions with its principal and keeps it out of user presence', async () => {
+		await start({ endpoints: { '/ws/me': userEndpoint(application), '/ws/machine': machineEndpoint } });
+		const client = await machine('machine-token-1234567890');
+		await ready(client);
+		await expect.poll(() => client.frames.at(-1)).toEqual({ type: 'message', data: { type: 'hello', machine: 'machine-1' } });
+		client.ws.send(JSON.stringify({ type: 'message', data: { text: 'hi' } }));
+		await expect.poll(() => client.frames.at(-1)).toEqual({ type: 'message', data: { type: 'echo', machine: 'machine-1', text: 'hi' } });
+		expect(opened).toEqual([{ principal: 'machine-1', userId: null, user: null }]);
+		expect(application.webSockets.presence('/ws/machine')).toEqual([]);
+		client.ws.close();
+		await expect.poll(() => closed).toEqual(['machine-1']);
+	});
+
+	it('rejects unknown tokens, user sessions, foreign origins and ignores the cookie resolver', async () => {
+		await start({ endpoints: { '/ws/me': userEndpoint(application), '/ws/machine': machineEndpoint }, resolveToken: () => 'machine-token-1234567890' });
+		for (const credential of ['wrong-token', token]) {
+			const client = await machine(credential);
+			await expect.poll(client.closed).toBe(4401);
+			expect(client.frames).toEqual([]);
+		}
+		const ws = new WebSocket(url.replace('/ws/me', '/ws/machine'), { origin: 'http://evil.example' }); clients.push(ws);
+		ws.on('error', () => {});
+		const [request, response] = await once(ws, 'unexpected-response');
+		expect(response.statusCode).toBe(403);
+		response.resume(); request.destroy();
+		// The same origin as the app is still allowed.
+		await ready(await machine('machine-token-1234567890', { origin }));
+	});
+
+	it('disconnects a revoked machine on the next heartbeat', async () => {
+		await start({ heartbeatMs: 300, endpoints: { '/ws/me': userEndpoint(application), '/ws/machine': machineEndpoint } });
+		const client = await machine('machine-token-1234567890'); await ready(client);
+		machines.delete('machine-token-1234567890');
+		await expect.poll(client.closed, { timeout: 5000 }).toBe(4401);
+	});
+});
+
 describe('framework browser client against a real server', () => {
 	it('reconnects across API replacement using the same persisted Auth session', async () => {
 		await start(); const port = Number(new URL(url).port);

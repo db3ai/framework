@@ -84,7 +84,9 @@ export class WebSockets {
 				if (server.listenerCount('upgrade') === 1) stream.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
 				return;
 			}
-			if (closing || !request.headers.origin || !origins.has(request.headers.origin) || connections.size >= limits.maxConnections) {
+			// Token endpoints carry no ambient browser credential, so non-browser clients may omit Origin.
+			const origin = request.headers.origin;
+			if (closing || (origin === undefined ? endpoint.auth !== 'token' : !origins.has(origin)) || connections.size >= limits.maxConnections) {
 				stream.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
 				return;
 			}
