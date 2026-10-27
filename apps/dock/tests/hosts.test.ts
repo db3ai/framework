@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,10 +8,12 @@ import { appResolver, buildTopology, inferRole, shortCommand, slotOf, workerPool
 import { HostStore } from '../server/hosts/HostStore.js';
 import { HostWatcher } from '../server/hosts/HostWatcher.js';
 import { cpuPercent, labelFromList, parseApiStats, parseEvent, parseInspect, parsePorts, parsePs, parseSize, splitSections, type InspectRow, type PsRow } from '../server/hosts/parseDocker.js';
+import { cpuQuantity, memoryQuantity, parseKubeNodes, parseKubePods } from '../server/hosts/parseKube.js';
 import { parseNginxRoutes, upstreamRole } from '../server/hosts/parseNginxRoutes.js';
 import { LISTEN_OK, NO_MOUNTS, parseAccessCounts, parseDisks, parseListening, parseTunnelLog, parseTunnelMetrics } from '../server/hosts/parseRuntime.js';
 import { RemoteShell } from '../server/hosts/RemoteShell.js';
 import { scoutFixture } from './fixtures/hostFixture.js';
+import { KUBE_METRICS, KUBE_NODES, KUBE_PODS } from './fixtures/kubeFixture.js';
 import { confirmAction, containerDetail, containerLabel, diskState, formatDisk, formatPorts, hostWarnings, requestSummary } from '../client/hosts/presentation.js';
 
 describe('Docker output parsing', () => {
@@ -148,7 +150,7 @@ describe('disk space', () => {
 		const { containers, apps } = buildTopology(scoutFixture());
 		const full = { filesystem: '/dev/vda1', paths: ['/var/lib/mysql'], size: 60 * GB, used: 58 * GB, free: 2.5 * GB };
 		for (const container of containers) container.disks = container.role === 'database' || container.role === 'api' ? [full] : [];
-		const host = { id: 'm', name: 'm', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, disks: [{ ...full, paths: ['/'] }], containers, apps, activity: [] };
+		const host = { id: 'm', name: 'm', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, kubernetes: null, disks: [{ ...full, paths: ['/'] }], containers, apps, activity: [] };
 		const disk = hostWarnings(host).filter(warning => warning.message.includes('full'));
 		expect(disk).toEqual([{ container: null, message: 'Disk / is 96% full: 2.5 GB free of 60.0 GB (holds scout-db-1 data)' }]);
 		host.disks = [];
@@ -232,7 +234,7 @@ describe('topology', () => {
 		expect(by['old-app-1']!.traffic).toBe('internal');
 		expect(by['edge-cloudflared-1']!.tunnel!.ingress!.map(rule => rule.targets)).toEqual([['scout-gateway-1'], [], []]);
 		expect(requestSummary(by['edge-cloudflared-1']!)).toBe('1.3 req/s');
-		const host = { id: 'm', name: 'm', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, disks: null, containers, apps, activity: [] };
+		const host = { id: 'm', name: 'm', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, kubernetes: null, disks: null, containers, apps, activity: [] };
 		expect(hostWarnings(host).filter(warning => warning.container === 'edge-cloudflared-1').map(warning => warning.message)).toEqual([
 			'has 3 of 4 edge connections',
 			're-registered edge connections 200 times in 24 hours',
@@ -242,7 +244,7 @@ describe('topology', () => {
 
 	it('warns about a standby slot that could not take traffic back, and confirms risky actions', () => {
 		const { containers, apps } = buildTopology(scoutFixture());
-		const host = { id: 'm', name: 'mac-server', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, disks: null, containers, apps, activity: [] };
+		const host = { id: 'm', name: 'mac-server', target: '', status: 'online' as const, error: null, sampledAt: 0, latencyMs: 0, engine: null, kubernetes: null, disks: null, containers, apps, activity: [] };
 		expect(hostWarnings(host).map(warning => warning.container)).toEqual(['scout-green-api-1']);
 		const api = containers.find(container => container.name === 'scout-blue-api-1')!;
 		expect(confirmAction(api, 'start', 'mac-server')).toBeNull();
@@ -296,6 +298,81 @@ describe('hosts', () => {
 		await watcher.action('app-web-1', 'restart');
 		expect(scripts).toContain('docker restart app-web-1');
 		expect(published[0]).toBe('online');
+		watcher.stop();
+	});
+});
+
+describe('k3s', () => {
+	const lines = (value: unknown) => JSON.stringify(value, null, 2).split('\n');
+
+	it('reads Kubernetes quantities', () => {
+		expect(cpuQuantity('12500000n')).toBe(1.3);
+		expect(cpuQuantity('250m')).toBe(25);
+		expect(cpuQuantity('2')).toBe(200);
+		expect(memoryQuantity('512Mi')).toBe(512 * 1024 ** 2);
+		expect(memoryQuantity('1G')).toBe(1e9);
+		expect(memoryQuantity('oops')).toBeNull();
+	});
+
+	it('turns pods into container rows with usage, skipping finished pods and unsafe names', () => {
+		const sample = parseKubePods(lines(KUBE_PODS), lines(KUBE_METRICS));
+		expect(sample.ps.map(row => [row.name, row.state, row.project, row.service])).toEqual([
+			['starter-production/web-7d9c6b5f4-x2x8q', 'running', 'starter-production', 'web'],
+			['starter-production/queue-6f8d7c9b8-kq2lp', 'restarting', 'starter-production', 'queue'],
+			['kube-system/coredns-ccb96694c-9xk4m/coredns', 'running', 'kube-system', 'kube-dns'],
+			['kube-system/coredns-ccb96694c-9xk4m/sidecar', 'running', 'kube-system', 'kube-dns'],
+		]);
+		expect(sample.stats.get('starter-production/web-7d9c6b5f4-x2x8q')).toMatchObject({ cpu: 1.3, memory: 190 * 1024 ** 2, memoryLimit: 512 * 1024 ** 2 });
+		expect(sample.inspect.get('starter-production/queue-6f8d7c9b8-kq2lp')).toMatchObject({ restartCount: 7, exitCode: 1, health: null });
+		expect(sample.targets.get('kube-system/coredns-ccb96694c-9xk4m/sidecar')).toEqual({ namespace: 'kube-system', pod: 'coredns-ccb96694c-9xk4m', container: 'sidecar' });
+		expect(parseKubeNodes(lines(KUBE_NODES))).toEqual({ version: 'v1.33.5+k3s1', os: 'Ubuntu 24.04.3 LTS', nodes: 1, cpus: 4, memory: 8130084 * 1024 });
+		expect(parseKubePods(['not json'], undefined).ps).toEqual([]);
+	});
+
+	it('samples a k3s machine without Docker through a real shell', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'dock-k3s-'));
+		try {
+			await writeFile(join(dir, 'pods.json'), JSON.stringify(KUBE_PODS));
+			await writeFile(join(dir, 'metrics.json'), JSON.stringify(KUBE_METRICS));
+			await writeFile(join(dir, 'nodes.json'), JSON.stringify(KUBE_NODES));
+			await writeFile(join(dir, 'k3s'), [
+				'#!/bin/sh',
+				`D='${dir}'`,
+				'case "$*" in',
+				'\t*"get --raw /version"*) echo "{}" ;;',
+				'\t*"get pods -A -o json"*) cat "$D/pods.json" ;;',
+				'\t*metrics.k8s.io*) cat "$D/metrics.json" ;;',
+				'\t*"get nodes -o json"*) cat "$D/nodes.json" ;;',
+				'\t*"delete pod"*) echo "$*" >> "$D/calls" ;;',
+				'\t*) exit 1 ;;',
+				'esac',
+			].join('\n'));
+			await chmod(join(dir, 'k3s'), 0o755);
+			const real = new RemoteShell({});
+			// No Docker on this machine: only the fake k3s answers.
+			const prefix = `docker() { return 127; }\nexport PATH="${dir}:$PATH"\n`;
+			const shell = { target: real.target, run: (script: string, ms?: number) => real.run(prefix + script, ms), stream: (script: string) => real.stream(prefix + script) };
+			const watcher = new HostWatcher({ id: 'worker', name: 'worker' }, { fastEveryMs: 1e9, slowEveryMs: 1e9, shell: () => shell as never }, () => undefined);
+			await watcher.sample();
+			const snapshot = watcher.snapshot();
+			expect(snapshot).toMatchObject({ status: 'online', kubernetes: { version: 'v1.33.5+k3s1', nodes: 1, cpus: 4, error: null } });
+			const web = snapshot.containers.find(container => container.name === 'starter-production/web-7d9c6b5f4-x2x8q')!;
+			expect(web).toMatchObject({ runtime: 'kubernetes', role: 'web', state: 'running', cpu: 1.3, title: 'web', history: { cpu: [1.3] } });
+			expect(snapshot.containers.filter(container => container.runtime === 'kubernetes')).toHaveLength(4);
+			await expect(watcher.action(web.name, 'stop')).rejects.toThrow(/Kubernetes/);
+			await watcher.action(web.name, 'restart');
+			expect(await readFile(join(dir, 'calls'), 'utf8')).toContain('delete pod -n starter-production web-7d9c6b5f4-x2x8q --wait=false');
+			watcher.stop();
+		} finally {
+			await rm(dir, { recursive: true, force: true });
+		}
+	});
+
+	it('explains how to give access when the cluster cannot be read', async () => {
+		const shell = { target: 'fake', run: async () => '@@k8s-denied\n@@ps\n', stream: () => { throw new Error('not used'); } };
+		const watcher = new HostWatcher({ id: 'w', name: 'w' }, { fastEveryMs: 1e9, slowEveryMs: 1e9, shell: () => shell as never }, () => undefined);
+		await watcher.sample();
+		expect(watcher.snapshot().kubernetes?.error).toMatch(/~\/\.kube\/config/);
 		watcher.stop();
 	});
 });

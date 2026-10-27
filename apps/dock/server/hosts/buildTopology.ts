@@ -115,6 +115,7 @@ export function buildTopology(input: TopologyInput): Topology {
 			rxRate: rate?.rx ?? null,
 			txRate: rate?.tx ?? null,
 			pending: input.pending?.get(row.name) ?? null,
+			runtime: row.runtime ?? 'docker',
 		};
 	});
 

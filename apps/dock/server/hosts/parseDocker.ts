@@ -14,6 +14,8 @@ export interface PsRow {
 	workingDir: string | null;
 	networks: string[];
 	ports: ContainerPort[];
+	/** Set for containers read from a k3s cluster rather than Docker. */
+	runtime?: 'kubernetes';
 }
 
 /** A row of `docker stats --no-stream --format '{{json .}}'`. */

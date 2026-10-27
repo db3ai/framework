@@ -84,6 +84,9 @@ function actionTone(action: string, exitCode: number | null): string {
 						<span class="muted mono">{{ props.host.target }}</span>
 					</span>
 					<span v-if="props.host.engine" class="fact muted">{{ props.host.engine.os }} · Docker {{ props.host.engine.version }} · {{ props.host.engine.cpus }} CPU · {{ formatMemory(props.host.engine.memory) }}</span>
+					<span v-if="props.host.kubernetes && !props.host.kubernetes.error" class="fact muted" title="Pods in the k3s cluster on this machine are listed with the containers">
+						Kubernetes {{ props.host.kubernetes.version }}<template v-if="props.host.kubernetes.nodes"> · {{ props.host.kubernetes.nodes }} node{{ props.host.kubernetes.nodes === 1 ? '' : 's' }}<template v-if="!props.host.engine"> · {{ props.host.kubernetes.cpus }} CPU · {{ formatMemory(props.host.kubernetes.memory) }}</template></template>
+					</span>
 					<span
 						v-for="disk in props.host.disks ?? []"
 						:key="disk.filesystem + disk.size"
@@ -107,6 +110,7 @@ function actionTone(action: string, exitCode: number | null): string {
 					<button type="button" class="icon-btn icon-btn--ghost" :aria-label="`Remove ${props.host.name}`" title="Remove server" @click="removeHost"><Icon name="trash" :size="14" /></button>
 				</div>
 				<p v-if="props.host.error" class="error mono" role="alert">{{ props.host.error }}</p>
+				<p v-if="props.host.kubernetes?.error" class="error mono" role="alert">{{ props.host.kubernetes.error }}</p>
 			</section>
 
 			<section v-if="warnings.length" class="attention" aria-label="Needs attention">

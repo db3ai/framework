@@ -209,6 +209,11 @@ export interface ContainerSnapshot {
 	pids: number | null;
 	/** Recent CPU and memory samples for the sparklines; empty while stopped. */
 	history: UsageHistory;
+	/**
+	 * `kubernetes` for a container in a k3s pod: Kubernetes keeps it running, so it
+	 * can be restarted (its pod is replaced) but not stopped or started from Dock.
+	 */
+	runtime: 'docker' | 'kubernetes';
 	/** Network throughput in bytes per second between the last two samples. */
 	rxRate: number | null;
 	txRate: number | null;
@@ -253,6 +258,17 @@ export interface HostActivity {
 	exitCode: number | null;
 }
 
+/** A k3s cluster found on a host. */
+export interface KubernetesInfo {
+	/** Kubelet version such as `v1.33.5+k3s1`; empty until the nodes are read. */
+	version: string;
+	nodes: number;
+	cpus: number;
+	memory: number;
+	/** Why the cluster could not be read, with what to run to fix it. */
+	error: string | null;
+}
+
 /** Live view of one host. */
 export interface HostSnapshot {
 	id: string;
@@ -266,6 +282,11 @@ export interface HostSnapshot {
 	/** Round trip of the last sample, SSH included. */
 	latencyMs: number | null;
 	engine: { version: string; os: string; cpus: number; memory: number } | null;
+	/**
+	 * The k3s cluster on this machine, when there is one: version and node count,
+	 * or why it could not be read. Its pods are listed with the containers.
+	 */
+	kubernetes: KubernetesInfo | null;
 	/** The host's own disks: its system or data volume, home folder and Docker root. Null until sampled. */
 	disks: DiskUsage[] | null;
 	containers: ContainerSnapshot[];

@@ -62,6 +62,7 @@ function run(action: ContainerAction): void {
 		<div class="actions">
 			<button type="button" class="icon-btn" :disabled="busy" :aria-label="`Restart ${props.container.name}`" title="Restart" @click="run('restart')"><Icon name="restart" :size="15" /></button>
 			<button
+				v-if="props.container.runtime === 'docker'"
 				type="button"
 				class="icon-btn"
 				:disabled="busy"
