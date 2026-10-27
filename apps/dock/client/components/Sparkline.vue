@@ -1,38 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 
-import { HISTORY_LENGTH } from '../../shared/usageHistory.js';
+import { sparklineShape } from '../dock/sparklineShape.js';
 
-/**
- * A small live usage line, as on db3 Cloud's Developer tab. Samples fill from the
- * right, with gaps where none was read. The scale leaves headroom above the
- * highest value and never drops below `min`, so idle noise stays flat.
- */
+/** A small live usage line, as on db3 Cloud's Developer tab; see {@link sparklineShape}. */
 const props = withDefaults(defineProps<{ values: Array<number | null>; label: string; min?: number; max?: number | null }>(), { min: 1, max: null });
 
 const WIDTH = 64;
 const HEIGHT = 16;
 
-const shape = computed(() => {
-	const known = props.values.filter((value): value is number => value !== null);
-	const top = Math.max(props.max ?? 0, props.min, ...known.map(value => value * 1.2));
-	const step = WIDTH / (HISTORY_LENGTH - 1);
-	const offset = HISTORY_LENGTH - props.values.length;
-	const runs: string[][] = [[]];
-	props.values.forEach((value, index) => {
-		if (value === null) {
-			if (runs.at(-1)!.length) runs.push([]);
-			return;
-		}
-		const y = HEIGHT - 1 - (Math.min(value, top) / top) * (HEIGHT - 2);
-		runs.at(-1)!.push(`${((offset + index) * step).toFixed(1)},${y.toFixed(1)}`);
-	});
-	const lines = runs.filter(run => run.length);
-	return {
-		lines: lines.map(run => run.join(' ')),
-		areas: lines.filter(run => run.length > 1).map(run => `M${run[0]!.split(',')[0]},${HEIGHT} L${run.join(' L')} L${run.at(-1)!.split(',')[0]},${HEIGHT} Z`),
-	};
-});
+const shape = computed(() => sparklineShape(props.values, { width: WIDTH, height: HEIGHT, min: props.min, max: props.max }));
 </script>
 
 <template>

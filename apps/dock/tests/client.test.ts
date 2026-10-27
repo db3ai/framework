@@ -6,6 +6,7 @@ import { filterProjects } from '../client/dock/filterProjects.js';
 import { mergeChunks } from '../client/dock/mergeChunks.js';
 import { formatDuration, initials, statusOf } from '../client/dock/presentation.js';
 import { projectNav } from '../client/dock/projectNav.js';
+import { sparklineShape } from '../client/dock/sparklineShape.js';
 import { isDesktopShell } from '../client/dock/useDesktop.js';
 
 const api = vi.hoisted(() => ({
@@ -140,5 +141,24 @@ describe('splitSizes', () => {
 		expect(clampSize(50, 120, 600)).toBe(120);
 		expect(clampSize(900, 120, 600)).toBe(600);
 		expect(clampSize(300, 120, 80)).toBe(120);
+	});
+});
+
+describe('sparklineShape', () => {
+	const options = { width: 30, height: 12, min: 10, slots: 4 };
+
+	it('fills from the right and scales with headroom', () => {
+		expect(sparklineShape([0, 50], options)).toEqual({ lines: ['20.0,11.0 30.0,2.7'], areas: ['M20.0,12 L20.0,11.0 L30.0,2.7 L30.0,12 Z'] });
+	});
+
+	it('keeps idle values flat against the minimum scale', () => {
+		expect(sparklineShape([1, 1, 1, 1], options).lines[0]).toBe('0.0,10.0 10.0,10.0 20.0,10.0 30.0,10.0');
+	});
+
+	it('breaks the line at missing samples', () => {
+		const shape = sparklineShape([5, null, 5, 5], options);
+		expect(shape.lines).toHaveLength(2);
+		expect(shape.areas).toHaveLength(1);
+		expect(sparklineShape([null, null], options)).toEqual({ lines: [], areas: [] });
 	});
 });
