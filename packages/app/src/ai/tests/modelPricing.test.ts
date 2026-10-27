@@ -23,6 +23,16 @@ describe('AI model pricing', () => {
 		])).toBe(2.97);
 	});
 
+	it('prices Sol 6.1 snapshots and serving tiers without altering the Sol 6 rate card', () => {
+		const usage = { inputTokens: 200, cachedTokens: 60, cacheWriteTokens: 40, outputTokens: 30 };
+		for (const model of ['gpt-6.1-sol', 'gpt-6.1-sol-2026-10-27']) {
+			expect(calculateAIRequestCostUSD(model, usage)).toBe(0.000606);
+			expect(calculateAIRequestCostUSD(model, { ...usage, serviceTier: 'flex' })).toBe(0.000303);
+			expect(calculateAIRequestCostUSD(model, { ...usage, serviceTier: 'priority' })).toBe(0.001212);
+		}
+		expect(calculateAIRequestCostUSD('gpt-6-sol', usage)).toBe(0.000612);
+	});
+
 	it('prices the default GPT-4.1 mini model and dated snapshots with cached input discounts', () => {
 		for (const model of ['gpt-4.1-mini', 'gpt-4.1-mini-2025-04-14']) {
 			expect(calculateAIRequestCostUSD(model, { inputTokens: 200, cachedTokens: 60, outputTokens: 30 })).toBe(0.00011);
@@ -141,6 +151,7 @@ describe('AI model pricing', () => {
 	it.each([
 		['gpt-6-astra', 0.00306],
 		['gpt-6-sol', 0.000612],
+		['gpt-6.1-sol', 0.000606],
 		['gpt-6-luna', 0.0000306],
 		['gpt-5.6-sol', 0.001224],
 	])('prices %s input, cache reads, cache writes and output at current Standard rates', (model, expectedCost) => {
@@ -157,6 +168,8 @@ describe('AI model pricing', () => {
 		['gpt-6-astra', 272_001, 4.49002],
 		['gpt-6-sol', 272_000, 0.474],
 		['gpt-6-sol', 272_001, 0.898004],
+		['gpt-6.1-sol', 272_000, 0.464],
+		['gpt-6.1-sol', 272_001, 0.878004],
 		['gpt-6-luna', 272_000, 0.0237],
 		['gpt-6-luna', 272_001, 0.0449002],
 	] as const)('prices %s at the correct context tier for %i input tokens', (model, inputTokens, expectedCost) => {
@@ -171,6 +184,7 @@ describe('AI model pricing', () => {
 	it.each([
 		['gpt-6-astra', 3.1],
 		['gpt-6-sol', 0.62],
+		['gpt-6.1-sol', 0.62],
 		['gpt-6-luna', 0.031],
 	])('keeps separate short %s requests at Standard rates when the run exceeds 272K tokens', (model, expectedCost) => {
 		expect(calculateAIRequestEntriesCostUSD(model, [

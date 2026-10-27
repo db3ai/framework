@@ -339,24 +339,26 @@ failure after provider execution.
 
 ## Models and cost estimates
 
-Select `gpt-6-astra`, `gpt-6-sol` or `gpt-6-luna` through a per-call `model`
+Select `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6-sol` or `gpt-6-luna` through a per-call `model`
 override or a named agent model in your app's AI config. Astra is intended for
 the hardest tasks, Sol for demanding agent workflows, and Luna for focused,
 high-volume work. OpenAI agents already use the Responses API required for
 reasoning with tools. Preserve the workload's existing reasoning effort when
-migrating. All three support `low` through `xhigh` in the framework; Sol and
-Luna also support `none`. Do not use `minimal`, or custom `temperature`, `top_p`
+migrating. These models support `low` through `xhigh` in the framework;
+GPT-6 Sol and Luna also support `none`, while GPT-6.1 Sol requires reasoning. Do not use `minimal`, or custom `temperature`, `top_p`
 or log probabilities with reasoning enabled. Availability depends on the API
 project. Validate output quality and latency on representative application
 tasks before a production rollout.
 
 The shared `AI_MODEL_PRICING` table was checked against
 [OpenAI's API prices](https://developers.openai.com/api/docs/pricing) on
-2026-09-25. Standard USD prices per million tokens are:
+2026-09-25, with GPT-6.1 Sol added and verified on 2026-10-27.
+Standard USD prices per million tokens are:
 
 | Model | Input | Cache read | Cache write | Output |
 | --- | ---: | ---: | ---: | ---: |
 | `gpt-6-astra` | $10.00 | $1.00 | $12.50 | $50.00 |
+| `gpt-6.1-sol` | $2.00 | $0.10 | $2.50 | $10.00 |
 | `gpt-6-sol` | $2.00 | $0.20 | $2.50 | $10.00 |
 | `gpt-6-luna` | $0.10 | $0.01 | $0.125 | $0.50 |
 | `gpt-5.6-sol` | $4.00 | $0.40 | $5.00 | $20.00 |
@@ -378,7 +380,7 @@ defaults to `'default'`; queued runs preserve the selected tier. Streaming and
 tool turns use the same tier. Separate calls inside tools do not inherit it.
 Nondefault tiers require an entirely OpenAI provider chain.
 
-For the six models above, Flex token rates are half Standard and Fast/Priority
+For the models above, Flex token rates are half Standard and Fast/Priority
 rates are twice Standard. Costs use each response's reported tier and model;
 unconfirmed nonstandard tiers or missing tier rate cards remain unpriced.
 Hosted-tool fees are unchanged. Estimates exclude regional surcharges. OpenRouter and xAI

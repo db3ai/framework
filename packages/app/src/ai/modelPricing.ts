@@ -26,6 +26,17 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		longContextInputMultiplier: 2,
 		longContextOutputMultiplier: 1.5,
 	},
+	// Standard, cache-write, long-context and Flex/Fast rates verified on 2026-10-27.
+	'gpt-6.1-sol': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		inputUSDPer1M: 2.00,
+		cachedInputUSDPer1M: 0.10,
+		outputUSDPer1M: 10.00,
+		cacheWriteInputMultiplier: 1.25,
+		longContextInputTokenThreshold: 272_000,
+		longContextInputMultiplier: 2,
+		longContextOutputMultiplier: 1.5,
+	},
 	'gpt-6-sol': {
 		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 2.00,
