@@ -248,7 +248,8 @@ Every table has an implicit ULID `id`. Field types are `text`, `longText`,
 `integer`, `number`, `boolean`, `datetime`, `choice` (with `choices`), `email`,
 `url`, `json` and `link` (with `link.table`, stored in a foreign-key column named
 after the field, `RESTRICT` on delete). Fields take an optional `label`, `help`
-and `required`; `display` names up to five fields that label a row when another
+and `required`; tables take an optional `label` and `help`. `help` becomes the
+table or column comment in the database, which the Cloud Databases view shows. `display` names up to five fields that label a row when another
 table links to it. Names are lower case and `db3_` is reserved.
 
 `app.db.tableModels` compiles the files into ActiveRecord models, and the

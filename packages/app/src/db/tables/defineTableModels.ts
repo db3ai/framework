@@ -17,6 +17,7 @@ export function defineTableModels(tables: readonly TableDefinition[]): ActiveRec
 	for (const table of tables) {
 		models.set(table.name, ActiveRecord.define({
 			table: table.name,
+			...(table.help ? { comment: table.help } : {}),
 			labelFields: [...(table.display ?? [])],
 			fields: (field: FieldBuilder): FieldInputMap => Object.fromEntries([
 				['id', field.ulid({ primary: true })],
@@ -32,7 +33,7 @@ function compileField(field: FieldBuilder, definition: TableFieldDefinition, mod
 	const config = {
 		required: definition.required ?? false,
 		...(definition.label ? { label: definition.label } : {}),
-		...(definition.help ? { frontend: { props: { description: definition.help } } } : {}),
+		...(definition.help ? { comment: definition.help, frontend: { props: { description: definition.help } } } : {}),
 	};
 	switch (definition.type) {
 		case 'text': return field.string({ ...config, length: 255, maxLength: 255 });

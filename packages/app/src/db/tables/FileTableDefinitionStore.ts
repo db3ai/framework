@@ -124,6 +124,7 @@ export function serializeTableDefinition(definition: TableDefinition): string {
 	const ordered = {
 		version: definition.version, name: definition.name,
 		...(definition.label ? { label: definition.label } : {}),
+		...(definition.help ? { help: definition.help } : {}),
 		...(definition.display?.length ? { display: definition.display } : {}),
 		fields: definition.fields.map(field => ({
 			name: field.name, type: field.type,

@@ -32,6 +32,8 @@ export const tableDefinitionSchema = z.object({
 	version: z.literal(1),
 	name,
 	label: z.string().trim().min(1).max(120).optional(),
+	/** What the table holds; saved as the table's database comment. */
+	help: z.string().trim().min(1).max(300).optional(),
 	/** Up to five fields that name a row when another table links to it. */
 	display: z.array(z.string()).max(5).optional(),
 	fields: z.array(tableField).max(100),

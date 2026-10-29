@@ -8,7 +8,7 @@ import { ActiveRecord, FileTableDefinitionStore, TableDefinitionConflictError, d
 import { databaseCommands } from '@db3.ai/app/db/commands';
 import { createGeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 
-const customers = { version: 1, name: 'customers', display: ['name'], fields: [{ name: 'name', type: 'text', label: 'Name', required: true }, { name: 'email', type: 'email' }, { name: 'tier', type: 'choice', choices: ['free', 'pro'] }] };
+const customers = { version: 1, name: 'customers', help: 'People who buy from us.', display: ['name'], fields: [{ name: 'name', type: 'text', label: 'Name', required: true }, { name: 'email', type: 'email', help: 'Where receipts go.' }, { name: 'tier', type: 'choice', choices: ['free', 'pro'] }] };
 const orders = { version: 1, name: 'orders', fields: [{ name: 'customer', type: 'link', link: { table: 'customers' } }, { name: 'total', type: 'number' }, { name: 'paid', type: 'boolean' }] };
 
 /** Checks names, types, links and duplicates, and writes stable tab-indented JSON. */
