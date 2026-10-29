@@ -8,3 +8,4 @@ export * from './promoteDestructiveSchemaChanges';
 export * from './SchemaDiffer';
 export * from './SchemaNames';
 export * from './SchemaSnapshotSerializer';
+export * from './FieldSettingsWriter';

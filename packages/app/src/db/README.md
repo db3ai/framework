@@ -180,7 +180,12 @@ The intended command contract is:
 	Required columns without defaults and constraints that depend on existing
 	data remain blocked for an explicit data-aware migration.
 - `db:migrate` applies pending committed migration files through Knex's ledger
-	and migration lock. It does not inspect models or generate source files.
+	and migration lock. It does not generate source files. Afterwards it saves the
+	models' field settings (labels, a type per column, choices, link targets and
+	`labelFields` as row label columns) as `code` rows in a `db3_tables` table, which
+	db3 Cloud's Database view reads to show forms and linked rows for the app's
+	tables. Password, encrypted and vector fields are left out. Rows that people
+	saved in Cloud for tables the models don't own are kept.
 - `db:check` requires models to match the committed snapshot, no migration
 	files to be pending or missing, and the live model-owned database subset to
 	satisfy current models. Extra tables and columns and database comments are

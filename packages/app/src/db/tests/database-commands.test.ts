@@ -30,6 +30,8 @@ it('database service commands own migration execution and failure exit statuses'
 		expect(await runner.run(['db:check'])).toBe(1);
 		expect(await runner.run(['db:migrate'])).toBe(0);
 		expect(await runner.run(['db:check'])).toBe(0);
+		// db:migrate also saves the models' field settings for db3 Cloud's Database view.
+		expect(await database.db('db3_tables').select('name', 'owner')).toEqual([{ name: 'command_notes', owner: 'code' }]);
 		expect(await runner.run(['db:migrate'])).toBe(0);
 		expect(JSON.parse(messages.at(-1)!).applied).toEqual([]);
 		expect(() => app()).toThrow();

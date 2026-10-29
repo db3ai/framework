@@ -38,6 +38,7 @@ import {
 } from './errors';
 import { renderKnexMigration } from './renderKnexMigration';
 import { collectModelSchema } from './ModelSchemaCollector';
+import { writeFieldSettings } from './FieldSettingsWriter';
 import { diffSchemaSnapshots } from './SchemaDiffer';
 import { promoteDestructiveSchemaChanges } from './promoteDestructiveSchemaChanges';
 import {
@@ -200,6 +201,16 @@ export class DatabaseMigrationManager {
 			batch,
 			baselined,
 		};
+	}
+
+	/**
+	 * Saves the models' field settings (labels, types, choices, links) as code-owned rows in
+	 * `db3_tables`, which db3 Cloud's Database view reads to show forms and linked rows.
+	 *
+	 * @returns How many tables were written.
+	 */
+	async writeFieldSettings(): Promise<number> {
+		return writeFieldSettings(this.#options.db, this.#options.models);
 	}
 
 	/** Runs the latest committed migration's own down function. The caller must quiesce consumers first. */
