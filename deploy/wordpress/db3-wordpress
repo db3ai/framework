@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Starts WordPress on db3 Cloud: puts this image's WordPress in place beside the wp-content disk,
+# waits for the database, installs the site the first time with the admin from the environment's
+# variables, writes the db3 field settings, then runs Apache.
+set -Eeuo pipefail
+cd /var/www/html
+
+# WordPress itself comes from the image on every start; only wp-content persists.
+if [ ! -e wp-includes/version.php ]; then
+	tar --create --file - --directory /usr/src/wordpress --exclude ./wp-content . | tar --extract --file - --no-overwrite-dir
+fi
+mkdir -p wp-content/themes wp-content/plugins wp-content/mu-plugins
+[ -e wp-content/index.php ] || cp /usr/src/wordpress/wp-content/index.php wp-content/
+# Bundled themes and plugins are added once; after that they belong to the site.
+for bundled in /usr/src/wordpress/wp-content/themes/*/ /usr/src/wordpress/wp-content/plugins/*/; do
+	target="wp-content/${bundled#/usr/src/wordpress/wp-content/}"
+	[ -e "$target" ] || cp -R "$bundled" "$target"
+done
+# The db3 plugin always follows the image.
+cp /usr/src/db3/db3.php wp-content/mu-plugins/db3.php
+
+for attempt in $(seq 1 90); do
+	if php -r 'mysqli_report(MYSQLI_REPORT_OFF); $db = @new mysqli(getenv("DB_HOST") ?: "mariadb", getenv("DB_USER") ?: "app", getenv("DB_PASSWORD") ?: "", getenv("DB_DATABASE") ?: "app", (int) (getenv("DB_PORT") ?: 3306)); exit($db->connect_errno ? 1 : 0);'; then break; fi
+	if [ "$attempt" = 90 ]; then echo >&2 "db3: the database did not answer for 90 seconds."; exit 1; fi
+	sleep 1
+done
+
+if ! wp core is-installed 2>/dev/null; then
+	: "${APP_ORIGIN:?Set APP_ORIGIN, the public address, before the first deploy.}"
+	: "${WORDPRESS_ADMIN_EMAIL:?Set WORDPRESS_ADMIN_EMAIL in the environment Variables before the first deploy.}"
+	: "${WORDPRESS_ADMIN_PASSWORD:?Set WORDPRESS_ADMIN_PASSWORD in the environment Variables before the first deploy.}"
+	echo >&2 "db3: installing WordPress at $APP_ORIGIN"
+	wp core install --url="$APP_ORIGIN" --title="${WORDPRESS_TITLE:-My WordPress site}" \
+		--admin_user="${WORDPRESS_ADMIN_USER:-admin}" --admin_password="$WORDPRESS_ADMIN_PASSWORD" \
+		--admin_email="$WORDPRESS_ADMIN_EMAIL" --skip-email
+fi
+wp db3 fields
+
+exec apache2-foreground "$@"
