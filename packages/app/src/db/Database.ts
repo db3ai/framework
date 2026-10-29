@@ -1,4 +1,5 @@
 import type { Knex } from 'knex';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { normalizeDatabaseComment } from '@db3.ai/pure';
 
@@ -9,6 +10,10 @@ import type {
 import { ActiveRecord as ActiveRecordBase } from './ActiveRecord';
 import type * as database from './contracts';
 import { DatabaseMigrationManager } from './migrations/DatabaseMigrationManager';
+import { defineTableModels } from './tables/defineTableModels';
+import { FileTableDefinitionStore, readTableDefinitionsSync, type StoredTableDefinition } from './tables/FileTableDefinitionStore';
+import { parseTableDefinition } from './tables/TableDefinition';
+import type { MakeMigrationResult } from './migrations/contracts';
 import {
 	databaseDialectForConnection,
 	type DatabaseDialect,
@@ -144,6 +149,7 @@ export class Database {
 	private readonly monitor: QueryMonitor | null;
 	#backupHandler?: database.DatabaseBackupHandler;
 	#migrations?: DatabaseMigrationManager;
+	#tableModels?: ActiveRecordClass[];
 	readonly #directory: string;
 
 	/**
@@ -155,11 +161,64 @@ export class Database {
 		if (!this.options.migrations) throw new Error('Configure dbOptions.migrations with { models } for the app model registry.');
 		return this.#migrations ??= new DatabaseMigrationManager({
 			...this.options.migrations,
+			// Tables designed as files in db3/tables join the app's models, so they migrate the same way.
+			models: [...this.options.migrations.models, ...this.tableModels],
 			db: this.connection,
 			dialect: this.dialect(),
 			migrationsDirectory: resolve(this.#directory, 'server/database/migrations'),
 			snapshotFile: resolve(this.#directory, 'server/database/schema.snapshot.json'),
 		});
+	}
+
+	/**
+	 * Models compiled from the app's table files in `db3/tables`, read once.
+	 * @returns One model per table file; none when the app has no table files.
+	 */
+	get tableModels(): ActiveRecordClass[] {
+		return this.#tableModels ??= defineTableModels(readTableDefinitionsSync(this.tableDirectory));
+	}
+
+	/**
+	 * Saves a table design as its file in `db3/tables` and generates the migration for it, as
+	 * `db:make-migration` would. Development only (migration generation is refused in production).
+	 * When the migration is blocked, for example a new required field on a table that has rows,
+	 * or anything fails, the file is put back as it was.
+	 *
+	 * @param input - Table definition.
+	 * @param options - The revision the change is based on, or null for a new table, and a migration name.
+	 * @returns The stored table and the migration result.
+	 */
+	async saveTable(input: unknown, options: { expectedRevision: string | null; migrationName?: string }): Promise<{ table: StoredTableDefinition; migration: MakeMigrationResult }> {
+		const store = new FileTableDefinitionStore(this.tableDirectory);
+		const definition = parseTableDefinition(input);
+		const file = resolve(this.tableDirectory, `${definition.name}.json`);
+		const before = await readFile(file, 'utf8').catch(() => null);
+		const table = await store.write(definition, { expectedRevision: options.expectedRevision });
+		const restore = async () => {
+			if (before === null) await rm(file, { force: true }); else await writeFile(file, before, 'utf8');
+			this.reloadTables();
+		};
+		try {
+			this.reloadTables();
+			// The revision keeps two saves of one table in the same second from naming the same file.
+			const migration = await this.migrations.makeMigration({ name: options.migrationName ?? `table_${definition.name}_${table.revision.slice(0, 8)}` });
+			if (migration.blocked) await restore();
+			return { table, migration };
+		} catch (error) {
+			await restore();
+			throw error;
+		}
+	}
+
+	/** Forgets the compiled table models and migration manager, so changed table files are read again. */
+	reloadTables(): void {
+		this.#tableModels = undefined;
+		this.#migrations = undefined;
+	}
+
+	/** Where the app keeps its table files: `db3/tables` under the app root. */
+	get tableDirectory(): string {
+		return resolve(this.#directory, 'db3/tables');
 	}
 
 	/**

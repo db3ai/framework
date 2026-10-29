@@ -11,3 +11,4 @@ export * from './migrations';
 export * from './SoftDeletes';
 export * from './sqlErrors';
 export * from './queryMonitor';
+export * from './tables';

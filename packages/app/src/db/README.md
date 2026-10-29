@@ -223,6 +223,44 @@ modify the database. `Database.install(...)` remains a low-level, non-versioned
 bootstrap utility for framework tests and disposable databases; it is not an
 application deployment strategy or a substitute for committed migrations.
 
+## Tables as files
+
+Tables can be designed as data instead of code: one JSON file per table in
+`db3/tables/<name>.json`, checked into the app's repo with the migrations generated
+from it. Git is how designs move between a laptop and db3 Cloud: designing a
+table in a development environment writes the file, and pulling the repo gives
+you the same tables locally.
+
+```json
+{
+	"version": 1,
+	"name": "orders",
+	"display": ["number"],
+	"fields": [
+		{ "name": "number", "type": "text", "required": true },
+		{ "name": "customer", "type": "link", "link": { "table": "customers" } },
+		{ "name": "status", "type": "choice", "choices": ["open", "paid"] }
+	]
+}
+```
+
+Every table has an implicit ULID `id`. Field types are `text`, `longText`,
+`integer`, `number`, `boolean`, `datetime`, `choice` (with `choices`), `email`,
+`url`, `json` and `link` (with `link.table`, stored in a foreign-key column named
+after the field, `RESTRICT` on delete). Fields take an optional `label`, `help`
+and `required`; `display` names up to five fields that label a row when another
+table links to it. Names are lower case and `db3_` is reserved.
+
+`app.db.tableModels` compiles the files into ActiveRecord models, and the
+migration manager adds them to the app's models, so `db:make-migration`,
+`db:migrate` and `db:check` treat them like models in code. `app.db.saveTable(definition,
+{ expectedRevision })` writes a file through `FileTableDefinitionStore` and
+generates its migration; a new table passes `expectedRevision: null`, a change
+passes the revision it read, and a stale revision is refused. When the migration
+is blocked (a new required field on a table with rows, say) or generation is
+refused in production, the file is put back as it was. Files are tab-indented
+JSON with a stable key order, so diffs stay small.
+
 ## Application Backups
 
 Applications can attach their own dump and storage policy to the database
