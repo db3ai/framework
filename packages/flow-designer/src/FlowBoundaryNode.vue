@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { FLOW_INPUT_BLOCK_TYPE } from '@db3.ai/app/flows/blocks';
+import { FLOW_INPUT_BLOCK_TYPE, FLOW_TRIGGER_PORT } from '@db3.ai/app/flows/blocks';
 import { ArrowRightToLine, Circle } from '@lucide/vue';
 import { Handle, Position, type NodeProps } from '@vue-flow/core';
 
@@ -30,6 +30,11 @@ function portLabel(name: string): string {
 		</header>
 
 		<div class="flow-boundary-node__ports">
+			<div v-if="isInput" class="flow-boundary-node__port">
+				<Handle :id="FLOW_TRIGGER_PORT" type="target" :position="Position.Left" :connectable="connectable" />
+				<Circle :size="12" aria-hidden="true" />
+				<span>Trigger</span><small>optional</small>
+			</div>
 			<div v-for="(definition, name) in ports" :key="String(name)" class="flow-boundary-node__port">
 				<Circle v-if="isInput" :size="12" aria-hidden="true" />
 				<Handle

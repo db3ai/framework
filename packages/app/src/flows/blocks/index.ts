@@ -9,3 +9,4 @@ import { Subflow } from './Subflow';
 
 /** Framework-owned structural blocks registered for every flow service. */
 export const FLOW_SYSTEM_BLOCKS: FlowBlockDefinition[] = [FlowInput, FlowOutput, Subflow];
+export { FLOW_TRIGGER_PORT } from './trigger';

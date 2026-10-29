@@ -1,4 +1,5 @@
 import type { FlowBlockInstance, FlowBlockMetadata, FlowConnection, FlowDefinition, FlowValueDefinition, FlowValueDefinitions } from '@db3.ai/app/flows';
+import { FLOW_INPUT_BLOCK_TYPE, FLOW_TRIGGER_PORT } from '@db3.ai/app/flows/blocks';
 import { ulid } from '@db3.ai/pure/ulid';
 
 /** Result of inserting one registered block into an existing connection. */
@@ -259,4 +260,25 @@ function requiredInstance(definition: FlowDefinition, blockId: string): FlowBloc
 	}
 
 	return instance;
+}
+
+/**
+ * Adds a palette block, applying configuration defaults and connecting external sources
+ * to the existing Flow Input boundary. Callers may provide a canvas drop position.
+ * @returns The updated graph and stable identifier to select in the inspector.
+ */
+export function addPaletteBlock(definition: FlowDefinition, metadata: FlowBlockMetadata, position?: { x: number; y: number }): InsertBlockResult {
+	const next = structuredClone(definition);
+	const input = next.blocks.find(block => block.type === FLOW_INPUT_BLOCK_TYPE);
+	const trigger = metadata.kind === 'trigger';
+	if (trigger && !input) throw new Error('Add a Flow Input block before adding a trigger.');
+	const blockId = ulid();
+	const triggerCount = next.connections.filter(connection => connection.targetBlockId === input?.id && connection.targetPort === FLOW_TRIGGER_PORT).length;
+	const point = position ?? (trigger
+		? { x: input!.position.x - 340, y: input!.position.y + triggerCount * 160 }
+		: { x: 300, y: Math.max(...next.blocks.map(block => block.position.y), 0) + 180 });
+	const config = Object.fromEntries(Object.entries(metadata.config ?? {}).flatMap(([name, field]) => field.default === undefined ? [] : [[name, structuredClone(field.default)]]));
+	next.blocks.push({ id: blockId, type: metadata.type, name: metadata.name, position: { x: Math.round(point.x), y: Math.round(point.y) }, ...(Object.keys(config).length ? { config } : {}) });
+	if (trigger) next.connections.push({ id: ulid(), sourceBlockId: blockId, sourcePort: FLOW_TRIGGER_PORT, targetBlockId: input!.id, targetPort: FLOW_TRIGGER_PORT });
+	return { definition: next, blockId };
 }
