@@ -142,3 +142,20 @@ The runtime captures JSON input and output at every boundary with a default one-
 ## Definition Providers
 
 `FileFlowDefinitionStore` recursively reads `flow.json` and `*.flow.json`, writes tab-formatted deterministic JSON atomically, and uses SHA-256 revisions for optimistic saves. A future database provider should implement the same `FlowDefinitionStore` contract and store the same definition shape; the runtime must continue to execute definitions rather than a separate UI representation.
+
+## Trigger blocks
+
+Register an external source with `kind: 'trigger'`, no inputs and an object output
+named `FLOW_TRIGGER_PORT` (`trigger`, exported from `@db3.ai/app/flows/blocks`).
+Each occurrence must have exactly one connection from that port to the same named
+port on a `flow.input` block, and no incoming connections. Multiple trigger blocks
+may share Flow Input. The compiler validates these ingress links separately from
+the sequential action path and retains the blocks in execution snapshots, without
+creating executable steps for listeners.
+
+The host owns delivery authentication, credential storage and admission. After
+checking that the saved trigger belongs to the authorized flow, it calls
+`flows.run(flowId, input)` with named values matching `FlowDefinition.inputs`.
+Direct programmatic calls use that same API and Flow Input contract whether or
+not external trigger blocks are present. Triggers do not alter nested flow or
+replay execution. A browser should never store trigger secrets inside a graph.

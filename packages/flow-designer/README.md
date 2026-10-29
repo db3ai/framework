@@ -36,3 +36,15 @@ Selecting a connection opens a right-hand inspector with endpoint schemas and th
 Run inputs are generated from `FlowDefinition.inputs`. Structured values use validated JSON editors that disable Run while invalid. `FlowValueDefinition.editor` hints supply labels, placeholders, textarea rows, and optional host component names such as `DomTextInput` or `DomJsonInput` without coupling this package to a form library.
 
 The designer is a development surface, not a second runtime. It never compiles or executes a separate graph model. The current runtime still accepts one connected sequential path; independent branches and merges remain outside this first scheduler contract.
+
+
+The block palette filters All, Triggers and Actions. Click or drag to add a block;
+trigger blocks are automatically connected to the existing Flow Input boundary.
+Their badges identify them as triggers, and they have no executable step status.
+Refresh runs reloads externally admitted executions without discarding graph edits.
+
+Hosts with their own named flow library can set `:show-flow-list="false"` and
+handle `saved` (a `StoredFlowDefinition`) and `dirty-change` (a boolean). The
+`block-settings` scoped slot supplies `definition`, `block`, `metadata`, `dirty`
+and `revision`. Use it for host-owned settings such as webhook credentials after
+saving a graph; keep secrets out of `definition` and abort requests on disposal.

@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CircleDot, Layers3 } from '@lucide/vue';
+import { CircleDot, Layers3, Zap } from '@lucide/vue';
 import { Handle, Position, type NodeProps } from '@vue-flow/core';
 
 import type { FlowNodeData } from './FlowNodeData';
 
 const props = defineProps<NodeProps<FlowNodeData>>();
 
-const statusLabel = computed(() => props.data.step?.status ?? 'not run');
+const statusLabel = computed(() => props.data.metadata.kind === 'trigger' ? 'trigger' : props.data.step?.status ?? 'not run');
 const duration = computed(() => durationLabel(props.data.step?.startedAt, props.data.step?.completedAt));
 
 /**
@@ -48,7 +48,8 @@ function portLabel(name: string, direction: 'inputs' | 'outputs'): string {
 	>
 		<header class="flow-block-node__header">
 			<span class="flow-block-node__icon" aria-hidden="true">
-				<Layers3 v-if="data.instance.flowId" :size="15" />
+				<Zap v-if="data.metadata.kind === 'trigger'" :size="15" />
+				<Layers3 v-else-if="data.instance.flowId" :size="15" />
 				<CircleDot v-else :size="14" />
 			</span>
 			<span class="flow-block-node__title">{{ data.instance.name || data.metadata.name }}</span>

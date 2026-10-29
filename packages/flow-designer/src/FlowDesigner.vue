@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue';
-import type { FlowBlockInstance, FlowBlockMetadata, FlowConnection, FlowDefinition, FlowValue, FlowValueDefinition, FlowValues } from '@db3.ai/app/flows';
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue';
+import type { FlowBlockInstance, FlowBlockMetadata, FlowConnection, FlowDefinition, FlowValue, FlowValueDefinition, FlowValues, StoredFlowDefinition } from '@db3.ai/app/flows';
 import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE, SUBFLOW_BLOCK_TYPE } from '@db3.ai/app/flows/blocks';
 import { ChevronRight, Play, Save, Workflow } from '@lucide/vue';
 import { ulid } from '@db3.ai/pure/ulid';
@@ -11,19 +11,23 @@ import FlowRunInputForm from './FlowRunInputForm.vue';
 import FlowRunPanel from './FlowRunPanel.vue';
 import type { FlowDesignerClient, FlowRunDetailsRecord, FlowRunRecord } from './contracts';
 import { metadataForInstance } from './flowMetadata';
-import { insertBlockOnConnection } from './graphOperations';
+import FlowBlockPalette from './FlowBlockPalette.vue';
+import { addPaletteBlock, insertBlockOnConnection } from './graphOperations';
 
-const BLOCK_DRAG_TYPE = 'application/x-platform-flow-block';
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running']);
 
 const props = withDefaults(defineProps<{
 	client: FlowDesignerClient;
 	title?: string;
 	initialFlowId?: string;
+	showFlowList?: boolean;
 }>(), {
 	title: 'Flow Designer',
 	initialFlowId: undefined,
+	showFlowList: true,
 });
+
+const emit = defineEmits<{ saved: [stored: StoredFlowDefinition]; 'dirty-change': [dirty: boolean] }>();
 
 const flows = ref<Awaited<ReturnType<FlowDesignerClient['catalog']>>['flows']>([]);
 const blocks = ref<FlowBlockMetadata[]>([]);
@@ -42,6 +46,8 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const breadcrumbs = ref<Array<{ id: string; name: string; runId?: string }>>([]);
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let disposed = false;
+let pollVersion = 0;
 
 const selectedBlock = computed(() => definition.value?.blocks.find(block => block.id === selectedBlockId.value) ?? null);
 const selectedMetadata = computed(() => (
@@ -53,8 +59,10 @@ const selectedConnection = computed<FlowConnection | null>(() => (
 	definition.value?.connections.find(connection => connection.id === selectedConnectionId.value) ?? null
 ));
 
+watch(dirty, value => emit('dirty-change', value));
 onMounted(loadCatalog);
-onBeforeUnmount(stopPolling);
+/** Prevents pending run requests from restarting polling after the host closes the editor. */
+onBeforeUnmount(() => { disposed = true; stopPolling(); });
 
 /**
  * Loads the designer catalog and opens its requested or first flow.
@@ -65,6 +73,7 @@ async function loadCatalog(): Promise<void> {
 
 	try {
 		const catalog = await props.client.catalog();
+		if (disposed) return;
 
 		flows.value = catalog.flows;
 		blocks.value = catalog.blocks;
@@ -96,6 +105,7 @@ async function openFlow(flowId: string, resetBreadcrumbs = false, requestedRunId
 			props.client.definition(flowId),
 			props.client.runs(flowId),
 		]);
+		if (disposed) return;
 
 		definition.value = structuredClone(stored.definition);
 		revision.value = stored.revision;
@@ -348,6 +358,8 @@ async function saveDefinition(): Promise<void> {
 
 	try {
 		const stored = await props.client.save(definition.value, revision.value ?? undefined);
+		emit('saved', stored);
+		breadcrumbs.value = breadcrumbs.value.map(crumb => crumb.id === stored.definition.id ? { ...crumb, name: stored.definition.name } : crumb);
 
 		definition.value = structuredClone(stored.definition);
 		revision.value = stored.revision;
@@ -391,9 +403,12 @@ async function startRun(): Promise<void> {
  */
 async function selectRun(runId: string): Promise<void> {
 	stopPolling();
+	const version = pollVersion;
 
 	try {
-		runDetails.value = await props.client.runDetails(runId);
+		const details = await props.client.runDetails(runId);
+		if (disposed || version !== pollVersion) return;
+		runDetails.value = details;
 
 		const currentCrumb = breadcrumbs.value[breadcrumbs.value.length - 1];
 
@@ -437,9 +452,13 @@ async function replayRun(runId: string, definitionSource: 'original' | 'latest')
  * @param runId - Active run ULID.
  */
 function schedulePoll(runId: string): void {
+	if (disposed) return;
+	const version = pollVersion;
 	pollTimer = setTimeout(async () => {
 		try {
-			runDetails.value = await props.client.runDetails(runId);
+			const details = await props.client.runDetails(runId);
+			if (disposed || version !== pollVersion) return;
+			runDetails.value = details;
 
 			if (ACTIVE_RUN_STATUSES.has(runDetails.value.run.status)) {
 				schedulePoll(runId);
@@ -457,6 +476,7 @@ function schedulePoll(runId: string): void {
  * Cancels any pending active-run refresh.
  */
 function stopPolling(): void {
+	pollVersion++;
 	if (!pollTimer) return;
 
 	clearTimeout(pollTimer);
@@ -472,6 +492,17 @@ async function refreshRuns(): Promise<void> {
 	runs.value = await props.client.runs(definition.value.id);
 }
 
+/** Reloads executions admitted externally without discarding the current graph draft. */
+async function reloadRuns(): Promise<void> {
+	if (busy.value) return;
+	busy.value = true;
+	try {
+		await refreshRuns();
+		if (!disposed && !runDetails.value && runs.value[0]) await selectRun(runs.value[0].id);
+	} catch (caught) { error.value = errorMessage(caught); }
+	finally { if (!disposed) busy.value = false; }
+}
+
 /**
  * Reloads definition summaries after a name or source change.
  */
@@ -482,17 +513,17 @@ async function refreshCatalog(): Promise<void> {
 	blocks.value = catalog.blocks;
 }
 
-/**
- * Places registered block metadata onto the browser drag payload.
- *
- * @param event - Native drag-start event.
- * @param type - Registered block type.
- */
-function startBlockDrag(event: DragEvent, type: string): void {
-	if (!event.dataTransfer) return;
-
-	event.dataTransfer.effectAllowed = 'copy';
-	event.dataTransfer.setData(BLOCK_DRAG_TYPE, type);
+/** Adds a palette selection and opens its inspector, including new trigger settings. */
+function addBlock(type: string): void {
+	if (!definition.value) return;
+	const metadata = blocks.value.find(block => block.type === type);
+	if (!metadata) return;
+	try {
+		const result = addPaletteBlock(definition.value, metadata);
+		updateDefinition(result.definition);
+		selectedBlockId.value = result.blockId;
+		selectedConnectionId.value = null;
+	} catch (caught) { error.value = errorMessage(caught); }
 }
 
 /**
@@ -576,7 +607,7 @@ function errorMessage(caught: unknown): string {
 		<template v-else>
 			<div class="flow-designer-workspace">
 				<aside class="flow-library">
-					<section>
+					<section v-if="showFlowList">
 						<h2>Flows</h2>
 						<button
 							v-for="flow in flows"
@@ -601,19 +632,7 @@ function errorMessage(caught: unknown): string {
 						/>
 					</section>
 
-					<section>
-						<h2>Blocks</h2>
-						<div
-							v-for="block in blocks"
-							:key="block.type"
-							class="flow-library__block"
-							draggable="true"
-							@dragstart="startBlockDrag($event, block.type)"
-						>
-							<strong>{{ block.name }}</strong>
-							<small>{{ block.type }}</small>
-						</div>
-					</section>
+					<FlowBlockPalette :blocks="blocks" @add="addBlock" />
 				</aside>
 
 				<main class="flow-designer-main">
@@ -627,6 +646,7 @@ function errorMessage(caught: unknown): string {
 						@select-block="selectedBlockId = $event"
 						@select-connection="selectedConnectionId = $event"
 						@open-block="openNestedBlock"
+						@error="error = $event"
 					/>
 					<FlowRunPanel
 						:runs="runs"
@@ -635,6 +655,7 @@ function errorMessage(caught: unknown): string {
 						@select-run="selectRun"
 						@select-block="selectedBlockId = $event"
 						@replay-run="replayRun"
+						@refresh-runs="reloadRuns"
 					/>
 				</main>
 
@@ -651,7 +672,11 @@ function errorMessage(caught: unknown): string {
 					@delete:block="deleteBlock"
 					@insert:block="insertBlock"
 					@delete:connection="deleteConnection"
-				/>
+				>
+					<template #block-settings="context">
+						<slot name="block-settings" v-bind="context" :dirty="dirty" :revision="revision" />
+					</template>
+				</FlowInspector>
 			</div>
 		</template>
 	</div>

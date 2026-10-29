@@ -7,7 +7,7 @@ import type { FlowValue, FlowValueDefinitions, FlowValues } from './FlowValue';
 export type FlowLogLevel = 'debug' | 'info' | 'warning' | 'error';
 
 /** Execution strategy owned by a registered block type. */
-export type FlowBlockKind = 'function' | 'flow';
+export type FlowBlockKind = 'function' | 'flow' | 'trigger';
 
 /**
  * Runtime information and services exposed to an executing block function.
@@ -43,7 +43,7 @@ export interface FlowBlockDefinition<
 > {
 	/** Stable namespaced type used by serialized flow definitions. */
 	type: string;
-	/** Whether this block executes a function or delegates to a nested flow. */
+	/** Function action, nested flow, or external source connected to Flow Input. */
 	kind?: FlowBlockKind;
 	/** Human-readable block type name. */
 	name: string;

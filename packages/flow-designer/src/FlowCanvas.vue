@@ -13,6 +13,7 @@ import FlowBoundaryNode from './FlowBoundaryNode.vue';
 import type { FlowNodeData } from './FlowNodeData';
 import type { FlowRunDetailsRecord } from './contracts';
 import { metadataForInstance } from './flowMetadata';
+import { addPaletteBlock } from './graphOperations';
 
 const BLOCK_DRAG_TYPE = 'application/x-platform-flow-block';
 
@@ -29,12 +30,20 @@ const emit = defineEmits<{
 	'select-block': [blockId: string | null];
 	'select-connection': [connectionId: string | null];
 	'open-block': [blockId: string];
+	'error': [message: string];
 }>();
 
 const flowId = `platform-flow-${ulid()}`;
 const nodes = shallowRef<Node<FlowNodeData>[]>([]);
 const edges = shallowRef<Edge[]>([]);
-const { screenToFlowCoordinate } = useVueFlow(flowId);
+const { screenToFlowCoordinate, fitView } = useVueFlow(flowId);
+
+/** Keeps newly added palette blocks visible without changing the user's view during edits. */
+watch(() => props.definition.blocks.length, async (count, previous) => {
+	if (count <= previous) return;
+	await nextTick();
+	await fitView({ padding: 0.2, duration: 180 });
+});
 
 watch(
 	() => [props.definition, props.blocks, props.runDetails] as const,
@@ -258,24 +267,11 @@ function handleDrop(event: DragEvent): void {
 		x: event.clientX,
 		y: event.clientY,
 	});
-	const config = Object.fromEntries(Object.entries(metadata.config ?? {}).flatMap(([name, definition]) => (
-		definition.default === undefined ? [] : [[name, structuredClone(definition.default)]]
-	)));
-	const definition = structuredClone(props.definition);
-	const blockId = ulid();
-
-	definition.blocks.push({
-		id: blockId,
-		type,
-		name: metadata.name,
-		...(Object.keys(config).length ? { config } : {}),
-		position: {
-			x: Math.round(position.x),
-			y: Math.round(position.y),
-		},
-	});
-	emit('update:definition', definition);
-	emit('select-block', blockId);
+	try {
+		const { definition, blockId } = addPaletteBlock(props.definition, metadata, position);
+		emit('update:definition', definition);
+		emit('select-block', blockId);
+	} catch (caught) { emit('error', caught instanceof Error ? caught.message : String(caught)); }
 }
 </script>
 

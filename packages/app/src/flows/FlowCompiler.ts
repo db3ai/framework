@@ -1,6 +1,6 @@
 import { isUlid } from '@db3.ai/pure/ulid';
 
-import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE } from './blocks';
+import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE, FLOW_TRIGGER_PORT } from './blocks';
 import type { CompiledFlowBlock, CompiledFlowDefinition, FlowBlockDefinition, FlowBlockInstance, FlowConnection, FlowDefinition, FlowExecutionDefinition, FlowValueDefinition, FlowValueDefinitions } from './contracts';
 import { FlowBlockRegistry } from './FlowBlockRegistry';
 import { FlowDefinitionError, type FlowDefinitionIssue } from './FlowDefinitionError';
@@ -60,12 +60,18 @@ export class FlowCompiler {
 			connections.set(connection.id, connection);
 		}
 
-		const incomingByBlock = mapConnections(executionDefinition.blocks, executionDefinition.connections, 'targetBlockId');
-		const outgoingByBlock = mapConnections(executionDefinition.blocks, executionDefinition.connections, 'sourceBlockId');
-		const predecessors = relatedBlocks(executionDefinition.blocks, incomingByBlock, 'sourceBlockId');
-		const successors = relatedBlocks(executionDefinition.blocks, outgoingByBlock, 'targetBlockId');
+		const triggers = executionDefinition.blocks.filter(instance => resolvedBlocks.get(instance.id)?.kind === 'trigger');
+		const triggerIds = new Set(triggers.map(instance => instance.id));
+		this.#validateTriggers(triggers, executionDefinition, resolvedBlocks, issues);
+		const runtimeBlocks = executionDefinition.blocks.filter(instance => !triggerIds.has(instance.id));
+		const runtimeConnections = executionDefinition.connections.filter(connection => !triggerIds.has(connection.sourceBlockId) && !triggerIds.has(connection.targetBlockId));
 
-		for (const instance of executionDefinition.blocks) {
+		const incomingByBlock = mapConnections(runtimeBlocks, runtimeConnections, 'targetBlockId');
+		const outgoingByBlock = mapConnections(runtimeBlocks, runtimeConnections, 'sourceBlockId');
+		const predecessors = relatedBlocks(runtimeBlocks, incomingByBlock, 'sourceBlockId');
+		const successors = relatedBlocks(runtimeBlocks, outgoingByBlock, 'targetBlockId');
+
+		for (const instance of runtimeBlocks) {
 			if ((predecessors.get(instance.id)?.size ?? 0) > 1) {
 				issues.push({
 					path: `blocks.${instance.id}`,
@@ -81,8 +87,8 @@ export class FlowCompiler {
 			}
 		}
 
-		const roots = executionDefinition.blocks.filter(instance => (predecessors.get(instance.id)?.size ?? 0) === 0);
-		const terminals = executionDefinition.blocks.filter(instance => (successors.get(instance.id)?.size ?? 0) === 0);
+		const roots = runtimeBlocks.filter(instance => (predecessors.get(instance.id)?.size ?? 0) === 0);
+		const terminals = runtimeBlocks.filter(instance => (successors.get(instance.id)?.size ?? 0) === 0);
 
 		if (roots.length !== 1) {
 			issues.push({
@@ -98,7 +104,7 @@ export class FlowCompiler {
 			});
 		}
 
-		for (const instance of executionDefinition.blocks) {
+		for (const instance of runtimeBlocks) {
 			if (instance.type === FLOW_INPUT_BLOCK_TYPE && roots[0]?.id !== instance.id) {
 				issues.push({
 					path: `blocks.${instance.id}`,
@@ -114,7 +120,7 @@ export class FlowCompiler {
 			}
 		}
 
-		for (const instance of executionDefinition.blocks) {
+		for (const instance of runtimeBlocks) {
 			this.#validateBlockConnections(
 				instance,
 				incomingByBlock.get(instance.id) ?? [],
@@ -131,7 +137,7 @@ export class FlowCompiler {
 			? orderSequentialBlocks(roots[0], instances, successors)
 			: [];
 
-		if (orderedInstances.length !== executionDefinition.blocks.length) {
+		if (orderedInstances.length !== runtimeBlocks.length) {
 			issues.push({
 				path: 'connections',
 				message: 'Every block must belong to one connected acyclic execution path.',
@@ -156,6 +162,28 @@ export class FlowCompiler {
 			root: compiledBlocks[0],
 			terminal: compiledBlocks[compiledBlocks.length - 1],
 		};
+	}
+
+
+	/**
+	 * Validates external entry blocks without scheduling them as executable steps.
+	 * Each trigger has one control link to Flow Input; several sources may share it.
+	 * Trigger hosts authenticate admission and pass named values to the normal run API.
+	 */
+	#validateTriggers(triggers: FlowBlockInstance[], definition: FlowExecutionDefinition, blocks: Map<string, FlowBlockDefinition>, issues: FlowDefinitionIssue[]): void {
+		for (const trigger of triggers) {
+			const metadata = blocks.get(trigger.id)!;
+			const incoming = definition.connections.filter(connection => connection.targetBlockId === trigger.id);
+			const outgoing = definition.connections.filter(connection => connection.sourceBlockId === trigger.id);
+			const link = outgoing[0];
+			const target = definition.blocks.find(instance => instance.id === link?.targetBlockId);
+			if (Object.keys(metadata.inputs).length || metadata.outputs[FLOW_TRIGGER_PORT]?.type !== 'object') {
+				issues.push({ path: `blocks.${trigger.id}`, message: 'Trigger types require no inputs and an object output named trigger.' });
+			}
+			if (incoming.length || outgoing.length !== 1 || link?.sourcePort !== FLOW_TRIGGER_PORT || link?.targetPort !== FLOW_TRIGGER_PORT || target?.type !== FLOW_INPUT_BLOCK_TYPE) {
+				issues.push({ path: `blocks.${trigger.id}`, message: 'Each trigger must have no incoming connections and one trigger connection to Flow Input.' });
+			}
+		}
 	}
 
 	/**

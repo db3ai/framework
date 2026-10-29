@@ -14,6 +14,7 @@ const emit = defineEmits<{
 	'select-run': [runId: string];
 	'select-block': [blockId: string];
 	'replay-run': [runId: string, definition: 'original' | 'latest'];
+	'refresh-runs': [];
 }>();
 
 const selectedRunId = computed(() => props.details?.run.id ?? null);
@@ -44,6 +45,7 @@ function formatTime(value: string | null): string {
 				<History :size="15" />
 				<strong>Recent runs</strong>
 				<span>{{ runs.length }}</span>
+				<button type="button" class="flow-icon-button" :disabled="busy" title="Refresh runs" aria-label="Refresh runs" @click="emit('refresh-runs')"><RefreshCw :size="14" /></button>
 			</header>
 			<div class="flow-run-list__items">
 				<button

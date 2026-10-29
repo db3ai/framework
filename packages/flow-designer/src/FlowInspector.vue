@@ -457,7 +457,9 @@ function formatJson(value: unknown): string {
 				</label>
 			</section>
 
-			<section class="flow-inspector__section">
+			<slot name="block-settings" :definition="definition" :block="block" :metadata="metadata" />
+
+			<section v-if="metadata.kind !== 'trigger'" class="flow-inspector__section">
 				<h3>Run data</h3>
 				<p v-if="!step" class="flow-empty-copy">Select a run to inspect this block.</p>
 				<template v-else>
