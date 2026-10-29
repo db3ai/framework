@@ -248,4 +248,9 @@ export interface StorageOptions {
 	default?: string;
 	disks?: Record<string, StorageDiskConfig | StorageDisk>;
 	drivers?: Record<string, StorageDiskFactory>;
+	/**
+	 * Variables to read `DB3_STORAGE_DISKS` from; defaults to `process.env`. db3 Cloud sets it to
+	 * the disks it provisioned, and those win over disks of the same name in `disks`.
+	 */
+	environment?: Record<string, string | undefined>;
 }

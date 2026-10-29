@@ -5,7 +5,7 @@ import { Readable } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { App } from '../../server';
-import { FlystorageDisk, Storage, type StorageDisk } from '..';
+import { FlystorageDisk, Storage, providedDisks, type StorageDisk } from '..';
 
 const tempRoots: string[] = [];
 
@@ -459,5 +459,28 @@ describe('Storage', () => {
 
 		expect(() => storage.disk('missing')).toThrow('Storage disk "missing" is not configured.');
 		expect(() => storage.disk('remote')).toThrow('Storage driver "ftp" is not registered.');
+	});
+
+	it('uses disks the host provides in DB3_STORAGE_DISKS over configured disks of the same name', async () => {
+		const root = await tempRoot();
+		const storage = new Storage({
+			default: 'uploads',
+			disks: {
+				uploads: { driver: 'local', root: join(root, 'dev-uploads') },
+				cache: { driver: 'local', root: join(root, 'cache') },
+			},
+			environment: { DB3_STORAGE_DISKS: JSON.stringify({ uploads: { driver: 'local', root: join(root, 'volume') }, media: { driver: 'local', root: join(root, 'media') } }) },
+		});
+
+		await storage.write('a.txt', 'on the volume');
+		await storage.disk('media').write('b.txt', 'media');
+		await storage.disk('cache').write('c.txt', 'cache');
+
+		expect(await readFile(join(root, 'volume/a.txt'), 'utf8')).toBe('on the volume');
+		expect(await readFile(join(root, 'media/b.txt'), 'utf8')).toBe('media');
+		expect(await readFile(join(root, 'cache/c.txt'), 'utf8')).toBe('cache');
+		expect(providedDisks({})).toEqual({});
+		expect(() => providedDisks({ DB3_STORAGE_DISKS: '{' })).toThrow('DB3_STORAGE_DISKS is not valid JSON.');
+		expect(() => providedDisks({ DB3_STORAGE_DISKS: '{"x":{}}' })).toThrow('DB3_STORAGE_DISKS must map disk names to disk config with a driver.');
 	});
 });

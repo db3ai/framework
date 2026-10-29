@@ -14,6 +14,7 @@ import type { LocalStorageDiskConfig, S3StorageDiskConfig, StorageContents, Stor
 export class Storage {
 	private readonly disks = new Map<string, StorageDisk>();
 	private readonly drivers = new Map<string, StorageDiskFactory>();
+	private readonly provided: Record<string, StorageDiskConfig>;
 
 	/**
 	 * Creates a storage manager with built-in local disk support.
@@ -31,6 +32,8 @@ export class Storage {
 		for (const [driver, factory] of Object.entries(options.drivers ?? {})) {
 			this.drivers.set(driver, factory);
 		}
+
+		this.provided = providedDisks(options.environment ?? process.env);
 	}
 
 	/**
@@ -342,7 +345,7 @@ export class Storage {
 	 * @returns Disk config or concrete disk instance.
 	 */
 	private resolveDiskConfig(name: string): StorageDiskConfig | StorageDisk {
-		const configured = this.options.disks?.[name];
+		const configured = this.provided[name] ?? this.options.disks?.[name];
 
 		if (configured) {
 			return configured;
@@ -389,4 +392,33 @@ function isStorageDisk(value: StorageDiskConfig | StorageDisk): value is Storage
 		&& 'get' in value
 		&& typeof (value as StorageDisk).put === 'function'
 		&& typeof (value as StorageDisk).get === 'function';
+}
+
+/**
+ * Reads disks provisioned by the host, such as db3 Cloud, from `DB3_STORAGE_DISKS`: JSON mapping
+ * disk names to disk config, for example `{ "uploads": { "driver": "local", "root": "/storage/uploads" } }`.
+ *
+ * @param environment - Variables to read.
+ * @returns Disk config by name; empty when the variable is unset.
+ */
+export function providedDisks(environment: Record<string, string | undefined>): Record<string, StorageDiskConfig> {
+	const value = environment.DB3_STORAGE_DISKS;
+
+	if (!value) {
+		return {};
+	}
+
+	let parsed: unknown;
+
+	try {
+		parsed = JSON.parse(value);
+	} catch {
+		throw new Error('DB3_STORAGE_DISKS is not valid JSON.');
+	}
+
+	if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed) || Object.values(parsed).some(disk => !disk || typeof disk !== 'object' || typeof (disk as { driver?: unknown }).driver !== 'string')) {
+		throw new Error('DB3_STORAGE_DISKS must map disk names to disk config with a driver.');
+	}
+
+	return parsed as Record<string, StorageDiskConfig>;
 }
