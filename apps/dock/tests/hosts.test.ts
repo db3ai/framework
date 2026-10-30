@@ -290,7 +290,7 @@ describe('hosts', () => {
 		expect(scripts[0]).toContain('@@inspect');
 		expect(watcher.snapshot().disks).toEqual([{ filesystem: '/dev/sda1', paths: ['/'], size: 102400, used: 40960, free: 61440 }]);
 		expect(watcher.snapshot().containers[0]!.disks).toEqual([]);
-		expect(watcher.snapshot().containers[0]!.history).toEqual({ cpu: [null], memory: [null] });
+		expect(watcher.snapshot().containers[0]!.history).toMatchObject({ cpu: [null], memory: [null] });
 		await watcher.sample();
 		expect(watcher.snapshot().containers[0]!.history.cpu).toHaveLength(2);
 		await expect(watcher.action('app-web-1; rm -rf /', 'stop')).rejects.toThrow(/No container/);

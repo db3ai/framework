@@ -9,12 +9,12 @@ const props = defineProps<{ history: UsageHistory; cpu: number | null; memory: n
 
 <template>
 	<span class="sparks">
-		<span class="metric" title="CPU (100% = one core)">
-			<Sparkline :values="props.history.cpu" :min="10" :label="`${props.name} CPU`" class="cpu" />
+		<span class="metric">
+			<Sparkline :values="props.history.cpu" :times="props.history.at" :format="value => `CPU ${value.toFixed(1)}%`" :min="10" :label="`${props.name} CPU`" class="cpu" />
 			<span class="value">{{ props.cpu === null ? '—' : `${props.cpu.toFixed(1)}%` }}</span>
 		</span>
-		<span class="metric" title="Memory">
-			<Sparkline :values="props.history.memory" :min="64 * 1024 * 1024" :label="`${props.name} memory`" class="memory" />
+		<span class="metric">
+			<Sparkline :values="props.history.memory" :times="props.history.at" :format="value => `Memory ${formatMemory(value)}`" :min="64 * 1024 * 1024" :label="`${props.name} memory`" class="memory" />
 			<span class="value">{{ formatMemory(props.memory) }}</span>
 		</span>
 	</span>

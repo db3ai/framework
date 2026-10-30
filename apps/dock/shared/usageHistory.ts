@@ -4,6 +4,8 @@ export interface UsageHistory {
 	cpu: Array<number | null>;
 	/** Memory in bytes per sample; null where none was read. */
 	memory: Array<number | null>;
+	/** Epoch milliseconds each sample was taken. */
+	at: number[];
 }
 
 /** Samples kept per process or container: two to three minutes at Dock's intervals. */
@@ -11,7 +13,7 @@ export const HISTORY_LENGTH = 40;
 
 /** @returns A history with no samples. */
 export function emptyHistory(): UsageHistory {
-	return { cpu: [], memory: [] };
+	return { cpu: [], memory: [], at: [] };
 }
 
 /**
@@ -20,8 +22,9 @@ export function emptyHistory(): UsageHistory {
  * @param history - Current history (not changed).
  * @param cpu - CPU percentage.
  * @param memory - Memory in bytes.
+ * @param at - When the sample was taken.
  * @returns The new history.
  */
-export function pushSample(history: UsageHistory, cpu: number | null, memory: number | null): UsageHistory {
-	return { cpu: [...history.cpu, cpu].slice(-HISTORY_LENGTH), memory: [...history.memory, memory].slice(-HISTORY_LENGTH) };
+export function pushSample(history: UsageHistory, cpu: number | null, memory: number | null, at = Date.now()): UsageHistory {
+	return { cpu: [...history.cpu, cpu].slice(-HISTORY_LENGTH), memory: [...history.memory, memory].slice(-HISTORY_LENGTH), at: [...history.at, at].slice(-HISTORY_LENGTH) };
 }
