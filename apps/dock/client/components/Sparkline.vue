@@ -19,17 +19,19 @@ const WIDTH = 64;
 const HEIGHT = 16;
 
 const shape = computed(() => sparklineShape(props.values, { width: WIDTH, height: HEIGHT, min: props.min, max: props.max }));
-const hover = ref<{ index: number; now: number } | null>(null);
+const hover = ref<number | null>(null);
 
 function move(event: PointerEvent): void {
 	const box = (event.currentTarget as Element).getBoundingClientRect();
 	const index = box.width ? sparklineHoverIndex(props.values.length, (event.clientX - box.left) / box.width) : null;
-	hover.value = index === null ? null : { index, now: Date.now() };
+	hover.value = index;
 }
 
 const tip = computed(() => {
-	if (!hover.value) return null;
-	const { index, now } = hover.value;
+	if (hover.value === null) return null;
+	const index = hover.value;
+	// Read the clock here, not on pointer moves: this recomputes with each new sample.
+	const now = Date.now();
 	const value = props.values[index];
 	const point = shape.value.points[index];
 	const at = props.times?.[index];
