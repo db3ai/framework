@@ -2,6 +2,7 @@ export * from './contracts';
 export * from './DatabaseMigrationManager';
 export * from './DatabaseSchemaInspector';
 export * from './errors';
+export * from './MigrationPhase';
 export * from './renderKnexMigration';
 export * from './ModelSchemaCollector';
 export * from './promoteDestructiveSchemaChanges';

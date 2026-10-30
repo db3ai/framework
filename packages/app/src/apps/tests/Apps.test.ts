@@ -453,3 +453,4 @@ it('keeps a failed install hook unavailable and reruns the app-owned setup on re
 	expect(attempts).toBe(2);
 	expect(application.apps.social?.label).toBe('social');
 });
+
