@@ -247,9 +247,8 @@ snapshot and immutable `.mjs` migrations beside `App.ts` (beside `dist/App.js` w
 packaged). The framework keeps installation metadata in `db3_apps` and a separate
 ledger such as `db3_app_social_migrations`. MariaDB is currently supported.
 
-Boot also accepts code older than the installation down to
-`db3_apps.compatible_from`, which only a contract migration raises, so a
-previous release still boots after an expand-only upgrade.
+Boot accepts older code down to `db3_apps.compatible_from`, which only a
+contract migration raises.
 
 Generate changes locally, before publishing:
 

@@ -198,11 +198,11 @@ The intended command contract is:
 ### Expand and contract
 
 Generated migrations declare `export const phase = "expand"` (only adds tables,
-columns, indexes, foreign keys or comments) or `"contract"` (drops, type,
-nullability or default changes). Undeclared files count as contract.
+columns, indexes, foreign keys or comments) or `"contract"` (anything else,
+including undeclared files).
 `db:migrate` records phases in `<ledger>_phases`, so `check().compatible` lets
 older code run on a database that newer releases only expanded. To remove a
-column, stop using it first and drop it in a later release.
+column, stop using it, then drop it in a later release.
 
 Generation is protected by a cross-process source lock and is refused in
 production. A blocked or unsupported model difference is reported for explicit
