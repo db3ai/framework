@@ -27,6 +27,7 @@ import type {
 	MigrateOptions,
 	MigrateResult,
 	RollbackResult,
+	SafeSchemaChange,
 	SchemaMigrationPlan,
 	SchemaSnapshot,
 } from './contracts';
@@ -36,6 +37,7 @@ import {
 	DatabaseMigrationLockError,
 	DatabaseMigrationSourceGenerationError,
 } from './errors';
+import { readMigrationPhase, type MigrationPhase } from './MigrationPhase';
 import { renderKnexMigration } from './renderKnexMigration';
 import { collectModelSchema } from './ModelSchemaCollector';
 import { writeFieldSettings } from './FieldSettingsWriter';
@@ -147,14 +149,17 @@ export class DatabaseMigrationManager {
 		const schemaMatches = !planHasChanges(plan);
 		const modelsMatchSnapshot = snapshot !== null
 			&& !planHasChanges(snapshotPlan);
+		const ready = modelsMatchSnapshot && migrations.pending.length === 0;
 
 		return {
 			schemaMatches,
 			modelsMatchSnapshot,
-			matches: schemaMatches
-				&& modelsMatchSnapshot
-				&& migrations.pending.length === 0
-				&& migrations.missingFiles.length === 0,
+			matches: ready && schemaMatches && migrations.missingFiles.length === 0,
+			// A newer release may have added tables, columns, indexes or comments and nothing else.
+			compatible: ready
+				&& plan.blockedChanges.length === 0
+				&& plan.safeChanges.every(isCommentChange)
+				&& migrations.missingFiles.every(file => migrations.newerExpand.includes(file)),
 			plan,
 			snapshotPlan,
 			migrations,
@@ -189,6 +194,7 @@ export class DatabaseMigrationManager {
 			? await this.#baselinePendingMigrationsIfMatching()
 			: null;
 		const result = await this.#options.db.migrate.latest(this.#knexConfig());
+		await this.#recordPhases();
 		const batch = Array.isArray(result) && typeof result[0] === 'number'
 			? result[0]
 			: null;
@@ -348,11 +354,74 @@ export class DatabaseMigrationManager {
 		const fileSet = new Set(files);
 		const completedSet = new Set(completed);
 
+		const missingFiles = completed.filter(file => !fileSet.has(file));
+		const phases = missingFiles.length > 0 ? await this.#readRecordedPhases() : new Map<string, MigrationPhase>();
+
+		const pending = files.filter(file => !completedSet.has(file));
+		const pendingContract: string[] = [];
+		for (const file of pending) {
+			if (readMigrationPhase(await readFile(join(this.#options.migrationsDirectory, file), 'utf8')) === 'contract') pendingContract.push(file);
+		}
+
 		return {
 			completed,
-			pending: files.filter(file => !completedSet.has(file)),
-			missingFiles: completed.filter(file => !fileSet.has(file)),
+			pending,
+			pendingContract,
+			missingFiles,
+			newerExpand: missingFiles.filter(file => phases.get(file) === 'expand'),
 		};
+	}
+
+	/**
+	 * Records the declared phase of every applied migration file beside the Knex
+	 * ledger, so an older release without those files can still tell whether
+	 * they only added schema. Existing rows are left as first recorded.
+	 */
+	async #recordPhases(): Promise<void> {
+		const completed = new Set(await this.#readCompletedMigrations());
+		const files = (await this.#readMigrationFiles()).filter(file => completed.has(file));
+		if (files.length === 0) return;
+		const table = this.#phaseTableName();
+		const schema = this.#options.migrationSchemaName
+			? this.#options.db.schema.withSchema(this.#options.migrationSchemaName)
+			: this.#options.db.schema;
+		if (!(await schema.hasTable(table))) {
+			await schema.createTable(table, columns => {
+				columns.string('name', 255).primary();
+				columns.string('phase', 16).notNullable();
+			});
+		}
+		const rows = await Promise.all(files.map(async name => ({
+			name,
+			phase: readMigrationPhase(await readFile(join(this.#options.migrationsDirectory, name), 'utf8')),
+		})));
+		await this.#phaseQuery().insert(rows).onConflict('name').ignore();
+	}
+
+	/**
+	 * Reads recorded migration phases without creating the phase table.
+	 *
+	 * @returns Phase by migration name.
+	 */
+	async #readRecordedPhases(): Promise<Map<string, MigrationPhase>> {
+		const schema = this.#options.migrationSchemaName
+			? this.#options.db.schema.withSchema(this.#options.migrationSchemaName)
+			: this.#options.db.schema;
+		if (!(await schema.hasTable(this.#phaseTableName()))) return new Map();
+		const rows = await this.#phaseQuery().select('name', 'phase');
+		return new Map(rows.map((row: { name: string; phase: string }) => [String(row.name), row.phase === 'expand' ? 'expand' : 'contract'] as const));
+	}
+
+	/** Phase table named after the ledger, like Knex's `_lock` table. */
+	#phaseTableName(): string {
+		return `${this.#options.migrationTableName}_phases`;
+	}
+
+	/** Query builder for the phase table in the ledger's schema. */
+	#phaseQuery(): Knex.QueryBuilder<{ name: string; phase: string }> {
+		return this.#options.migrationSchemaName
+			? this.#options.db.withSchema(this.#options.migrationSchemaName).from(this.#phaseTableName())
+			: this.#options.db(this.#phaseTableName());
 	}
 
 	/**
@@ -410,6 +479,7 @@ export class DatabaseMigrationManager {
 			...baselineConfig,
 			migrationSource: new NoopMigrationSource(state.pending),
 		});
+		await this.#recordPhases();
 
 		return [...state.pending];
 	}
@@ -596,6 +666,17 @@ class NoopMigrationSource implements Knex.MigrationSource<string> {
  */
 function planHasChanges(plan: SchemaMigrationPlan): boolean {
 	return plan.safeChanges.length > 0 || plan.blockedChanges.length > 0;
+}
+
+/**
+ * Reports a difference that only edits presentation comments.
+ *
+ * @param change - Difference between the live schema and current models.
+ * @returns True when the change touches nothing but a comment.
+ */
+function isCommentChange(change: SafeSchemaChange): boolean {
+	return change.kind === 'alter_table_comment'
+		|| (change.kind === 'alter_column' && !change.alterType && !change.alterNullable && !change.alterDefault);
 }
 
 /**

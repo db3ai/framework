@@ -444,12 +444,15 @@ describe('DatabaseMigrationManager generation', () => {
 			schemaMatches: true,
 			modelsMatchSnapshot: true,
 			matches: true,
+			compatible: true,
 			plan,
 			snapshotPlan: plan,
 			migrations: {
 				completed: [],
 				pending: [],
+				pendingContract: [],
 				missingFiles: [],
+				newerExpand: [],
 			},
 		});
 

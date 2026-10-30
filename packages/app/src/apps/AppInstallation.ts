@@ -14,6 +14,7 @@ export class AppInstallation extends ActiveRecord {
 			state: field.string({ required: true, length: 24 }),
 			description: field.json<AppDescription>({ required: true }),
 			migrationHashes: field.json<Record<string, string>>({ column: 'migration_hashes', required: true }),
+			compatibleFrom: field.string({ column: 'compatible_from', length: 64 }),
 		};
 	}
 	declare id: string | null;
@@ -22,4 +23,6 @@ export class AppInstallation extends ActiveRecord {
 	declare state: AppInstallationState;
 	declare description: AppDescription;
 	declare migrationHashes: Record<string, string>;
+	/** Oldest app version that can run on the installed schema; null on records from before it was tracked. */
+	declare compatibleFrom: string | null;
 }

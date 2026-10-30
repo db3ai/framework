@@ -1,4 +1,5 @@
 import type { SafeSchemaChange, SchemaColumn, SchemaForeignKey, SchemaIndex, SchemaMigrationPlan, SchemaTable } from './contracts';
+import { migrationPhaseForPlan } from './MigrationPhase';
 
 /**
  * Renders a frozen TypeScript or JavaScript Knex migration from a safe schema plan.
@@ -24,6 +25,9 @@ export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typesc
 		'',
 		'/** Knex migration settings for MariaDB non-transactional DDL. */',
 		'export const config = { transaction: false };',
+		'',
+		'/** Expand keeps the previous release runnable on this schema; contract removes what it may use. */',
+		`export const phase = ${quote(migrationPhaseForPlan(plan))};`,
 		'',
 		'/** Frozen schema lineage recorded when this migration was generated. */',
 		'export const schema = {',

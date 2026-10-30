@@ -195,6 +195,15 @@ The intended command contract is:
 - `db:sync` is a development convenience that runs make, migrate, and check
 	through the same service.
 
+### Expand and contract
+
+Generated migrations declare `export const phase = "expand"` (only adds tables,
+columns, indexes, foreign keys or comments) or `"contract"` (anything else,
+including undeclared files).
+`db:migrate` records phases in `<ledger>_phases`, so `check().compatible` lets
+older code run on a database that newer releases only expanded. To remove a
+column, stop using it, then drop it in a later release.
+
 Generation is protected by a cross-process source lock and is refused in
 production. A blocked or unsupported model difference is reported for explicit
 review rather than being silently emitted. Generated migrations and the schema
