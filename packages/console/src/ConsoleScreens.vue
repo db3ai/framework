@@ -44,7 +44,7 @@ watch(() => props.source, load, { immediate: true });
 		<template v-else-if="info">
 			<p v-if="!info[tab].available" class="m-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-fg" data-console-unavailable>{{ info[tab].reason }}</p>
 			<DatabaseScreen v-else-if="tab === 'database'" class="min-h-0 flex-1" :source="source" :label="`${info.app}'s database`" />
-			<StorageScreen v-else-if="tab === 'storage'" class="min-h-0 flex-1" :source="source" />
+			<StorageScreen v-else-if="tab === 'storage'" class="min-h-0 flex-1" :source="source" :read-only="info.readOnly?.rows" />
 			<FlowsScreen v-else class="min-h-0 flex-1" :source="source" />
 		</template>
 	</div>

@@ -10,7 +10,7 @@ import type { ConsoleSource } from './source';
  * getdom.studio's media browser. Each disk is the first path segment, such as `/local/reports`.
  * Uploads, folders, renames, moves and deletes go through the app's own storage disks.
  */
-const props = defineProps<{ source: ConsoleSource }>();
+const props = defineProps<{ source: ConsoleSource; readOnly?: string | null }>();
 
 const disks = ref<ConsoleDisk[] | null>(null);
 const path = ref('/');
@@ -29,6 +29,8 @@ function split(value: string) {
 }
 
 const atRoot = computed(() => path.value === '/');
+/** Files can be changed: inside a disk, where the host allows it. */
+const changeable = computed(() => !atRoot.value && !props.readOnly);
 const disk = computed(() => disks.value?.find(item => item.name === split(path.value).disk) ?? null);
 const inner = computed(() => split(path.value).inner);
 const items = computed<StorageItem[]>(() => {
@@ -154,6 +156,7 @@ watch(() => props.source, () => { disks.value = null; path.value = '/'; void loa
 
 <template>
 	<section class="flex h-full min-h-0 flex-col bg-canvas text-canvas-fg" data-console-storage>
+		<p v-if="readOnly" class="mx-4 mt-4 rounded-lg bg-muted p-3 text-sm text-muted-fg" data-storage-read-only>{{ readOnly }}</p>
 		<p v-if="error" role="alert" class="m-4 rounded-lg bg-destructive/10 p-3 text-sm text-destructive" data-storage-error>{{ error }}</p>
 		<p v-if="disks && !disks.length" class="m-4 rounded-xl border border-dashed border-border p-6 text-center text-sm text-muted-fg">This app has no storage disks.</p>
 		<div v-else class="min-h-0 flex-1 overflow-hidden">
@@ -167,10 +170,10 @@ watch(() => props.source, () => { disks.value = null; path.value = '/'; void loa
 				:current-path="path"
 				:loading="loading"
 				:inspector="false"
-				:can-upload="!atRoot"
-				:can-create-folder="!atRoot"
-				:can-rename="!atRoot"
-				:can-move="!atRoot"
+				:can-upload="changeable"
+				:can-create-folder="changeable"
+				:can-rename="changeable"
+				:can-move="changeable"
 				:upload-progress="progress"
 				:empty-text="atRoot ? 'No disks.' : 'This folder is empty. Drop files here or use Upload files.'"
 				@navigate="navigate"
@@ -192,13 +195,13 @@ watch(() => props.source, () => { disks.value = null; path.value = '/'; void loa
 				</template>
 				<template #toolbar>
 					<template v-if="!atRoot">
-						<button type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted" @click="createFolder">New folder</button>
+						<button v-if="changeable" type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted" @click="createFolder">New folder</button>
 						<button type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted disabled:opacity-40" :disabled="!chosenFiles.length" @click="download">Download</button>
-						<template v-if="confirming">
+						<template v-if="changeable && confirming">
 							<button type="button" class="min-h-8 rounded-lg bg-destructive px-3 text-sm font-medium text-destructive-fg" data-storage-confirm @click="remove">Delete {{ chosen.length === 1 ? chosen[0]!.name : `${chosen.length} items` }}</button>
 							<button type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted" @click="confirming = false">Cancel</button>
 						</template>
-						<button v-else type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted disabled:opacity-40" :disabled="!chosen.length" @click="confirming = true">Delete</button>
+						<button v-else-if="changeable" type="button" class="min-h-8 rounded-lg border border-border bg-canvas px-3 text-sm font-medium hover:bg-muted disabled:opacity-40" :disabled="!chosen.length" @click="confirming = true">Delete</button>
 					</template>
 				</template>
 			</DomMediaBrowser>

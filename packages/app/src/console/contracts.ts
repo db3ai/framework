@@ -99,4 +99,12 @@ export interface ConsoleInfo {
 	database: { available: boolean; reason: string | null };
 	storage: { available: boolean; reason: string | null };
 	flows: { available: boolean; reason: string | null; runs: boolean };
+	/** Why changes are refused here, or null: definitions (`schema`) and data (`rows`) apart. */
+	readOnly: { schema: string | null; rows: string | null };
+}
+
+/** Why a host refuses changes: `schema` for definitions (table design, flows), `rows` for data (rows, files). */
+export interface ConsoleReadOnly {
+	schema?: string | null;
+	rows?: string | null;
 }

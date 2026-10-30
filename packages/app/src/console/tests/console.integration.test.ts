@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ConsoleDatabase, ConsoleError, ConsoleStorage, fileFlows, knexExecutor, type ConsoleExecutor } from '@db3.ai/app/console';
-import { registerConsoleRoutes } from '@db3.ai/app/console/fastify';
+import { registerConsoleRoutes, type ConsoleServices } from '@db3.ai/app/console/fastify';
 import { openProjectConsole } from '@db3.ai/app/console/project';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { Storage } from '@db3.ai/app/storage';
@@ -17,6 +17,7 @@ const statements: string[] = [];
 let database: GeneratedTestDatabase;
 let folder: string;
 let server: FastifyInstance;
+let services: ConsoleServices;
 
 beforeAll(async () => {
 	database = await createGeneratedTestDatabase('console');
@@ -36,7 +37,7 @@ beforeAll(async () => {
 	await writeFile(join(folder, 'db3/tables/console_owners.json'), JSON.stringify({ name: 'console_owners', fields: [] }));
 	const runner = knexExecutor(knex);
 	const executor: ConsoleExecutor = { client: runner.client, run: (sql, bindings) => { statements.push(sql); return runner.run(sql, bindings); } };
-	const services = {
+	services = {
 		name: 'console-test',
 		environment: 'local',
 		database: new ConsoleDatabase(executor, { list: async () => [{ name: 'console_owners', path: 'db3/tables/console_owners.json' }] }),
@@ -100,6 +101,20 @@ describe('console routes', () => {
 		expect(remove.statusCode).toBe(200);
 		expect(await database.db('console_notes').count({ total: '*' })).toEqual([{ total: 1 }]);
 		expect((await server.inject({ url: '/_db3/console/database/tables/nope/rows', headers: auth })).statusCode).toBe(404);
+	});
+
+	it('refuses data changes where the host made rows read-only, and says so to the screens', async () => {
+		services.readOnly = { rows: 'Production data is read-only here.', schema: 'Design tables in a development environment.' };
+		try {
+			expect((await server.inject({ url: '/_db3/console/', headers: auth })).json().readOnly).toEqual({ rows: 'Production data is read-only here.', schema: 'Design tables in a development environment.' });
+			const page = (await server.inject({ url: '/_db3/console/database/tables/console_notes/rows', headers: auth })).json();
+			expect(page.table.readOnly).toBe('Production data is read-only here.');
+			const add = await server.inject({ method: 'POST', url: '/_db3/console/database/tables/console_notes/rows', headers: auth, payload: { values: { title: 'Nope' } } });
+			expect(add.statusCode).toBe(403);
+			expect((await server.inject({ method: 'POST', url: '/_db3/console/storage/changes', headers: auth, payload: { disk: 'local', action: 'mkdir', path: '/x' } })).statusCode).toBe(403);
+		} finally {
+			delete services.readOnly;
+		}
 	});
 
 	it('searches the rows a link column can point at', async () => {

@@ -4,7 +4,7 @@ import type { ConsoleDatabase } from './ConsoleDatabase';
 import { ConsoleError } from './ConsoleError';
 import type { ConsoleFlows } from './ConsoleFlows';
 import type { ConsoleStorage } from './ConsoleStorage';
-import type { ConsoleInfo, ConsoleStorageChange } from './contracts';
+import type { ConsoleInfo, ConsoleReadOnly, ConsoleStorageChange, ConsoleTable } from './contracts';
 
 /** Largest file the console uploads. */
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -21,6 +21,11 @@ export interface ConsoleServices {
 	storage: ConsoleStorage | { unavailable: string };
 	/** The flow definitions, or why there are none. */
 	flows: ConsoleFlows | { unavailable: string };
+	/**
+	 * Why changes are refused here, such as in Production. `schema` covers definitions (table
+	 * design, flows); `rows` covers data (rows and files). Leave one out to allow it.
+	 */
+	readOnly?: ConsoleReadOnly;
 }
 
 type TableParams = { table: string };
@@ -44,6 +49,16 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 		const database = async (request: FastifyRequest) => available((await resolve(request)).database);
 		const storage = async (request: FastifyRequest) => available((await resolve(request)).storage);
 		const flows = async (request: FastifyRequest) => available((await resolve(request)).flows);
+		/** Refuses a change of the given kind when the host made it read-only. */
+		const writable = async (request: FastifyRequest, kind: keyof ConsoleReadOnly) => {
+			const reason = (await resolve(request)).readOnly?.[kind];
+			if (reason) throw new ConsoleError(reason, 403);
+		};
+		/** Marks tables read-only for the screens when rows can't be changed here. */
+		const marked = async (request: FastifyRequest, table: ConsoleTable): Promise<ConsoleTable> => {
+			const reason = (await resolve(request)).readOnly?.rows;
+			return reason && !table.readOnly ? { ...table, readOnly: reason } : table;
+		};
 		scope.setErrorHandler((error, _request, reply) => {
 			if (error instanceof ConsoleError) return reply.code(error.statusCode).send({ message: error.message });
 			const status = (error as { statusCode?: number }).statusCode;
@@ -64,20 +79,27 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 				database: { available: !databaseReason, reason: databaseReason },
 				storage: { available: !reason(services.storage), reason: reason(services.storage) },
 				flows: { available: !reason(services.flows), reason: reason(services.flows), runs: false },
+				readOnly: { schema: services.readOnly?.schema ?? null, rows: services.readOnly?.rows ?? null },
 			};
 		});
 
-		scope.get('/database/tables', async request => ({ tables: await (await database(request)).tables() }));
-		scope.get<{ Params: TableParams; Querystring: { page?: string; limit?: string } }>('/database/tables/:table/rows', async request => (await database(request)).rows(request.params.table, Number(request.query.page ?? 1), Number(request.query.limit ?? 25)));
+		scope.get('/database/tables', async request => ({ tables: await Promise.all((await (await database(request)).tables()).map(table => marked(request, table))) }));
+		scope.get<{ Params: TableParams; Querystring: { page?: string; limit?: string } }>('/database/tables/:table/rows', async request => {
+			const page = await (await database(request)).rows(request.params.table, Number(request.query.page ?? 1), Number(request.query.limit ?? 25));
+			return { ...page, table: await marked(request, page.table) };
+		});
 		scope.post<{ Params: TableParams; Body: { values?: unknown } }>('/database/tables/:table/rows', async (request, reply) => {
+			await writable(request, 'rows');
 			await (await database(request)).insert(request.params.table, request.body?.values);
 			return reply.code(201).send({ ok: true });
 		});
 		scope.post<{ Params: TableParams; Body: { key?: unknown; values?: unknown } }>('/database/tables/:table/rows/update', async request => {
+			await writable(request, 'rows');
 			await (await database(request)).update(request.params.table, request.body?.key, request.body?.values);
 			return { ok: true };
 		});
 		scope.post<{ Params: TableParams; Body: { key?: unknown } }>('/database/tables/:table/rows/delete', async request => {
+			await writable(request, 'rows');
 			await (await database(request)).delete(request.params.table, request.body?.key);
 			return { ok: true };
 		});
@@ -86,6 +108,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 		scope.get('/storage/disks', async request => ({ disks: (await storage(request)).disks() }));
 		scope.get<{ Querystring: { disk?: string; path?: string } }>('/storage', async request => (await storage(request)).list(request.query.disk ?? '', request.query.path ?? ''));
 		scope.post<{ Body: ConsoleStorageChange }>('/storage/changes', async request => {
+			await writable(request, 'rows');
 			await (await storage(request)).change(checkedChange(request.body));
 			return { ok: true };
 		});
@@ -96,6 +119,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 			return reply.header('content-type', file.mimeType).header('content-length', file.size).header('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(name)}`).header('x-content-type-options', 'nosniff').send(file.stream);
 		});
 		scope.put<{ Querystring: { disk?: string; path?: string }; Body: Buffer }>('/storage/file', { bodyLimit: MAX_UPLOAD_BYTES }, async (request, reply) => {
+			await writable(request, 'rows');
 			if (!Buffer.isBuffer(request.body)) throw new ConsoleError('Send the file as application/octet-stream.', 415);
 			await (await storage(request)).write(request.query.disk ?? '', request.query.path ?? '', request.body);
 			return reply.code(201).send({ ok: true });
@@ -107,6 +131,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 		});
 		scope.get<{ Params: { id: string } }>('/flows/:id', async request => (await flows(request)).definition(request.params.id));
 		scope.put<{ Params: { id: string }; Body: { definition: FlowDefinition; expectedRevision?: string; path?: string } }>('/flows/:id', async request => {
+			await writable(request, 'schema');
 			if (request.params.id !== request.body?.definition?.id) throw new ConsoleError('The flow id in the address must match the definition.', 400);
 			return (await flows(request)).saveDefinition(request.body.definition, { expectedRevision: request.body.expectedRevision, path: request.body.path });
 		});
