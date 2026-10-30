@@ -50,7 +50,11 @@ export interface DatabaseMigrationManagerOptions {
 export interface DatabaseMigrationState {
 	completed: string[];
 	pending: string[];
+	/** Pending contract migrations. */
+	pendingContract: string[];
 	missingFiles: string[];
+	/** Missing files recorded as expand migrations. */
+	newerExpand: string[];
 }
 
 /**
@@ -77,6 +81,9 @@ export interface DatabaseCheckResult {
 
 	/** Overall readiness including snapshot and Knex migration state. */
 	matches: boolean;
+
+	/** Whether this code can run here, even if newer releases applied expand migrations. */
+	compatible: boolean;
 
 	/** Differences between the live model-owned schema and current models. */
 	plan: SchemaMigrationPlan;

@@ -7,7 +7,7 @@ import { ActiveRecord } from '../db';
 import { isQueueableJobClass, queueableJobName } from '../queue';
 import type { ScheduledTaskDefinition, ScheduledJobSource } from '../scheduler';
 import { databaseDialectForConnection } from '../db/dialects';
-import { DatabaseMigrationManager, type RollbackResult } from '../db/migrations';
+import { DatabaseMigrationManager, readMigrationPhase, type RollbackResult } from '../db/migrations';
 import type { App } from '../server/App';
 import { discoverApps } from './discoverApps';
 import { AppService } from './AppService';
@@ -199,6 +199,24 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 		return this.#order.flatMap(appId => (this.#definitions[appId].routes ?? []).map(route => ({ appId, route })));
 	}
 
+	/**
+	 * Runs boot's checks without starting anything: every enabled app is registered, at a version
+	 * that may run on its installation, with its dependencies, and with a compatible schema.
+	 * Deploy scripts call it from a candidate or rollback target before switching traffic.
+	 */
+	async verify(): Promise<void> {
+		this.#refresh();
+		await this.#readRecords();
+		for (const [id, record] of this.#records) {
+			if (record.state !== 'enabled') continue;
+			await this.load(id);
+			this.#assertVersion(id, record);
+			this.#assertDependencies(id);
+			const manager = this.migrations(id);
+			if (manager && !(await manager.check()).compatible) throw new Error(`App "${id}" has pending or incompatible migrations; run apps:install in maintenance mode.`);
+		}
+	}
+
 	/** Validates the durable desired state and starts enabled apps in dependency order without schema changes. */
 	async boot(): Promise<void> {
 		if (this.#booted) return;
@@ -226,12 +244,15 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 				if (hashes[file] !== hash) throw new Error(`Immutable migration "${id}/${file}" was removed or changed.`);
 			}
 			const record = existing ?? AppInstallation.create({ appId: id });
-			record.assign({ version: definition.manifest.version, state: 'failed', description: this.#description(id), migrationHashes: hashes });
+			const floor = existing ? existing.compatibleFrom ?? existing.version : definition.manifest.version;
+			record.assign({ version: definition.manifest.version, state: 'failed', description: this.#description(id), migrationHashes: hashes, compatibleFrom: floor });
 			await record.save();
 			this.#records.set(id, record);
 			const manager = this.migrations(id);
 			if (manager) {
-				await manager.migrate();
+				const { applied } = await manager.migrate();
+				// A contract migration may remove what older versions use, so only this version and newer may run.
+				if (await this.#appliesContract(id, applied)) record.compatibleFrom = definition.manifest.version;
 				if (!(await manager.check()).matches) throw new Error(`Schema check failed for "${id}". Installation remains failed; correct the package and retry.`);
 			}
 			await definition.afterInstall?.(this.#host);
@@ -249,7 +270,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			this.#assertVersion(id, record);
 			this.#assertDependencies(id);
 			const manager = this.migrations(id);
-			if (manager && !(await manager.check()).matches) throw new Error(`App "${id}" requires installation or upgrade before enabling.`);
+			if (manager && !(await manager.check()).compatible) throw new Error(`App "${id}" requires installation or upgrade before enabling.`);
 			record.state = 'enabled';
 			await record.save();
 			return this.#description(id);
@@ -327,16 +348,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 
 	/** Starts services only after all installed definitions, versions and schemas have passed validation. */
 	async #boot(): Promise<void> {
-		this.#refresh();
-		await this.#readRecords();
-		for (const [id, record] of this.#records) {
-			if (record.state !== 'enabled') continue;
-			await this.load(id);
-			this.#assertVersion(id, record);
-			this.#assertDependencies(id);
-			const manager = this.migrations(id);
-			if (manager && !(await manager.check()).matches) throw new Error(`App "${id}" has pending or incompatible migrations; run apps:install in maintenance mode.`);
-		}
+		await this.verify();
 		this.#starting = true;
 		try {
 			for (const id of this.#order) {
@@ -443,7 +455,22 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 
 	/** Prevents unreviewed package updates from taking effect merely because node_modules changed. */
 	#assertVersion(id: string, record: AppInstallation): void {
-		if (this.#definition(id).manifest.version !== record.version) throw new Error(`App "${id}" package version changed; run apps:install before boot.`);
+		const version = this.#definition(id).manifest.version;
+		if (version === record.version) return;
+		// Rollback: an older version may run while every newer install since it applied only expand migrations.
+		if (record.compatibleFrom && compareVersions(version, record.version) < 0 && compareVersions(version, record.compatibleFrom) >= 0) return;
+		throw new Error(`App "${id}" package version changed; run apps:install before boot.`);
+	}
+
+	/** Reports whether any just-applied migration of an app is a contract migration (or declares no phase). */
+	async #appliesContract(id: string, applied: readonly string[]): Promise<boolean> {
+		const database = this.#definition(id).database;
+		if (!database || applied.length === 0) return false;
+		const directory = join(fileURLToPath(database.directory), 'migrations');
+		for (const file of applied) {
+			if (readMigrationPhase(await readFile(join(directory, file), 'utf8')) === 'contract') return true;
+		}
+		return false;
 	}
 
 	/** Checks required and present optional service contracts against enabled compatible installations. */
