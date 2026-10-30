@@ -128,8 +128,8 @@ onUnmounted(() => window.removeEventListener('hashchange', readRoute));
 				<p class="mt-3 text-muted-fg">{{ page === 'register' ? 'Create an account to start your private notebook.' : 'Sign in to your notebook.' }}</p>
 				<form class="mt-8 space-y-5" @submit.prevent="authenticate">
 					<label v-if="page === 'register'" class="block text-sm">Name<input v-model="name" class="form-input mt-2" autocomplete="name" required maxlength="120"></label>
-					<label class="block text-sm">Email<input v-model="email" class="form-input mt-2" type="email" autocomplete="email" required maxlength="255"></label>
-					<label class="block text-sm">Password<input v-model="password" class="form-input mt-2" type="password" :autocomplete="page === 'register' ? 'new-password' : 'current-password'" required minlength="12" maxlength="128"><span class="mt-2 block text-xs text-muted-fg">At least 12 characters.</span></label>
+					<label class="block text-sm">Email<input id="email" v-model="email" class="form-input mt-2" name="email" type="email" autocomplete="username" inputmode="email" required maxlength="255"></label>
+					<label class="block text-sm">Password<input id="password" v-model="password" class="form-input mt-2" name="password" type="password" :autocomplete="page === 'register' ? 'new-password' : 'current-password'" required minlength="12" maxlength="128"><span class="mt-2 block text-xs text-muted-fg">At least 12 characters.</span></label>
 					<DomButton type="submit" class="w-full" :loading="busy">{{ page === 'register' ? 'Create account' : 'Sign in' }}</DomButton>
 				</form>
 			</section>
