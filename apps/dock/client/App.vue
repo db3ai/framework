@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch, watchEffect } from 'vue';
+import { computed, defineAsyncComponent, ref, watch, watchEffect } from 'vue';
 
 import AddProcessDialog from './components/AddProcessDialog.vue';
 import AddProjectDialog from './components/AddProjectDialog.vue';
@@ -16,6 +16,9 @@ import { hostNav, isRunning } from './hosts/presentation.js';
 import { projectNav } from './dock/projectNav.js';
 import { useDock } from './dock/useDock.js';
 import { useLayout } from './dock/useLayout.js';
+
+// The console (Database, Storage, Flows) loads on first use; it brings Tailwind and getdom.studio.
+const ConsoleView = defineAsyncComponent(() => import('./components/console/ConsoleView.vue'));
 
 const dock = useDock();
 const layout = useLayout();
@@ -36,6 +39,8 @@ const serverItems = computed(() => hostNav(dock.hosts.value));
 /** The server shown, when the current selection is `host:<id>`. */
 const currentHost = computed(() => (layout.project.startsWith('host:') ? dock.hosts.value.find(host => `host:${host.id}` === layout.project) ?? null : null));
 const visibleProjects = computed(() => filterProjects(dock.projects.value, layout.project, filter.value));
+/** The one project the console view shows, when a single project is selected. */
+const consoleProject = computed(() => dock.projects.value.find(project => project.id === layout.project) ?? null);
 const addProcessProject = computed(() => dock.projects.value.find(project => project.id === addProcessFor.value) ?? null);
 
 const subtitle = computed(() => {
@@ -113,6 +118,10 @@ function projectAdded(id: string, processId?: string): void {
 					<button type="button" class="btn btn--primary" @click="addingProject = true">Add project</button>
 				</div>
 				<p v-else-if="dock.loaded.value && !visibleProjects.length" class="empty-filter">No processes match “{{ filter }}”.</p>
+				<template v-else-if="layout.view === 'console'">
+					<ConsoleView v-if="consoleProject" v-model:tab="layout.consoleTab" :project="consoleProject" :theme="layout.theme" />
+					<p v-else class="empty-filter">Pick a project in the sidebar to open its Database, Storage and Flows.</p>
+				</template>
 				<ProcessList v-else-if="layout.view === 'list'" :projects="visibleProjects" />
 				<TerminalGrid v-else :projects="visibleProjects" />
 			</main>

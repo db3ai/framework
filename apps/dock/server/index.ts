@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { ConsoleKeys, CONSOLE_TOKEN_ENV } from './console/ConsoleKeys.js';
 import { createServer } from './createServer.js';
 import { Dock } from './Dock.js';
 import { HostMonitor } from './hosts/HostMonitor.js';
@@ -19,7 +20,10 @@ if (!['127.0.0.1', 'localhost', '::1'].includes(host)) {
 	process.exit(1);
 }
 
-const dock = new Dock(new ProjectStore(configFile));
+// Each project's processes get a console token, so Dock can open its Database, Storage and Flows.
+const consoleKeys = new ConsoleKeys(join(dirname(configFile), 'console.key'));
+await consoleKeys.open();
+const dock = new Dock(new ProjectStore(configFile), { projectEnv: project => ({ [CONSOLE_TOKEN_ENV]: consoleKeys.token(project.path) }) });
 await dock.open();
 const hosts = new HostMonitor(new HostStore(hostsFile));
 await hosts.open();
@@ -31,6 +35,7 @@ const server = await createServer(dock, {
 	dockDir: join(here, '..'),
 	port,
 	hosts,
+	consoleKeys,
 });
 
 let closing = false;

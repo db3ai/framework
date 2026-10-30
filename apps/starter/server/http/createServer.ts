@@ -4,6 +4,7 @@ import { registerBrowserJsonFormatting } from '@db3.ai/app/server';
 import { InAppError } from '@db3.ai/app/in-app';
 import { databaseHealthCheck } from '@db3.ai/app/health';
 import { registerHealthRoute } from '@db3.ai/app/health/fastify';
+import { CONSOLE_PREFIX, registerConsoleRoutes } from '@db3.ai/app/console/fastify';
 import { registerInAppRoutes } from './inApp';
 import { registerCollaboration } from '../collaboration/registerCollaboration';
 import cookie from '@fastify/cookie';
@@ -45,8 +46,9 @@ export async function createServer(application: App, config: StarterConfig) {
 	await server.register(rateLimit, { max: 120, timeWindow: '1 minute', cache: 10_000 });
 	server.addHook('onRequest', (request, reply, done) => {
 		reply.header('Cache-Control', 'no-store').header('X-Content-Type-Options', 'nosniff').header('X-Frame-Options', 'DENY').header('Referrer-Policy', 'same-origin');
-		// Strict Origin verification covers login CSRF as well as authenticated writes.
-		if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && request.headers.origin !== config.origin) {
+		// Strict Origin verification covers login CSRF as well as authenticated writes. The console
+		// uses a bearer token instead of cookies, so its callers (Dock, Cloud) send no browser Origin.
+		if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && request.headers.origin !== config.origin && !request.url.startsWith(`${CONSOLE_PREFIX}/`)) {
 			reply.code(403).send({ message: 'Request origin is not allowed.' });
 			return;
 		}
@@ -63,6 +65,7 @@ export async function createServer(application: App, config: StarterConfig) {
 		// Do not serialize SQL errors, request bodies, credentials or provider payloads.
 		return reply.code(500).send({ message: 'The request could not be completed.' });
 	});
+	await registerConsoleRoutes(server, { app: application, token: config.console?.token, name: config.name });
 	server.get('/api/config', async () => ({ name: config.name, aiEnabled: Boolean(ai), googleClientId: config.auth.googleClientId }));
 	server.get('/api/me', async request => {
 		const token = request.cookies[sessionCookie];

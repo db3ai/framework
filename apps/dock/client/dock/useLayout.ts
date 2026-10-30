@@ -6,7 +6,10 @@ export type ThemePreference = 'system' | 'light' | 'dark';
 
 export interface LayoutState {
 	theme: ThemePreference;
-	view: 'list' | 'terminals';
+	/** A project's main view: its processes as a list or terminals, or its console (Database, Storage, Flows). */
+	view: 'list' | 'terminals' | 'console';
+	/** Tab of the console view. */
+	consoleTab: 'database' | 'storage' | 'flows';
 	sidebarCollapsed: boolean;
 	/** Selected project id, or `all`. */
 	project: string;
@@ -34,6 +37,7 @@ const KEY = 'db3-dock.layout';
 const DEFAULTS: LayoutState = {
 	theme: 'system',
 	view: 'list',
+	consoleTab: 'database',
 	sidebarCollapsed: false,
 	project: 'all',
 	selectedProcess: null,

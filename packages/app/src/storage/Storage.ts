@@ -72,6 +72,16 @@ export class Storage {
 	}
 
 	/**
+	 * Lists the disks this app can open: configured ones, ones the host provides, registered
+	 * instances and the default.
+	 *
+	 * @returns Disk names in name order.
+	 */
+	diskNames(): string[] {
+		return [...new Set([this.defaultDiskName, ...Object.keys(this.options.disks ?? {}), ...Object.keys(this.provided), ...this.disks.keys()])].sort();
+	}
+
+	/**
 	 * Alias for disk(), matching Laravel's drive naming.
 	 *
 	 * @param name - Optional disk name; defaults to the configured default disk.

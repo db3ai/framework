@@ -1,0 +1,35 @@
+{
+	"name": "@db3.ai/console",
+	"version": "0.1.0",
+	"private": true,
+	"description": "The db3 console screens (Database, Storage, Flows) shared by Dock and db3 Cloud.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./console.css": "./src/console.css"
+	},
+	"scripts": {
+		"check": "vue-tsc --noEmit -p tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@db3.ai/app": "0.1.0",
+		"@db3.ai/flow-designer": "0.1.0",
+		"@getdom/studio": "0.2.1",
+		"pinia": "^3.0.4",
+		"vue-router": "^4.6.4"
+	},
+	"peerDependencies": {
+		"vue": "^3.5.44"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.12",
+		"vue": "^3.5.44",
+		"vue-tsc": "^3.3.4"
+	},
+	"files": [
+		"src"
+	],
+	"license": "MIT"
+}
