@@ -99,6 +99,7 @@ export interface ConsoleInfo {
 	database: { available: boolean; reason: string | null };
 	storage: { available: boolean; reason: string | null };
 	flows: { available: boolean; reason: string | null; runs: boolean };
+	agents: { available: boolean; reason: string | null };
 	/** Why changes are refused here, or null: definitions (`schema`) and data (`rows`) apart. */
 	readOnly: { schema: string | null; rows: string | null };
 }

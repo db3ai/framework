@@ -12,6 +12,8 @@ export interface ConsoleSource {
 	upload(path: string, body: Blob): Promise<void>;
 	/** A URL the browser can open directly, for downloads and thumbnails. */
 	url(path: string): string;
+	/** Posts JSON and hands on each JSON line of the answer as it arrives, as agent runs stream. */
+	stream(path: string, body: unknown, onEvent: (event: Record<string, unknown>) => void, signal?: AbortSignal): Promise<void>;
 }
 
 /** A refusal from the console API, with its message. */
@@ -44,5 +46,35 @@ export function httpConsoleSource(base: string, options: { headers?: Record<stri
 		send: (method, path, body) => request(method, path, body === undefined ? undefined : JSON.stringify(body), body === undefined ? undefined : 'application/json'),
 		upload: async (path, body) => { await request('PUT', path, body, 'application/octet-stream'); },
 		url: address,
+		async stream(path, body, onEvent, signal) {
+			const response = await call(address(path), { method: 'POST', credentials: 'same-origin', headers: { ...options.headers, 'content-type': 'application/json' }, body: JSON.stringify(body), signal });
+			if (!response.ok || !response.body) {
+				const data = await response.json().catch(() => ({})) as { message?: string };
+				throw new ConsoleRequestError(data.message ?? `The request failed (${response.status}).`, response.status);
+			}
+			const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+			let pending = '';
+			for (;;) {
+				const { value, done } = await reader.read();
+				if (done) break;
+				pending += value;
+				const lines = pending.split('\n');
+				pending = lines.pop() ?? '';
+				for (const line of lines) emitLine(line, onEvent);
+			}
+			emitLine(pending, onEvent);
+		},
 	};
+}
+
+/** Passes on one line of a JSON-lines answer, skipping blanks and anything that isn't an object. */
+function emitLine(line: string, onEvent: (event: Record<string, unknown>) => void): void {
+	const text = line.trim();
+	if (!text) return;
+	try {
+		const value = JSON.parse(text);
+		if (value && typeof value === 'object') onEvent(value as Record<string, unknown>);
+	} catch {
+		// A partial or non-JSON line carries nothing for the screens.
+	}
 }

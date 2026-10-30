@@ -9,7 +9,7 @@ export interface LayoutState {
 	/** A project's main view: its processes as a list or terminals, or its console (Database, Storage, Flows). */
 	view: 'list' | 'terminals' | 'console';
 	/** Tab of the console view. */
-	consoleTab: 'database' | 'storage' | 'flows';
+	consoleTab: 'database' | 'storage' | 'flows' | 'agents';
 	sidebarCollapsed: boolean;
 	/** Selected project id, or `all`. */
 	project: string;

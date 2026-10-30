@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { ConsoleDatabase, ConsoleError, ConsoleStorage, fileFlows, knexExecutor, type ConsoleExecutor } from '@db3.ai/app/console';
 import { registerConsoleRoutes, type ConsoleServices } from '@db3.ai/app/console/fastify';
+import type { ConsoleAgents } from '@db3.ai/app/console';
 import { openProjectConsole } from '@db3.ai/app/console/project';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { Storage } from '@db3.ai/app/storage';
@@ -181,6 +182,35 @@ describe('a project opened from its folder', () => {
 			expect(rows.rows.map(row => row.name)).toEqual(['Ada Lovelace', 'Max Planck']);
 		} finally {
 			await opened.close();
+		}
+	});
+	it('serves agents under a host prefix with its own params, streaming runs as JSON lines', async () => {
+		const saved: unknown[] = [];
+		const agents: ConsoleAgents = {
+			list: async () => ({ agents: [], tools: [] }),
+			save: async (input, expectedRevision) => { saved.push({ input, expectedRevision }); return { revision: 'r2', path: 'db3/agents/support' }; },
+			run: async (name, input, emit) => { emit({ type: 'conversation.created', conversationId: 'c1' }); emit({ type: 'run.completed', conversationId: 'c1', finalOutput: `${name}: ${input.message}` }); },
+			conversations: async () => [],
+			messages: async id => [{ id: 'm1', role: 'user', content: `in ${id}`, toolName: null, createdAt: '2026-10-30T00:00:00.000Z' }] as Awaited<ReturnType<ConsoleAgents['messages']>>,
+			lastRun: async () => null,
+		};
+		const host = Fastify();
+		await registerConsoleRoutes(host, '/api/projects/:id/console', async request => {
+			if ((request.params as { id?: string }).id !== 'p1') throw new ConsoleError('That project is not in Dock.', 404);
+			return { ...services, agents };
+		});
+		try {
+			expect((await host.inject({ url: '/api/projects/p1/console/' })).json().agents).toEqual({ available: true, reason: null });
+			const run = await host.inject({ method: 'POST', url: '/api/projects/p1/console/agents/support/runs', payload: { message: 'Hello' } });
+			expect(run.headers['content-type']).toContain('application/x-ndjson');
+			expect(run.body.trim().split('\n').map(line => JSON.parse(line).type)).toEqual(['conversation.created', 'run.completed']);
+			expect((await host.inject({ method: 'POST', url: '/api/projects/p1/console/agents/support/runs', payload: { message: ' ' } })).statusCode).toBe(400);
+			expect((await host.inject({ url: '/api/projects/p1/console/conversations/c1/messages' })).json().messages[0].content).toBe('in c1');
+			const put = await host.inject({ method: 'PUT', url: '/api/projects/p1/console/agents/support', payload: { definition: { version: 1, name: 'other' }, instructions: 'Hi.' } });
+			expect(put.statusCode).toBe(400);
+			expect(saved).toEqual([]);
+		} finally {
+			await host.close();
 		}
 	});
 });

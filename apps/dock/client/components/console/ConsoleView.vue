@@ -12,7 +12,7 @@ import '../../console.css';
  * Cloud shows for a deployed environment.
  */
 const props = defineProps<{ project: ProjectDefinition; theme: ThemePreference }>();
-const tab = defineModel<'database' | 'storage' | 'flows'>('tab', { required: true });
+const tab = defineModel<'database' | 'storage' | 'flows' | 'agents'>('tab', { required: true });
 
 const source = computed(() => httpConsoleSource(`/api/projects/${encodeURIComponent(props.project.id)}/console`));
 

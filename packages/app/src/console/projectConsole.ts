@@ -4,10 +4,12 @@ import { parse } from 'dotenv';
 import knex, { type Knex } from 'knex';
 import { resolveDatabaseDialect } from '../db/dialects';
 import { Storage } from '../storage/Storage';
+import { ConsoleAgentLogs } from './ConsoleAgents';
 import { ConsoleDatabase, knexExecutor, tableFilesIn } from './ConsoleDatabase';
 import { fileFlows } from './ConsoleFlows';
 import { ConsoleStorage } from './ConsoleStorage';
 import type { ConsoleServices } from './fastify';
+import { projectAgents } from './projectAgents';
 
 /** An app's console opened straight from its repo folder, and how to close its connection. */
 export interface ProjectConsole {
@@ -18,8 +20,9 @@ export interface ProjectConsole {
 /**
  * Opens the console for an app checked out on this machine, the way Dock does: its database from
  * the settings in its `.env`, its local storage under `storage/app` (plus any disks listed in
- * `DB3_STORAGE_DISKS`), and its definitions in `db3/tables` and `db3/flows`. Nothing runs inside
- * the app, so it works whether or not the app is running.
+ * `DB3_STORAGE_DISKS`), its definitions in `db3/tables`, `db3/flows` and `db3/agents`, and its
+ * own `db3` command for agents written in code. The app serves nothing, so it works whether or
+ * not the app is running.
  *
  * @param directory - The app's folder.
  * @param options - Name shown in the console; defaults to the folder's name.
@@ -28,9 +31,12 @@ export async function openProjectConsole(directory: string, options: { name?: st
 	const env = await readEnv(directory);
 	let connection: Knex | null = null;
 	let database: ConsoleServices['database'];
+	let logs: ConsoleAgentLogs | null = null;
 	try {
 		connection = connect(env);
-		database = new ConsoleDatabase(knexExecutor(connection), tableFilesIn(join(directory, 'db3', 'tables')));
+		const executor = knexExecutor(connection);
+		database = new ConsoleDatabase(executor, tableFilesIn(join(directory, 'db3', 'tables')));
+		logs = new ConsoleAgentLogs(executor);
 	} catch (error) {
 		database = { unavailable: error instanceof Error ? error.message : String(error) };
 	}
@@ -42,6 +48,7 @@ export async function openProjectConsole(directory: string, options: { name?: st
 			database,
 			storage: new ConsoleStorage(storage),
 			flows: fileFlows(join(directory, 'db3', 'flows')),
+			agents: projectAgents(directory, logs),
 		},
 		close: async () => { await connection?.destroy(); },
 	};

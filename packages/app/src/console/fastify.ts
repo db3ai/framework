@@ -1,5 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { FlowDefinition } from '../flows/contracts';
+import { PassThrough } from 'node:stream';
+import type { ConsoleAgents } from './ConsoleAgents';
 import type { ConsoleDatabase } from './ConsoleDatabase';
 import { ConsoleError } from './ConsoleError';
 import type { ConsoleFlows } from './ConsoleFlows';
@@ -21,6 +23,8 @@ export interface ConsoleServices {
 	storage: ConsoleStorage | { unavailable: string };
 	/** The flow definitions, or why there are none. */
 	flows: ConsoleFlows | { unavailable: string };
+	/** The app's agents, or why there are none. Left out, the Agents screens say this host has none. */
+	agents?: ConsoleAgents | { unavailable: string };
 	/**
 	 * Why changes are refused here, such as in Production. `schema` covers definitions (table
 	 * design, flows); `rows` covers data (rows and files). Leave one out to allow it.
@@ -49,6 +53,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 		const database = async (request: FastifyRequest) => available((await resolve(request)).database);
 		const storage = async (request: FastifyRequest) => available((await resolve(request)).storage);
 		const flows = async (request: FastifyRequest) => available((await resolve(request)).flows);
+		const agents = async (request: FastifyRequest) => available((await resolve(request)).agents ?? { unavailable: 'This console has no agents.' });
 		/** Refuses a change of the given kind when the host made it read-only. */
 		const writable = async (request: FastifyRequest, kind: keyof ConsoleReadOnly) => {
 			const reason = (await resolve(request)).readOnly?.[kind];
@@ -79,6 +84,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 				database: { available: !databaseReason, reason: databaseReason },
 				storage: { available: !reason(services.storage), reason: reason(services.storage) },
 				flows: { available: !reason(services.flows), reason: reason(services.flows), runs: false },
+				agents: { available: !reason(services.agents ?? { unavailable: 'This console has no agents.' }), reason: reason(services.agents ?? { unavailable: 'This console has no agents.' }) },
 				readOnly: { schema: services.readOnly?.schema ?? null, rows: services.readOnly?.rows ?? null },
 			};
 		});
@@ -135,6 +141,31 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 			if (request.params.id !== request.body?.definition?.id) throw new ConsoleError('The flow id in the address must match the definition.', 400);
 			return (await flows(request)).saveDefinition(request.body.definition, { expectedRevision: request.body.expectedRevision, path: request.body.path });
 		});
+
+		scope.get('/agents', async request => (await agents(request)).list());
+		scope.put<{ Params: { name: string }; Body: { definition?: unknown; instructions?: string; expectedRevision?: string | null } }>('/agents/:name', async request => {
+			await writable(request, 'schema');
+			const definition = request.body?.definition as { name?: unknown } | undefined;
+			if (!definition || definition.name !== request.params.name) throw new ConsoleError('The agent name in the address must match the definition.', 400);
+			return (await agents(request)).save({ definition, instructions: String(request.body?.instructions ?? '') }, request.body?.expectedRevision ?? null);
+		});
+		scope.post<{ Params: { name: string }; Body: { message?: string; context?: Record<string, unknown>; conversationId?: string | null } }>('/agents/:name/runs', async (request, reply) => {
+			const service = await agents(request);
+			const message = String(request.body?.message ?? '').trim();
+			if (!message) throw new ConsoleError('Write a message to send.', 400);
+			const context = request.body?.context && typeof request.body.context === 'object' && !Array.isArray(request.body.context) ? request.body.context : {};
+			// Events go out as JSON lines while the run happens; closing the request stops the run.
+			const stream = new PassThrough();
+			const abort = new AbortController();
+			request.raw.on('close', () => { if (!stream.writableEnded) abort.abort(); });
+			void service.run(request.params.name, { message, context, conversationId: request.body?.conversationId ?? null }, event => { stream.write(`${JSON.stringify(event)}\n`); }, abort.signal)
+				.catch(error => { stream.write(`${JSON.stringify({ type: 'run.error', conversationId: null, aiRequestId: null, traceId: null, error: { message: error instanceof Error ? error.message : String(error) } })}\n`); })
+				.finally(() => stream.end());
+			return reply.type('application/x-ndjson').send(stream);
+		});
+		scope.get<{ Params: { name: string }; Querystring: { limit?: string } }>('/agents/:name/conversations', async request => ({ conversations: await (await agents(request)).conversations(request.params.name, Number(request.query.limit ?? 25)) }));
+		scope.get<{ Params: { name: string } }>('/agents/:name/last-run', async request => ({ lastRun: await (await agents(request)).lastRun(request.params.name) }));
+		scope.get<{ Params: { conversation: string } }>('/conversations/:conversation/messages', async request => ({ messages: await (await agents(request)).messages(request.params.conversation) }));
 	}, { prefix });
 }
 
