@@ -43,3 +43,20 @@ export class DatabaseMigrationSourceGenerationError extends Error {
 		this.name = 'DatabaseMigrationSourceGenerationError';
 	}
 }
+
+/**
+ * Error raised when a migration would drop retired schema in the same run that
+ * retires it, while the release from before the retire may still be live.
+ */
+export class DatabaseMigrationOrderError extends Error {
+	/**
+	 * Creates an ordering error naming the drop and the retire migrations it waits for.
+	 *
+	 * @param file - Pending migration that drops retired schema.
+	 * @param waiting - Retire migrations not applied in an earlier run.
+	 */
+	constructor(public readonly file: string, public readonly waiting: readonly string[]) {
+		super(`${file} drops schema retired by ${waiting.join(', ')}; deploy the retiring release first.`);
+		this.name = 'DatabaseMigrationOrderError';
+	}
+}

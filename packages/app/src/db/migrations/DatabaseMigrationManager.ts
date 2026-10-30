@@ -35,14 +35,15 @@ import { inspectDatabaseSchema } from './DatabaseSchemaInspector';
 import {
 	DatabaseMigrationBaselineError,
 	DatabaseMigrationLockError,
+	DatabaseMigrationOrderError,
 	DatabaseMigrationSourceGenerationError,
 } from './errors';
-import { readMigrationPhase, type MigrationPhase } from './MigrationPhase';
-import { renderKnexMigration } from './renderKnexMigration';
+import { readDropsRetired, readMigrationPhase, readRetiredSchema, type MigrationPhase } from './MigrationPhase';
+import { renderKnexMigration, type MigrationRemoval } from './renderKnexMigration';
 import { collectModelSchema } from './ModelSchemaCollector';
 import { writeFieldSettings } from './FieldSettingsWriter';
 import { diffSchemaSnapshots } from './SchemaDiffer';
-import { promoteDestructiveSchemaChanges } from './promoteDestructiveSchemaChanges';
+import { planHasOnlyPromotableDestructiveChanges, promoteDestructiveSchemaChanges } from './promoteDestructiveSchemaChanges';
 import {
 	emptySchemaSnapshot,
 	parseSchemaSnapshot,
@@ -155,9 +156,10 @@ export class DatabaseMigrationManager {
 			schemaMatches,
 			modelsMatchSnapshot,
 			matches: ready && schemaMatches && migrations.missingFiles.length === 0,
-			// A newer release may have added tables, columns, indexes or comments and nothing else.
+			// A newer release may have added tables, columns, indexes or comments.
 			compatible: ready
-				&& plan.blockedChanges.length === 0
+				// A newer release may have made a column optional while retiring it; this code still writes it.
+				&& plan.blockedChanges.every(change => change.operation === 'tighten_column_nullability')
 				&& plan.safeChanges.every(isCommentChange)
 				&& migrations.missingFiles.every(file => migrations.newerExpand.includes(file)),
 			plan,
@@ -190,6 +192,7 @@ export class DatabaseMigrationManager {
 	 * @returns Applied migration names, batch, and optional baselined filenames.
 	 */
 	async migrate(options: MigrateOptions = {}): Promise<MigrateResult> {
+		await this.preflight();
 		const baselined = options.baselineIfMatching
 			? await this.#baselinePendingMigrationsIfMatching()
 			: null;
@@ -268,6 +271,12 @@ export class DatabaseMigrationManager {
 		const snapshot = await this.#readSnapshot();
 		const previous = snapshot ?? emptySchemaSnapshot(this.#options.dialect.name);
 		const rawPlan = diffSchemaSnapshots(previous, desired);
+
+		if (options.dropRetired) return await this.#makeDropRetiredMigration(options, rawPlan, previous);
+		if (options.retire && planHasOnlyPromotableDestructiveChanges(rawPlan)) {
+			return await this.#writeMigration(options, ...retirePlan(rawPlan, previous), desired);
+		}
+
 		const plan = options.allowDestructive
 			? promoteDestructiveSchemaChanges(rawPlan)
 			: rawPlan;
@@ -294,12 +303,30 @@ export class DatabaseMigrationManager {
 			};
 		}
 
-		const name = migrationName(options.name, plan);
+		return await this.#writeMigration(options, plan, {}, desired);
+	}
+
+	/**
+	 * Writes one migration file and advances the snapshot to `desired`.
+	 *
+	 * @param options - Optional human-readable migration name.
+	 * @param plan - Renderable plan.
+	 * @param removal - Retired or dropped-retired metadata for the file.
+	 * @param desired - Snapshot the file leads to.
+	 * @returns Generation result with the written file.
+	 */
+	async #writeMigration(
+		options: MakeMigrationOptions,
+		plan: SchemaMigrationPlan,
+		removal: MigrationRemoval,
+		desired: SchemaSnapshot,
+	): Promise<MakeMigrationResult> {
+		const name = migrationName(options.name ?? (removal.retired ? 'retire_schema' : removal.dropsRetired ? 'drop_retired_schema' : undefined), plan);
 		const file = join(
 			this.#options.migrationsDirectory,
 			`${formatMigrationTimestamp(this.#options.now())}_${name}${this.#options.migrationExtension}`,
 		);
-		const source = renderKnexMigration(plan, this.#options.migrationExtension === '.mjs' ? 'javascript' : 'typescript');
+		const source = renderKnexMigration(plan, this.#options.migrationExtension === '.mjs' ? 'javascript' : 'typescript', removal);
 
 		await writeMigrationAndSnapshotAtomically(
 			file,
@@ -314,6 +341,36 @@ export class DatabaseMigrationManager {
 			file,
 			plan,
 		};
+	}
+
+	/**
+	 * Generates the drops for schema that earlier retire migrations recorded and no
+	 * later migration dropped yet. The snapshot does not change: models already
+	 * stopped using those objects when they were retired.
+	 *
+	 * @param options - Optional human-readable migration name.
+	 * @param rawPlan - Model changes since the snapshot; these must be generated first.
+	 * @param snapshot - Current committed snapshot.
+	 * @returns Generation result; not generated when nothing is outstanding.
+	 */
+	async #makeDropRetiredMigration(
+		options: MakeMigrationOptions,
+		rawPlan: SchemaMigrationPlan,
+		snapshot: SchemaSnapshot,
+	): Promise<MakeMigrationResult> {
+		if (planHasChanges(rawPlan)) return { generated: false, blocked: true, file: null, plan: rawPlan };
+		const retired = new Map<string, SafeSchemaChange[]>();
+		const dropped = new Set<string>();
+		for (const file of await this.#readMigrationFiles()) {
+			const source = await readFile(join(this.#options.migrationsDirectory, file), 'utf8');
+			const changes = readRetiredSchema(source);
+			if (changes.length > 0) retired.set(file, changes);
+			for (const retireFile of readDropsRetired(source)) dropped.add(retireFile);
+		}
+		const outstanding = [...retired.keys()].filter(file => !dropped.has(file));
+		const plan: SchemaMigrationPlan = { ...rawPlan, safeChanges: outstanding.flatMap(file => retired.get(file)!) };
+		if (plan.safeChanges.length === 0) return { generated: false, blocked: false, file: null, plan };
+		return await this.#writeMigration(options, plan, { dropsRetired: outstanding }, snapshot);
 	}
 
 	/**
@@ -370,6 +427,22 @@ export class DatabaseMigrationManager {
 			missingFiles,
 			newerExpand: missingFiles.filter(file => phases.get(file) === 'expand'),
 		};
+	}
+
+	/**
+	 * Checks pending migrations may run, without running them. Refuses to drop
+	 * retired schema in the same run that retires it on a database already in use:
+	 * the release before the retire may still be live and use it. A database with
+	 * no applied migrations has no such release and runs everything.
+	 */
+	async preflight(): Promise<void> {
+		const { completed, pending } = await this.#readMigrationState();
+		if (completed.length === 0) return;
+		const done = new Set(completed);
+		for (const file of pending) {
+			const waiting = readDropsRetired(await readFile(join(this.#options.migrationsDirectory, file), 'utf8')).filter(retire => !done.has(retire));
+			if (waiting.length > 0) throw new DatabaseMigrationOrderError(file, waiting);
+		}
 	}
 
 	/**
@@ -656,6 +729,25 @@ class NoopMigrationSource implements Knex.MigrationSource<string> {
 			},
 		};
 	}
+}
+
+/**
+ * Turns removals into a retire plan: no drops run, required retired columns become optional.
+ *
+ * @param rawPlan - Model changes whose blocked changes are all removals.
+ * @param previous - Snapshot before the change, holding the retired column definitions.
+ * @returns Renderable plan and the retired drops to record.
+ */
+function retirePlan(rawPlan: SchemaMigrationPlan, previous: SchemaSnapshot): [SchemaMigrationPlan, MigrationRemoval] {
+	const retired = promoteDestructiveSchemaChanges(rawPlan).safeChanges.filter(change => change.kind.startsWith('drop_'));
+	// This release stops writing a retired column, so a required one without a default must accept NULL.
+	const optional = retired.flatMap((change): SafeSchemaChange[] => {
+		if (change.kind !== 'drop_column') return [];
+		const column = previous.tables.find(table => table.name === change.tableName)?.columns.find(candidate => candidate.name === change.columnName);
+		if (!column || column.nullable || column.primary || column.default !== undefined) return [];
+		return [{ kind: 'alter_column', tableName: change.tableName, column: { ...column, nullable: true }, alterType: false, alterNullable: true, alterComment: false, alterDefault: false, description: `Make retired ${change.tableName}.${column.name} optional.` }];
+	});
+	return [{ ...rawPlan, safeChanges: [...rawPlan.safeChanges, ...optional], blockedChanges: [] }, { retired }];
 }
 
 /**
