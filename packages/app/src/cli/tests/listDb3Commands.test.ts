@@ -19,7 +19,7 @@ describe('visual command discovery', () => {
 			await mkdir(join(directory, 'server'));
 			await writeFile(join(directory, 'server/cli.config.mjs'), `export default { createApp() { throw new Error('Must not boot'); }, commands: [{ name: 'demo:inspect', description: 'Inspect', run() {} }] };`);
 			const commands = await listDb3Commands({ directory });
-			expect(commands.map(command => command.name)).toEqual(['repl', 'list', 'queue:make-job', 'queue:work', 'queue:dispatch', 'queue:retry', 'scheduler:work', 'scheduler:run', 'scheduler:list', 'scheduler:history', 'demo:inspect']);
+			expect(commands.map(command => command.name)).toEqual(['repl', 'list', 'agents:list', 'agents:run', 'queue:make-job', 'queue:work', 'queue:dispatch', 'queue:retry', 'scheduler:work', 'scheduler:run', 'scheduler:list', 'scheduler:history', 'demo:inspect']);
 			expect(commands[0]!.interactive).toBe(true);
 			expect(commands.find(command => command.name === 'queue:work')).toMatchObject({ aliases: ['queue'], execution: 'worker', interactive: true });
 			expect(commands.find(command => command.name === 'scheduler:work')).toMatchObject({ aliases: ['scheduler'], execution: 'worker', interactive: true });

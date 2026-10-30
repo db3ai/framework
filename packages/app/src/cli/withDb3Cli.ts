@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { register, type ScopedImport } from 'tsx/esm/api';
 import { Cli } from './Cli';
+import { createAgentsCommands, type AppAgentsModule } from './commands/agents';
 import { createReplCommand } from './commands/repl';
 import type * as cli from './contracts';
 
@@ -23,6 +24,7 @@ export async function withDb3Cli<T>(options: cli.CliOptions, use: (runner: Cli) 
 		// Validate app config before combining it with commands that need no app bootstrap.
 		if (!config || !Array.isArray(config.commands)) throw new Error('CLI configuration must export a commands array.');
 		const repl = createReplCommand(async () => loadReplModels(directory, loader.import), options);
+		const agents = createAgentsCommands(async () => loadAgents(directory, loader.import));
 		let runner: Cli;
 		const list: cli.CliCommand = { name: 'list', description: 'List registered command definitions without starting the application.', options: [{ name: 'json', type: 'boolean', description: 'Write a versioned JSON command catalogue.' }],
 			/** Uses the exact metadata catalogue shared with programmatic discovery. */
@@ -31,7 +33,7 @@ export async function withDb3Cli<T>(options: cli.CliOptions, use: (runner: Cli) 
 				context.write(context.options.json ? JSON.stringify({ formatVersion: 1, commands }, null, 2) : commands.map(command => `${command.name}  ${command.description}${command.aliases.length ? ` (aliases: ${command.aliases.join(', ')})` : ''}`).join('\n'));
 			},
 		};
-		runner = new Cli({ ...config, commands: [repl, list, ...queueCommands, ...createQueueCommands(config.queue), ...createSchedulerCommands(config.scheduler), ...config.commands] }, { ...options, directory });
+		runner = new Cli({ ...config, commands: [repl, list, ...agents, ...queueCommands, ...createQueueCommands(config.queue), ...createSchedulerCommands(config.scheduler), ...config.commands] }, { ...options, directory });
 		return await use(runner);
 	} finally {
 		await loader.unregister();
@@ -63,4 +65,14 @@ async function loadReplModels(directory: string, importModule: ScopedImport): Pr
 		models[model.name] = model;
 	}
 	return models;
+}
+
+/** Loads `server/agents/index.ts` and the framework's AI module in the app's own module scope. */
+async function loadAgents(directory: string, importModule: ScopedImport): Promise<AppAgentsModule> {
+	const module = await loadAppModule(directory, 'server/agents/index', importModule);
+	const parent = pathToFileURL(resolve(directory, 'server', 'index.ts')).href;
+	const ai = await importModule('@db3.ai/app/ai', parent) as AppAgentsModule['ai'];
+	if (module && module.agents !== undefined && !Array.isArray(module.agents)) throw new Error('server/agents/index must export an agents array.');
+	if (module && module.tools !== undefined && !Array.isArray(module.tools)) throw new Error('server/agents/index must export a tools array.');
+	return { agents: module?.agents ?? [], tools: module?.tools ?? [], ai };
 }
