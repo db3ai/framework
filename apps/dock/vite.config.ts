@@ -1,11 +1,16 @@
 import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
+import tailwindcss from '@tailwindcss/vite';
 
 const apiPort = process.env.DOCK_PORT || '8790';
 const clientPort = Number(process.env.DOCK_CLIENT_PORT || 5179);
 
 export default defineConfig({
-	plugins: [vue()],
+	// Tailwind only builds the console screens' styles (client/console.css); Dock's own CSS is plain.
+	plugins: [vue({ template: { compilerOptions: {
+		/** Keeps getdom.studio's web components native instead of resolving their Vue wrappers recursively. */
+		isCustomElement: tag => tag.startsWith('dom-'),
+	} } }), tailwindcss()],
 	resolve: {
 		dedupe: ['vue'],
 	},

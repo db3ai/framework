@@ -1,0 +1,7 @@
+/*
+ * Import this into the host's Tailwind CSS v4 build. It brings getdom.studio's Tailwind sources
+ * (from this package's own copy) and this package's classes. The host owns the theme values
+ * (--canvas, --primary …).
+ */
+@import "@getdom/studio/tailwind.css";
+@source "./";

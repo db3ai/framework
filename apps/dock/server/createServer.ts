@@ -5,6 +5,7 @@ import fastifyStatic from '@fastify/static';
 
 import type { AddProcessRequest, CreateAppRequest, DockEvent } from '../shared/contracts.js';
 import type { HostEvent } from '../shared/hostContracts.js';
+import { registerConsoleRoutes } from './console/consoleRoutes.js';
 import type { Dock } from './Dock.js';
 import { desktopStatus, openDesktop } from './desktopApp.js';
 import type { HostMonitor } from './hosts/HostMonitor.js';
@@ -61,6 +62,8 @@ export async function createServer(dock: Dock, options: DockServerOptions = {}):
 	});
 
 	server.get('/api/health', async () => ({ ok: true, app: 'db3-dock' }));
+
+	await registerConsoleRoutes(server, dock);
 
 	server.get('/api/state', async () => dock.state());
 

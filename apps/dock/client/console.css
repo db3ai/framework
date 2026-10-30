@@ -1,0 +1,69 @@
+/*
+ * Styles for the console screens (Database, Storage, Flows) from @db3.ai/console, which use
+ * Tailwind and getdom.studio. Tailwind's preflight reset is left out so Dock's own styles stay as
+ * they are, and the screens' theme values are mapped onto Dock's colours inside `.db3-console`.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+/* Unlayered, so utilities beat Dock's own unlayered element rules (such as button { color: inherit }). */
+@import "tailwindcss/utilities.css";
+@import "@db3.ai/console/console.css";
+
+.db3-console {
+	--radius: 0.5rem;
+	--canvas: var(--panel);
+	--canvas-fg: var(--text);
+	--primary: var(--accent);
+	--primary-fg: #ffffff;
+	--secondary: var(--raised);
+	--secondary-fg: var(--text);
+	/* Dock's own --muted is a text colour; inside the console it names a surface, as getdom.studio expects. */
+	--muted-fg: light-dark(#5b6270, #9ba1ad);
+	--muted: var(--raised);
+	--accent: color-mix(in srgb, light-dark(#2a68cf, #3f7bd9) 14%, var(--panel));
+	--accent-fg: light-dark(#1d5fc4, #8dbbff);
+	--destructive: var(--bad);
+	--destructive-fg: #ffffff;
+	--success: var(--ok);
+	--success-fg: #ffffff;
+	--warning: var(--warn);
+	--warning-fg: #000000;
+	--border: var(--line);
+	--input: var(--line-strong);
+	--ring: light-dark(#2a68cf, #3f7bd9);
+	--shadow-sm: 0 1px 2px 0 var(--shadow);
+	--shadow-md: 0 3px 8px -2px var(--shadow);
+	--shadow-lg: 0 8px 20px -6px var(--shadow);
+	font-family: inherit;
+}
+
+/* A small reset in the base layer, so Tailwind utilities still win over it. */
+@layer base {
+	.db3-console *,
+	.db3-console ::before,
+	.db3-console ::after {
+		box-sizing: border-box;
+		border-width: 0;
+		border-style: solid;
+		border-color: var(--border);
+	}
+
+	.db3-console button,
+	.db3-console input,
+	.db3-console select,
+	.db3-console textarea {
+		font: inherit;
+		color: inherit;
+	}
+
+	.db3-console button {
+		background: transparent;
+		cursor: pointer;
+	}
+
+	.db3-console h2,
+	.db3-console h3,
+	.db3-console p {
+		margin: 0;
+	}
+}

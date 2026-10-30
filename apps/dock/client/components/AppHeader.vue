@@ -14,7 +14,7 @@ const props = defineProps<{
 	items: ProjectNavItem[];
 	current: string;
 	subtitle: string;
-	view: 'list' | 'terminals';
+	view: 'list' | 'terminals' | 'console';
 	sidebarCollapsed: boolean;
 	connected: boolean;
 	/** Show the List / Terminals switch (projects only). */
@@ -28,7 +28,7 @@ const theme = defineModel<ThemePreference>('theme', { required: true });
 const emit = defineEmits<{
 	toggleSidebar: [];
 	pick: [id: string];
-	view: [view: 'list' | 'terminals'];
+	view: [view: 'list' | 'terminals' | 'console'];
 	addProject: [];
 }>();
 
@@ -57,6 +57,7 @@ async function openDesktop(): Promise<void> {
 		<div v-if="props.showViews !== false" class="segmented" role="group" aria-label="View">
 			<button type="button" :aria-pressed="props.view === 'list'" :class="{ on: props.view === 'list' }" @click="emit('view', 'list')"><Icon name="list" :size="14" /> List</button>
 			<button type="button" :aria-pressed="props.view === 'terminals'" :class="{ on: props.view === 'terminals' }" @click="emit('view', 'terminals')"><Icon name="grid" :size="14" /> Terminals</button>
+			<button type="button" :aria-pressed="props.view === 'console'" :class="{ on: props.view === 'console' }" title="Database, Storage and Flows of the selected project" @click="emit('view', 'console')"><Icon name="database" :size="14" /> Console</button>
 		</div>
 		<div class="right">
 			<span v-if="!props.connected" class="offline" role="status">Reconnecting…</span>
