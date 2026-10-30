@@ -69,6 +69,14 @@ export function formatDuration(ms: number): string {
 }
 
 /**
+ * @param cpus - CPU cores of a machine.
+ * @returns `4 cores` or `1 core`.
+ */
+export function formatCores(cpus: number): string {
+	return `${cpus} core${cpus === 1 ? '' : 's'}`;
+}
+
+/**
  * @param bytes - Resident memory.
  * @returns `184 MB`, `1.2 GB`, or `—`.
  */

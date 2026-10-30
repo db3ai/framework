@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OutputChunk, ProcessSnapshot, ProjectDefinition } from '../shared/contracts.js';
 import { filterProjects } from '../client/dock/filterProjects.js';
 import { mergeChunks } from '../client/dock/mergeChunks.js';
-import { formatDuration, initials, statusOf } from '../client/dock/presentation.js';
+import { formatCores, formatDuration, initials, statusOf } from '../client/dock/presentation.js';
 import { projectNav } from '../client/dock/projectNav.js';
 import { sparklineShape } from '../client/dock/sparklineShape.js';
 import { isDesktopShell } from '../client/dock/useDesktop.js';
@@ -160,5 +160,12 @@ describe('sparklineShape', () => {
 		expect(shape.lines).toHaveLength(2);
 		expect(shape.areas).toHaveLength(1);
 		expect(sparklineShape([null, null], options)).toEqual({ lines: [], areas: [] });
+	});
+});
+
+describe('formatCores', () => {
+	it('counts cores', () => {
+		expect(formatCores(1)).toBe('1 core');
+		expect(formatCores(6)).toBe('6 cores');
 	});
 });
