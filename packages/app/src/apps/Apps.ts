@@ -243,6 +243,8 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			for (const [file, hash] of Object.entries(existing?.migrationHashes ?? {})) {
 				if (hashes[file] !== hash) throw new Error(`Immutable migration "${id}/${file}" was removed or changed.`);
 			}
+			// Refuse an out-of-order drop before the installation is marked failed at the new version.
+			await this.migrations(id)?.preflight();
 			const record = existing ?? AppInstallation.create({ appId: id });
 			const floor = existing ? existing.compatibleFrom ?? existing.version : definition.manifest.version;
 			record.assign({ version: definition.manifest.version, state: 'failed', description: this.#description(id), migrationHashes: hashes, compatibleFrom: floor });

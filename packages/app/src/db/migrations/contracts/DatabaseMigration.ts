@@ -107,6 +107,12 @@ export interface MakeMigrationOptions {
 	 * removals after warning. Other blocked operations still refuse generation.
 	 */
 	allowDestructive?: boolean;
+
+	/** When true, record removals as retired (no drop) so the previous release keeps working. */
+	retire?: boolean;
+
+	/** When true, generate the drops for schema retired by earlier migrations. */
+	dropRetired?: boolean;
 }
 
 /**

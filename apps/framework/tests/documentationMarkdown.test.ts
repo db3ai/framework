@@ -222,8 +222,8 @@ test('complete AI context contains every registered article and verified source'
 	// Reconciled provider admission, request diagnostics and operational-email contracts add public source evidence.
 	// UTC timestamp contracts and timezone helper declarations add public API evidence.
 	// Dock adds three user guides with screenshot references and setup commands.
-	// Shared CLI queue and scheduler commands add option, alias and worker guidance.
-	assert.ok(contentBytes < 1_820_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.82 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	// Shared CLI queue and scheduler commands add option, alias and worker guidance; expand/contract migrations add rollback guidance.
+	assert.ok(contentBytes < 1_830_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.83 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 

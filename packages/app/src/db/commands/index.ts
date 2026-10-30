@@ -12,8 +12,12 @@ export const databaseCommands = [
 	defineCommand({
 		name: 'db:make-migration', description: 'Generate a migration and snapshot from model changes.',
 		parameters: [{ name: 'name' }],
-		/** Maps the CLI name to the action's normal options object. */
-		handle: parameters => makeMigration({ name: parameters.name }),
+		options: [
+			{ name: 'retire', type: 'boolean', description: 'Record removed fields and tables as retired instead of dropping them.' },
+			{ name: 'drop-retired', type: 'boolean', description: 'Drop what earlier releases retired.' },
+		],
+		/** Maps the CLI name and flags to the action's normal options object. */
+		handle: (parameters, { options }) => makeMigration({ name: parameters.name, retire: options.retire === true, dropRetired: options['drop-retired'] === true }),
 		exitCode: result => result.blocked ? 1 : 0,
 	}),
 ];

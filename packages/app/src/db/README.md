@@ -197,12 +197,27 @@ The intended command contract is:
 
 ### Expand and contract
 
-Generated migrations declare `export const phase = "expand"` (only adds tables,
-columns, indexes, foreign keys or comments) or `"contract"` (anything else,
-including undeclared files).
-`db:migrate` records phases in `<ledger>_phases`, so `check().compatible` lets
-older code run on a database that newer releases only expanded. To remove a
-column, stop using it, then drop it in a later release.
+Each release's migrations should leave the database usable by the previous
+release's code, so a failed deploy can switch back without a restore. Generated
+migrations declare `export const phase = "expand"` (adds tables, columns,
+indexes, foreign keys or comments, or makes a column optional) or `"contract"`
+(anything else, including files without a declaration).
+
+`db:migrate` records each applied file's phase in `<ledger>_phases`. `check()`
+then answers `matches` (exact, required to install) and `compatible` (this code
+can run here, even if newer releases applied expand migrations it has no files
+for). App boot uses `compatible`.
+
+Removing a field takes two releases:
+
+1. `db:make-migration --retire` (or `apps:make-migration <id> --retire`) records
+	removed columns, tables and indexes as retired instead of dropping them. A
+	required retired column becomes optional so the new code's inserts work.
+2. In a later release, `db:make-migration --drop-retired` drops them. `migrate`
+	refuses to run that drop in the same run as its retire migration on a
+	database already in use, so the release that retired it deploys first.
+
+`allowDestructive` still drops at once and is marked contract.
 
 Generation is protected by a cross-process source lock and is refused in
 production. A blocked or unsupported model difference is reported for explicit

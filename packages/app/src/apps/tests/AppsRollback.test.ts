@@ -84,3 +84,51 @@ it('boots the previous release after an expand-only upgrade and refuses it after
 		await host({ social: third }).apps.boot();
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
+
+/** First release with a required column that the second release stops using. */
+class SocialEntryWithLegacy extends ActiveRecord {
+	static override table = 'social_entries';
+	/** Keeps a required legacy field. */
+	static override fields(field: FieldBuilder) { return { id: field.ulid(), title: field.string({ required: true }), legacy: field.string({ required: true }) }; }
+}
+
+it('retires a removed field in one release and drops it only in a later deploy', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'db3-app-retire-'));
+	/** Defines one release of the app with its own migration folder. */
+	const release = (version: string, models: typeof SocialEntry[], directory: string) => {
+		const definition = feature();
+		definition.manifest.version = version;
+		definition.database = { models, directory: pathToFileURL(`${directory}/`) };
+		return definition;
+	};
+	try {
+		const first = release('1.0.0', [SocialEntryWithLegacy], join(root, 'a'));
+		await host({ social: first }).apps.migrations('social')!.makeMigration();
+		await host({ social: first }).apps.install('social');
+		await cp(join(root, 'a'), join(root, 'b'), { recursive: true });
+		const second = release('1.1.0', [SocialEntry], join(root, 'b'));
+		const secondMigrations = host({ social: second }).apps.migrations('social')!;
+		expect((await secondMigrations.makeMigration()).blocked).toBe(true);
+		const retire = await secondMigrations.makeMigration({ retire: true });
+		const retireSource = await readFile(retire.file!, 'utf8');
+		expect(retireSource).toContain('export const phase = "expand";');
+		expect(retireSource).toContain('"columnName":"legacy"');
+		await cp(join(root, 'b'), join(root, 'c'), { recursive: true });
+		const third = release('1.2.0', [SocialEntry], join(root, 'c'));
+		const drop = await host({ social: third }).apps.migrations('social')!.makeMigration({ dropRetired: true });
+		expect(await readFile(drop.file!, 'utf8')).toContain(`export const dropsRetired = ["${retire.file!.split('/').pop()}"];`);
+		expect((await host({ social: third }).apps.migrations('social')!.makeMigration({ dropRetired: true })).generated).toBe(false);
+
+		await expect(host({ social: third }).apps.install('social')).rejects.toThrow('deploy the retiring release first');
+		await host({ social: second }).apps.install('social');
+		await SocialEntry.create({ title: 'Written without legacy' }).save();
+		const rolledBack = host({ social: first });
+		await rolledBack.apps.verify();
+		await rolledBack.close();
+
+		await host({ social: third }).apps.install('social');
+		expect(await database.db.schema.hasColumn('social_entries', 'legacy')).toBe(false);
+		await host({ social: second }).apps.verify();
+		await expect(host({ social: first }).apps.verify()).rejects.toThrow('incompatible migrations');
+	} finally { await rm(root, { recursive: true, force: true }); }
+});

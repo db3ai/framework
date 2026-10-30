@@ -11,12 +11,12 @@ import { migrationPhaseForPlan } from './MigrationPhase';
  * @param language - JavaScript keeps migration bytes identical in local and packaged apps.
  * @returns Deterministic migration source.
  */
-export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typescript' | 'javascript' = 'typescript'): string {
+export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typescript' | 'javascript' = 'typescript', removal: MigrationRemoval = {}): string {
 	if (plan.blockedChanges.length > 0) {
 		throw new Error('Cannot render a migration plan containing blocked changes.');
 	}
 
-	if (plan.safeChanges.length === 0) {
+	if (plan.safeChanges.length === 0 && !removal.retired?.length) {
 		throw new Error('Cannot render an empty database migration.');
 	}
 
@@ -27,8 +27,18 @@ export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typesc
 		'export const config = { transaction: false };',
 		'',
 		'/** Expand keeps the previous release runnable on this schema; contract removes what it may use. */',
-		`export const phase = ${quote(migrationPhaseForPlan(plan))};`,
+		`export const phase = ${quote(removal.dropsRetired ? 'expand' : migrationPhaseForPlan(plan))};`,
 		'',
+		...(removal.retired ? [
+			'/** Schema models no longer use. It stays until a later release drops it (db:make-migration --drop-retired). */',
+			`export const retired = ${JSON.stringify(removal.retired.map(retiredObject))};`,
+			'',
+		] : []),
+		...(removal.dropsRetired ? [
+			'/** Drops schema retired by these earlier migrations; migrate refuses to run it in the same deploy as them. */',
+			`export const dropsRetired = ${JSON.stringify(removal.dropsRetired)};`,
+			'',
+		] : []),
 		'/** Frozen schema lineage recorded when this migration was generated. */',
 		'export const schema = {',
 		`\tfrom: ${quote(plan.fromHash)},`,
@@ -44,7 +54,9 @@ export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typesc
 		language === 'typescript' ? 'export async function up(knex: Knex): Promise<void> {' : 'export async function up(knex) {',
 	];
 
-	const body = renderMigrationBody(plan.safeChanges);
+	const body = plan.safeChanges.length > 0
+		? renderMigrationBody(plan.safeChanges)
+		: ['// Nothing runs: retired schema stays until a later release drops it.', 'void knex;'];
 
 	lines.push(...body.map(line => line ? `\t${line}` : ''));
 	lines.push(
@@ -63,6 +75,25 @@ export function renderKnexMigration(plan: SchemaMigrationPlan, language: 'typesc
 	);
 
 	return lines.join('\n');
+}
+
+/** Expand/contract removal metadata written into a generated migration. */
+export interface MigrationRemoval {
+	/** Drops recorded, not run: models stopped using these objects in this release. */
+	retired?: readonly SafeSchemaChange[];
+	/** Earlier retire migrations whose objects this migration drops. */
+	dropsRetired?: readonly string[];
+}
+
+/**
+ * Keeps only the names a later drop needs.
+ *
+ * @param change - Drop change of a retired object.
+ * @returns Compact JSON-safe drop change.
+ */
+function retiredObject(change: SafeSchemaChange): Record<string, string> {
+	const { description: _description, ...names } = change as SafeSchemaChange & Record<string, string>;
+	return names;
 }
 
 /**
