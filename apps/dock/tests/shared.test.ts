@@ -78,10 +78,10 @@ describe('stripAnsi', () => {
 
 describe('usage history', () => {
 	it('keeps the latest samples, oldest first, without changing the input', () => {
-		const start = pushSample(emptyHistory(), 1, 100);
-		const next = pushSample(start, null, 200);
-		expect(start).toEqual({ cpu: [1], memory: [100] });
-		expect(next).toEqual({ cpu: [1, null], memory: [100, 200] });
+		const start = pushSample(emptyHistory(), 1, 100, 1000);
+		const next = pushSample(start, null, 200, 4000);
+		expect(start).toEqual({ cpu: [1], memory: [100], at: [1000] });
+		expect(next).toEqual({ cpu: [1, null], memory: [100, 200], at: [1000, 4000] });
 		let full = emptyHistory();
 		for (let index = 0; index < HISTORY_LENGTH + 5; index++) full = pushSample(full, index, index);
 		expect(full.cpu).toHaveLength(HISTORY_LENGTH);

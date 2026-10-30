@@ -4,9 +4,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OutputChunk, ProcessSnapshot, ProjectDefinition } from '../shared/contracts.js';
 import { filterProjects } from '../client/dock/filterProjects.js';
 import { mergeChunks } from '../client/dock/mergeChunks.js';
-import { formatCores, formatDuration, initials, statusOf } from '../client/dock/presentation.js';
+import { formatAgo, formatCores, formatDuration, initials, statusOf } from '../client/dock/presentation.js';
 import { projectNav } from '../client/dock/projectNav.js';
-import { sparklineShape } from '../client/dock/sparklineShape.js';
+import { sparklineHoverIndex, sparklineShape } from '../client/dock/sparklineShape.js';
 import { isDesktopShell } from '../client/dock/useDesktop.js';
 
 const api = vi.hoisted(() => ({
@@ -25,7 +25,7 @@ function chunk(seq: number, data = `c${seq}`): OutputChunk {
 }
 
 function snap(id: string, status: ProcessSnapshot['status']): ProcessSnapshot {
-	return { id, projectId: 'p', status, pid: null, startedAt: null, exitCode: status === 'crashed' ? 1 : null, port: null, cpu: null, memory: null, history: { cpu: [], memory: [] }, command: '', external: false, ports: [] };
+	return { id, projectId: 'p', status, pid: null, startedAt: null, exitCode: status === 'crashed' ? 1 : null, port: null, cpu: null, memory: null, history: { cpu: [], memory: [], at: [] }, command: '', external: false, ports: [] };
 }
 
 const projects: ProjectDefinition[] = [
@@ -148,7 +148,7 @@ describe('sparklineShape', () => {
 	const options = { width: 30, height: 12, min: 10, slots: 4 };
 
 	it('fills from the right and scales with headroom', () => {
-		expect(sparklineShape([0, 50], options)).toEqual({ lines: ['20.0,11.0 30.0,2.7'], areas: ['M20.0,12 L20.0,11.0 L30.0,2.7 L30.0,12 Z'] });
+		expect(sparklineShape([0, 50], options)).toMatchObject({ lines: ['20.0,11.0 30.0,2.7'], areas: ['M20.0,12 L20.0,11.0 L30.0,2.7 L30.0,12 Z'] });
 	});
 
 	it('keeps idle values flat against the minimum scale', () => {
@@ -159,7 +159,7 @@ describe('sparklineShape', () => {
 		const shape = sparklineShape([5, null, 5, 5], options);
 		expect(shape.lines).toHaveLength(2);
 		expect(shape.areas).toHaveLength(1);
-		expect(sparklineShape([null, null], options)).toEqual({ lines: [], areas: [] });
+		expect(sparklineShape([null, null], options)).toEqual({ lines: [], areas: [], points: [null, null] });
 	});
 });
 
@@ -167,5 +167,21 @@ describe('formatCores', () => {
 	it('counts cores', () => {
 		expect(formatCores(1)).toBe('1 core');
 		expect(formatCores(6)).toBe('6 cores');
+	});
+});
+
+describe('sparkline hover', () => {
+	it('finds the sample under the pointer, filling from the right', () => {
+		expect(sparklineHoverIndex(2, 1, 4)).toBe(1);
+		expect(sparklineHoverIndex(2, 0.66, 4)).toBe(0);
+		expect(sparklineHoverIndex(2, 0, 4)).toBeNull();
+		expect(sparklineHoverIndex(4, -1, 4)).toBe(0);
+		expect(sparklineShape([5, null], { width: 30, height: 12, min: 10, slots: 2 }).points).toEqual([{ x: 0, y: 6 }, null]);
+	});
+
+	it('says how long ago a sample was taken', () => {
+		expect(formatAgo(10_000, 11_000)).toBe('now');
+		expect(formatAgo(10_000, 19_000)).toBe('9s ago');
+		expect(formatAgo(0, 125_000)).toBe('2m ago');
 	});
 });

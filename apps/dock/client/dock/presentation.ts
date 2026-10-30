@@ -69,6 +69,15 @@ export function formatDuration(ms: number): string {
 }
 
 /**
+ * @param at - When something happened, in epoch milliseconds.
+ * @param now - Current time.
+ * @returns `now` within two seconds, else `9s ago`, `2m ago`.
+ */
+export function formatAgo(at: number, now: number): string {
+	return now - at < 2000 ? 'now' : `${formatDuration(now - at)} ago`;
+}
+
+/**
  * @param cpus - CPU cores of a machine.
  * @returns `4 cores` or `1 core`.
  */
