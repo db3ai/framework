@@ -1,4 +1,4 @@
-import type { Knex } from 'knex';
+import knex, { type Knex } from 'knex';
 import { FIELD_SETTINGS_TABLE } from '../db/migrations/FieldSettingsWriter';
 import { FileTableDefinitionStore } from '../db/tables/FileTableDefinitionStore';
 import { ConsoleError } from './ConsoleError';
@@ -16,24 +16,71 @@ const MAX_VALUE = 2000;
 const MAX_OPTIONS = 50;
 
 type Row = Record<string, unknown>;
+
+/**
+ * Runs the console's SQL wherever the database is: through Knex in Dock, or over db3 Cloud's
+ * agent. Statements use `?` placeholders with bound values and backtick-quoted names.
+ */
+export interface ConsoleExecutor {
+	/** Knex client name of the database, such as `mysql2`. */
+	readonly client: string;
+	/** Runs one statement: rows for a read, the changed row count for a write. */
+	run(sql: string, bindings: readonly unknown[]): Promise<{ rows: Row[]; affectedRows: number }>;
+}
+
+/** The table files a console marks as defined in the repo, such as `db3/tables`. */
+export interface ConsoleTableFiles {
+	/** Each table file: the table it defines and its path from the repo root. */
+	list(): Promise<{ name: string; path: string }[]>;
+}
+
+/** Runs console SQL over a Knex connection. */
+export function knexExecutor(connection: Knex): ConsoleExecutor {
+	return {
+		client: String(connection.client.config.client ?? ''),
+		async run(sql, bindings) {
+			const result = await connection.raw(sql, bindings as Knex.RawBinding[]);
+			const first = Array.isArray(result) ? result[0] : result;
+			if (Array.isArray(first)) return { rows: first as Row[], affectedRows: 0 };
+			if (first && typeof first === 'object' && Array.isArray((first as { rows?: unknown }).rows)) return { rows: (first as { rows: Row[] }).rows, affectedRows: Number((first as { rowCount?: number }).rowCount ?? 0) };
+			return { rows: [], affectedRows: Number((first as { affectedRows?: number } | undefined)?.affectedRows ?? 0) };
+		},
+	};
+}
+
+/** The table files in a folder such as `<repo>/db3/tables`, named from the repo root. */
+export function tableFilesIn(directory: string, label = 'db3/tables'): ConsoleTableFiles {
+	return { list: async () => (await new FileTableDefinitionStore(directory).list()).map(item => ({ name: item.definition.name, path: `${label}/${item.path}` })) };
+}
+
 type Link = { table: ConsoleTable; key: string; display: string[] };
 
 /**
  * Reads and edits an app's own tables for the console: the tables with their columns, keys,
  * links and field settings, a page of rows, one-row writes and link dropdowns. Every table and
  * column name in a statement is one information_schema reported, and values are bound, so
- * nothing from the browser reaches the database as SQL. MariaDB and MySQL only for now.
+ * nothing from the browser reaches the database as SQL. Statements are built here and run by an
+ * executor, so a host such as Dock or db3 Cloud decides how they reach the database. MariaDB and
+ * MySQL only for now.
  */
 export class ConsoleDatabase {
+	/** Builds statements only; it never connects. */
+	private readonly knex: Knex = knex({ client: 'mysql2' });
+	private readonly executor: ConsoleExecutor;
+	private readonly tableFiles: ConsoleTableFiles | null;
+
 	/**
-	 * @param knex - The app's connection.
-	 * @param tableDirectory - Where the app keeps table files (`db3/tables`), to mark tables defined there.
+	 * @param executor - Runs the SQL, or a Knex connection to run it on.
+	 * @param tableFiles - The repo's table files, to mark tables defined there; a folder or a source.
 	 */
-	constructor(private readonly knex: Knex, private readonly tableDirectory: string) {}
+	constructor(executor: ConsoleExecutor | Knex, tableFiles: ConsoleTableFiles | string | null = null) {
+		this.executor = 'run' in executor ? executor : knexExecutor(executor);
+		this.tableFiles = typeof tableFiles === 'string' ? tableFilesIn(tableFiles) : tableFiles;
+	}
 
 	/** Why the console can't read this database, or null when it can. */
 	unavailableReason(): string | null {
-		const client = String(this.knex.client.config.client ?? '');
+		const client = this.executor.client;
 		return /mysql|maria/i.test(client) ? null : `The console reads MariaDB and MySQL databases; this app uses ${client || 'another database'}.`;
 	}
 
@@ -48,7 +95,7 @@ export class ConsoleDatabase {
 		const settings = list.some(item => item.name === FIELD_SETTINGS_TABLE)
 			? await this.#select(`SELECT name, owner, definition FROM \`${FIELD_SETTINGS_TABLE}\``)
 			: [];
-		const files = new Map((await new FileTableDefinitionStore(this.tableDirectory).list().catch(() => [])).map(item => [item.definition.name, item.path]));
+		const files = new Map((await this.tableFiles?.list().catch(() => []) ?? []).map(item => [item.name, item.path]));
 
 		return list.filter(item => item.name !== FIELD_SETTINGS_TABLE).map(item => {
 			const name = String(item.name);
@@ -78,7 +125,7 @@ export class ConsoleDatabase {
 				readOnly: SYSTEM_TABLE.test(name) ? 'Kept by the migration tool' : primaryKey.length ? null : 'This table has no primary key, so rows cannot be told apart',
 				owner: saved ? (saved.owner === 'code' ? 'code' : 'ui') : null,
 				fields: saved ? parseSettings(saved.definition) : null,
-				source: file ? { kind: 'file', path: `db3/tables/${file}` } : saved?.owner === 'code' ? { kind: 'model' } : null,
+				source: file ? { kind: 'file', path: file } : saved?.owner === 'code' ? { kind: 'model' } : null,
 			} satisfies ConsoleTable;
 		});
 	}
@@ -96,7 +143,7 @@ export class ConsoleDatabase {
 		const number = Math.max(1, Math.floor(Number(page) || 1));
 		let query = this.knex(found.name).select(found.columns.map(column => column.name)).limit(size).offset((number - 1) * size);
 		if (found.primaryKey.length) query = query.orderBy(found.primaryKey);
-		const [rows, [count]] = await Promise.all([query, this.knex(found.name).count({ total: '*' })]);
+		const [rows, [count]] = await Promise.all([this.#all(query), this.#all(this.knex(found.name).count({ total: '*' }))]);
 		return {
 			table: found,
 			rows: (rows as Row[]).map(row => shapeRow(found.columns, row)),
@@ -112,7 +159,7 @@ export class ConsoleDatabase {
 		const { found } = await this.#table(name);
 		const entries = writable(found, values);
 		if (!entries.length) throw new ConsoleError('Fill in at least one field.', 400);
-		await this.knex(found.name).insert(Object.fromEntries(entries));
+		await this.#write(this.knex(found.name).insert(Object.fromEntries(entries)));
 	}
 
 	/** Changes one row, named by its primary key. */
@@ -120,7 +167,7 @@ export class ConsoleDatabase {
 		const { found } = await this.#table(name);
 		const entries = writable(found, values);
 		if (!entries.length) return;
-		const changed = await this.knex(found.name).where(where(found, key)).update(Object.fromEntries(entries));
+		const changed = await this.#write(this.knex(found.name).where(where(found, key)).update(Object.fromEntries(entries)));
 		if (!changed) throw new ConsoleError('That row is no longer there.', 404);
 	}
 
@@ -128,7 +175,7 @@ export class ConsoleDatabase {
 	async delete(name: string, key: unknown): Promise<void> {
 		const { found } = await this.#table(name);
 		writable(found, {});
-		const removed = await this.knex(found.name).where(where(found, key)).delete();
+		const removed = await this.#write(this.knex(found.name).where(where(found, key)).delete());
 		if (!removed) throw new ConsoleError('That row is no longer there.', 404);
 	}
 
@@ -147,7 +194,7 @@ export class ConsoleDatabase {
 		let query = this.knex(link.table.name).select({ value: link.key }).select(this.knex.raw(`${labelSql(link)} AS label`)).orderBy(link.key).limit(MAX_OPTIONS + 1);
 		if (typeof search.row === 'string') query = query.where(link.key, search.row);
 		else if (search.q?.trim()) query = query.whereRaw(`CONCAT_WS(' ', ${link.display.map(() => '??').join(', ')}) LIKE ?`, [...link.display, `%${search.q.trim().slice(0, 100).replace(/[\\%_]/g, character => `\\${character}`)}%`]);
-		const rows = await query as Row[];
+		const rows = await this.#all(query);
 		return { table: link.table.name, options: rows.slice(0, MAX_OPTIONS).map(row => ({ value: text(row.value) ?? '', label: text(row.label) ?? '' })), more: rows.length > MAX_OPTIONS };
 	}
 
@@ -157,8 +204,19 @@ export class ConsoleDatabase {
 	}
 
 	async #select(sql: string): Promise<Row[]> {
-		const result = await this.knex.raw(sql);
-		return (Array.isArray(result) ? result[0] : result) as Row[];
+		return (await this.executor.run(sql, [])).rows;
+	}
+
+	/** Runs a built read. */
+	async #all(query: Knex.QueryBuilder): Promise<Row[]> {
+		const { sql, bindings } = query.toSQL().toNative();
+		return (await this.executor.run(sql, bindings)).rows;
+	}
+
+	/** Runs a built write, returning how many rows it changed. */
+	async #write(query: Knex.QueryBuilder): Promise<number> {
+		const { sql, bindings } = query.toSQL().toNative();
+		return (await this.executor.run(sql, bindings)).affectedRows;
 	}
 
 	/** Finds one table, so every name used in a statement is one the database has. */
@@ -176,7 +234,7 @@ export class ConsoleDatabase {
 			const link = column.secret ? null : linkOf(found, column, all);
 			const ids = [...new Set(rows.map(row => text(row[column.name])).filter((value): value is string => value !== null))];
 			if (!link || !ids.length) continue;
-			const named = await this.knex(link.table.name).select({ value: link.key }).select(this.knex.raw(`${labelSql(link)} AS label`)).whereIn(link.key, ids) as Row[];
+			const named = await this.#all(this.knex(link.table.name).select({ value: link.key }).select(this.knex.raw(`${labelSql(link)} AS label`)).whereIn(link.key, ids));
 			labels[column.name] = Object.fromEntries(named.map(row => [text(row.value) ?? '', text(row.label) ?? '']));
 		}
 		return labels;

@@ -1,14 +1,18 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { registerConsoleRoutes, type ConsoleRouteOptions } from '@db3.ai/app/console/fastify';
+import { ConsoleDatabase, ConsoleError, ConsoleStorage, fileFlows, knexExecutor, type ConsoleExecutor } from '@db3.ai/app/console';
+import { registerConsoleRoutes } from '@db3.ai/app/console/fastify';
+import { openProjectConsole } from '@db3.ai/app/console/project';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { Storage } from '@db3.ai/app/storage';
 
-const TOKEN = 'console-test-token';
-const auth = { authorization: `Bearer ${TOKEN}` };
+/** Stands in for the host's own sign-in, such as Dock's or db3 Cloud's. */
+const auth = { authorization: 'host-user' };
+/** Every statement the console ran, to show it goes through the host's executor. */
+const statements: string[] = [];
 
 let database: GeneratedTestDatabase;
 let folder: string;
@@ -28,9 +32,22 @@ beforeAll(async () => {
 	await knex.schema.createTable('knex_migrations', table => { table.increments('id'); table.string('name'); });
 	await knex('console_owners').insert([{ id: '01JBXOWNER0000000000000001', name: 'Ada Lovelace', password_hash: 'secret-hash' }, { id: '01JBXOWNER0000000000000002', name: 'Max Planck', password_hash: 'x' }]);
 	await knex('console_notes').insert({ title: 'First', due_at: '2026-10-29 12:30:00', owner_id: '01JBXOWNER0000000000000001' });
+	await mkdir(join(folder, 'db3/tables'), { recursive: true });
+	await writeFile(join(folder, 'db3/tables/console_owners.json'), JSON.stringify({ name: 'console_owners', fields: [] }));
+	const runner = knexExecutor(knex);
+	const executor: ConsoleExecutor = { client: runner.client, run: (sql, bindings) => { statements.push(sql); return runner.run(sql, bindings); } };
+	const services = {
+		name: 'console-test',
+		environment: 'local',
+		database: new ConsoleDatabase(executor, { list: async () => [{ name: 'console_owners', path: 'db3/tables/console_owners.json' }] }),
+		storage: new ConsoleStorage(new Storage({ disks: { local: { driver: 'local', root: join(folder, 'files') } } }), { local: { driver: 'local' } }),
+		flows: { unavailable: 'This app does not load flows yet.' },
+	};
 	server = Fastify();
-	const app = { db: { knex, tableDirectory: join(folder, 'db3/tables') }, storage: new Storage({ disks: { local: { driver: 'local', root: join(folder, 'files') } } }), directory: folder } as unknown as ConsoleRouteOptions['app'];
-	await registerConsoleRoutes(server, { app, token: TOKEN, name: 'console-test', disks: { local: { driver: 'local' } } });
+	await registerConsoleRoutes(server, '/_db3/console', async request => {
+		if (request.headers.authorization !== 'host-user') throw new ConsoleError('Sign in first.', 401);
+		return services;
+	});
 	await server.ready();
 }, 60_000);
 
@@ -41,16 +58,10 @@ afterAll(async () => {
 });
 
 describe('console routes', () => {
-	it('registers nothing without a token, and refuses requests without the right one', async () => {
-		const bare = Fastify();
-		expect(await registerConsoleRoutes(bare, { app: {} as ConsoleRouteOptions['app'], token: '' })).toBe(false);
-		await bare.ready();
-		expect((await bare.inject({ url: '/_db3/console/' })).statusCode).toBe(404);
-		await bare.close();
+	it('answers only when the host lets the request in, and says what the app offers', async () => {
 		expect((await server.inject({ url: '/_db3/console/' })).statusCode).toBe(401);
-		expect((await server.inject({ url: '/_db3/console/', headers: { authorization: 'Bearer wrong-token-value!' } })).statusCode).toBe(401);
 		const info = await server.inject({ url: '/_db3/console/', headers: auth });
-		expect(info.json()).toMatchObject({ app: 'console-test', database: { available: true }, storage: { available: true }, flows: { available: false } });
+		expect(info.json()).toMatchObject({ app: 'console-test', environment: 'local', database: { available: true }, storage: { available: true }, flows: { available: false } });
 	});
 
 	it('lists tables with keys, links, secrets and read-only system tables', async () => {
@@ -60,6 +71,8 @@ describe('console routes', () => {
 		expect(notes.columns.find((column: { name: string }) => column.name === 'owner_id').references).toEqual({ table: 'console_owners', column: 'id' });
 		expect(tables.find((table: { name: string }) => table.name === 'console_owners').columns.find((column: { name: string }) => column.name === 'password_hash').secret).toBe(true);
 		expect(tables.find((table: { name: string }) => table.name === 'knex_migrations').readOnly).toBe('Kept by the migration tool');
+		expect(tables.find((table: { name: string }) => table.name === 'console_owners').source).toEqual({ kind: 'file', path: 'db3/tables/console_owners.json' });
+		expect(statements.some(sql => sql.includes('information_schema.COLUMNS'))).toBe(true);
 	});
 
 	it('reads a page of rows as text, hides secrets and labels linked rows', async () => {
@@ -121,5 +134,38 @@ describe('console routes', () => {
 		const response = await server.inject({ url: '/_db3/console/flows', headers: auth });
 		expect(response.statusCode).toBe(404);
 		expect(response.json().message).toBe('This app does not load flows yet.');
+	});
+});
+
+describe('a project opened from its folder', () => {
+	it('reads definitions from db3/ and says why the database is missing', async () => {
+		const project = join(folder, 'project');
+		await mkdir(join(project, 'db3/flows'), { recursive: true });
+		await writeFile(join(project, '.env'), 'APP_NAME=Shop\n');
+		const opened = await openProjectConsole(project);
+		try {
+			expect(opened.services.name).toBe('project');
+			expect(opened.services.database).toEqual({ unavailable: "This app's .env doesn't name a database (DB_DATABASE or DATABASE_URL)." });
+			const flows = opened.services.flows as ReturnType<typeof fileFlows>;
+			expect(await flows.listDefinitions()).toEqual([]);
+			expect(flows.blockMetadata().length).toBeGreaterThan(0);
+			expect((opened.services.storage as ConsoleStorage).disks()).toEqual([{ name: 'local', driver: 'local', default: true }]);
+		} finally {
+			await opened.close();
+		}
+	});
+
+	it('connects to the database its .env names', async () => {
+		const project = join(folder, 'connected');
+		await mkdir(project, { recursive: true });
+		const config = database.db.client.config.connection as { host?: string; port?: number; user?: string; password?: string; database?: string };
+		await writeFile(join(project, '.env'), `DB_HOST=${config.host ?? '127.0.0.1'}\nDB_PORT=${config.port ?? 3306}\nDB_USER=${config.user ?? 'root'}\nDB_PASSWORD=${config.password ?? ''}\nDB_DATABASE=${config.database}\n`);
+		const opened = await openProjectConsole(project, { name: 'Connected' });
+		try {
+			const rows = await (opened.services.database as ConsoleDatabase).rows('console_owners');
+			expect(rows.rows.map(row => row.name)).toEqual(['Ada Lovelace', 'Max Planck']);
+		} finally {
+			await opened.close();
+		}
 	});
 });

@@ -1,7 +1,7 @@
 /**
- * The console contract: what an app answers under `/_db3/console` so the same Database, Storage
- * and Flows screens work in Dock (your running app on localhost) and in db3 Cloud (a deployed
- * environment, reached through its agent). Every value is plain JSON.
+ * The console contract: what a host (Dock on this machine, db3 Cloud for deployed environments)
+ * answers so the same Database, Storage and Flows screens work in both. Apps never serve it
+ * themselves. Every value is plain JSON.
  */
 
 /** One column of a table, read from information_schema. */

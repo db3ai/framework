@@ -1,7 +1,7 @@
 /**
- * Where the console screens send their requests. Every screen speaks the `/_db3/console` contract
- * from `@db3.ai/app/console`; only the address in front of it changes. Dock points it at its own
- * proxy to your running app, and db3 Cloud at the environment's relay.
+ * Where the console screens send their requests. Every screen speaks the console contract from
+ * `@db3.ai/app/console`; only the address in front of it changes. Dock points it at its own
+ * server, which opens the project from its folder, and db3 Cloud at its own console routes.
  */
 export interface ConsoleSource {
 	/** Reads JSON from a console path such as `database/tables`. */

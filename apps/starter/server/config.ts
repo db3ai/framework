@@ -15,10 +15,8 @@ export function readConfig() {
 		host: process.env.HOST || '127.0.0.1',
 		auth: { googleClientId: process.env.GOOGLE_AUTH_CLIENT_ID || '' },
 		ai: { apiKey: process.env.OPENAI_API_KEY?.trim() || '', model: process.env.OPENAI_MODEL || 'gpt-4.1-mini' },
-		/** Set by Dock (and later db3 Cloud) to open the console API at /_db3/console. */
-		console: { token: process.env.DB3_CONSOLE_TOKEN?.trim() || '' },
 	};
 }
 
 /** Complete server configuration, injectable in tests without reading a real AI key. */
-export type StarterConfig = Omit<ReturnType<typeof readConfig>, 'appsAdminEmail' | 'appsManageOnline' | 'console'> & { appsAdminEmail?: string; appsManageOnline?: boolean; console?: { token: string } };
+export type StarterConfig = Omit<ReturnType<typeof readConfig>, 'appsAdminEmail' | 'appsManageOnline'> & { appsAdminEmail?: string; appsManageOnline?: boolean };

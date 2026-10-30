@@ -19,8 +19,6 @@ export type DockListener = (event: DockEvent) => void;
 export interface DockOptions {
 	/** Spawn options for every process. */
 	process?: SupervisedProcessOptions;
-	/** Extra environment for one project's processes, such as its console token. */
-	projectEnv?: (project: ProjectDefinition) => NodeJS.ProcessEnv;
 	/** Milliseconds between CPU/memory samples; 0 disables sampling. */
 	sampleEveryMs?: number;
 	/** Milliseconds between scans for jobs started outside Dock; 0 disables scanning. */
@@ -380,7 +378,7 @@ export class Dock {
 				this.processes.set(definition.id, new SupervisedProcess(project.id, definition, project.path, {
 					change: snapshot => this.broadcast({ type: 'process', process: snapshot }),
 					output: (processId, chunks) => this.broadcast({ type: 'output', processId, chunks }),
-				}, this.processOptions(project)));
+				}, this.options.process));
 			}
 		}
 		for (const [id, process] of this.processes) {
@@ -389,13 +387,6 @@ export class Dock {
 				this.processes.delete(id);
 			}
 		}
-	}
-
-	/** Spawn options for one project's processes: the shared ones plus the project's own environment. */
-	private processOptions(project: ProjectDefinition): SupervisedProcessOptions | undefined {
-		const extra = this.options.projectEnv?.(project);
-		if (!extra) return this.options.process;
-		return { ...this.options.process, env: { ...this.options.process?.env, ...extra } };
 	}
 
 	private syncAndBroadcast(): void {

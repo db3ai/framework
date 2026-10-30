@@ -59,6 +59,7 @@
 		"./health/fastify": "./src/health/fastify.ts",
 		"./console": "./src/console/index.ts",
 		"./console/fastify": "./src/console/fastify.ts",
+		"./console/project": "./src/console/projectConsole.ts",
 		"./flows": "./src/flows/index.ts",
 		"./flows/blocks": "./src/flows/blocks/index.ts",
 		"./url": "./src/url/index.ts",

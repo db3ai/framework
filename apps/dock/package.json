@@ -19,6 +19,7 @@
 		"check": "npm run build"
 	},
 	"dependencies": {
+		"@db3.ai/app": "0.1.0",
 		"@db3.ai/console": "0.1.0",
 		"@fastify/static": "^10.1.7",
 		"@tailwindcss/vite": "^4.3.1",

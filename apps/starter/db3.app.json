@@ -10,6 +10,6 @@
 	"database": { "engine": "mariadb", "migrate": "db:migrate" },
 	"env": {
 		"required": ["APP_ORIGIN"],
-		"optional": ["APP_NAME", "APP_ADMIN_EMAIL", "APPS_MANAGE_ONLINE", "OPENAI_API_KEY", "OPENAI_MODEL", "DB3_CONSOLE_TOKEN", "GOOGLE_AUTH_CLIENT_ID", "DEMO_ROOM_CODE"]
+		"optional": ["APP_NAME", "APP_ADMIN_EMAIL", "APPS_MANAGE_ONLINE", "OPENAI_API_KEY", "OPENAI_MODEL", "GOOGLE_AUTH_CLIENT_ID", "DEMO_ROOM_CODE"]
 	}
 }

@@ -7,9 +7,9 @@ import type { ThemePreference } from '../../dock/useLayout.js';
 import '../../console.css';
 
 /**
- * One project's console: its Database, Storage and Flows, read from the running app through
- * Dock's proxy, which adds the console token the app was started with. These are the same
- * screens db3 Cloud shows for a deployed environment.
+ * One project's console: its Database, Storage and Flows, which Dock's server opens from the
+ * project's folder (its .env database, storage/app and db3/). These are the same screens db3
+ * Cloud shows for a deployed environment.
  */
 const props = defineProps<{ project: ProjectDefinition; theme: ThemePreference }>();
 const tab = defineModel<'database' | 'storage' | 'flows'>('tab', { required: true });
