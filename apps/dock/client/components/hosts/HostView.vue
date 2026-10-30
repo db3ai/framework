@@ -3,7 +3,7 @@ import { computed, ref } from 'vue';
 
 import type { HostSnapshot } from '../../../shared/hostContracts.js';
 import { useDockContext } from '../../dock/context.js';
-import { formatDuration, formatMemory } from '../../dock/presentation.js';
+import { formatCores, formatDuration, formatMemory } from '../../dock/presentation.js';
 import { diskState, formatDisk, formatDiskSize, hostWarnings, isRunning, matchesFilter } from '../../hosts/presentation.js';
 import { clampSize } from '../../dock/splitSizes.js';
 import Icon from '../Icon.vue';
@@ -83,9 +83,9 @@ function actionTone(action: string, exitCode: number | null): string {
 						<strong>{{ props.host.status === 'online' ? 'Connected' : props.host.status === 'error' ? 'Unreachable' : 'Connecting…' }}</strong>
 						<span class="muted mono">{{ props.host.target }}</span>
 					</span>
-					<span v-if="props.host.engine" class="fact muted">{{ props.host.engine.os }} · Docker {{ props.host.engine.version }} · {{ props.host.engine.cpus }} CPU · {{ formatMemory(props.host.engine.memory) }}</span>
+					<span v-if="props.host.engine" class="fact muted">{{ props.host.engine.os }} · Docker {{ props.host.engine.version }} · {{ formatCores(props.host.engine.cpus) }} · {{ formatMemory(props.host.engine.memory) }}</span>
 					<span v-if="props.host.kubernetes && !props.host.kubernetes.error" class="fact muted" title="Pods in the k3s cluster on this machine are listed with the containers">
-						Kubernetes {{ props.host.kubernetes.version }}<template v-if="props.host.kubernetes.nodes"> · {{ props.host.kubernetes.nodes }} node{{ props.host.kubernetes.nodes === 1 ? '' : 's' }}<template v-if="!props.host.engine"> · {{ props.host.kubernetes.cpus }} CPU · {{ formatMemory(props.host.kubernetes.memory) }}</template></template>
+						Kubernetes {{ props.host.kubernetes.version }}<template v-if="props.host.kubernetes.nodes"> · {{ props.host.kubernetes.nodes }} node{{ props.host.kubernetes.nodes === 1 ? '' : 's' }}<template v-if="!props.host.engine"> · {{ formatCores(props.host.kubernetes.cpus) }} · {{ formatMemory(props.host.kubernetes.memory) }}</template></template>
 					</span>
 					<span
 						v-for="disk in props.host.disks ?? []"

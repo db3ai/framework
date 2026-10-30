@@ -11,7 +11,7 @@ import ProjectSidebar from './components/ProjectSidebar.vue';
 import TerminalGrid from './components/TerminalGrid.vue';
 import { provideDockContext } from './dock/context.js';
 import { filterProjects } from './dock/filterProjects.js';
-import { formatMemory } from './dock/presentation.js';
+import { formatCores, formatMemory } from './dock/presentation.js';
 import { hostNav, isRunning } from './hosts/presentation.js';
 import { projectNav } from './dock/projectNav.js';
 import { useDock } from './dock/useDock.js';
@@ -46,7 +46,7 @@ const addProcessProject = computed(() => dock.projects.value.find(project => pro
 const subtitle = computed(() => {
 	if (currentHost.value) {
 		const host = currentHost.value;
-		const engine = host.engine ? ` · ${host.engine.cpus} CPU · ${formatMemory(host.engine.memory)}` : '';
+		const engine = host.engine ? ` · ${formatCores(host.engine.cpus)} · ${formatMemory(host.engine.memory)}` : '';
 		return `${host.containers.filter(isRunning).length} of ${host.containers.length} running · ${host.target}${engine}`;
 	}
 	const project = dock.projects.value.find(item => item.id === layout.project);
