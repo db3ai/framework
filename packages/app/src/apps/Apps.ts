@@ -436,7 +436,9 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	/** Reads installation metadata without creating tables or changing the database. */
 	async #readRecords(): Promise<void> {
 		if (!(await this.#host.db.knex.schema.hasTable(AppInstallation.table))) { this.#records.clear(); return; }
-		const records = await ActiveRecord.withDb(this.#host.db.knex, () => AppInstallation.query().all());
+		// Tables from before compatible_from was tracked lack the column until maintenance installs it; read them as null.
+		const tracked = await this.#host.db.knex.schema.hasColumn(AppInstallation.table, 'compatible_from');
+		const records = await ActiveRecord.withDb(this.#host.db.knex, () => tracked ? AppInstallation.query().all() : AppInstallation.query().select('id', 'appId', 'version', 'state', 'description', 'migrationHashes').all());
 		this.#records = new Map(records.map(record => [record.appId, record]));
 	}
 

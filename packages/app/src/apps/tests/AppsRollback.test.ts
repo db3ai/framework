@@ -132,3 +132,12 @@ it('retires a removed field in one release and drops it only in a later deploy',
 		await expect(host({ social: first }).apps.verify()).rejects.toThrow('incompatible migrations');
 	} finally { await rm(root, { recursive: true, force: true }); }
 });
+
+it('checks installations recorded before compatible_from existed without changing the table', async () => {
+	await host({ social: feature() }).apps.install('social');
+	await database.db.schema.alterTable('db3_apps', table => table.dropColumn('compatible_from'));
+	const candidate = host({ social: feature() });
+	await expect(candidate.apps.verify()).resolves.toBeUndefined();
+	expect((await candidate.apps.describe()).find(app => app.manifest.id === 'social')?.installedVersion).toBe('1.0.0');
+	expect(await database.db.schema.hasColumn('db3_apps', 'compatible_from')).toBe(false);
+});
