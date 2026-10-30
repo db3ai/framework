@@ -9,7 +9,15 @@ import type { ConsoleSource } from './source';
  * Definition edits the files, with the parts set in code shown read-only; Playground sends a
  * message through the app's own runtime; Conversations reads what the agent has said before.
  */
-const props = defineProps<{ source: ConsoleSource; readOnly?: string | null }>();
+const props = defineProps<{
+	source: ConsoleSource;
+	/** Why agents can't be changed here, such as in Production. */
+	readOnly?: string | null;
+	/** Why the Playground can't run agents here, such as a host that never runs the app's code. */
+	runs?: string | null;
+	/** Where saves went, said after each save; defaults to committing the files yourself. */
+	savedNote?: (path: string) => string;
+}>();
 
 const agents = ref<AgentDescription[] | null>(null);
 const tools = ref<ConsoleAgentTool[]>([]);
@@ -102,7 +110,7 @@ async function save() {
 		creating.value = false;
 		selected.value = name;
 		await load();
-		notice.value = `Saved to ${saved.path}. Commit it with your code.`;
+		notice.value = props.savedNote ? props.savedNote(saved.path) : `Saved to ${saved.path}. Commit it with your code.`;
 	} catch (cause) {
 		notice.value = message(cause, 'Could not save the agent.');
 	} finally {
@@ -257,6 +265,7 @@ watch(() => props.source, () => { agents.value = null; selected.value = ''; void
 					</div>
 				</form>
 
+				<p v-else-if="tab === 'playground' && runs" class="m-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-fg" data-agent-playground-unavailable>{{ runs }}</p>
 				<div v-else-if="tab === 'playground'" class="flex min-h-0 flex-1 flex-col" data-agent-playground>
 					<div v-if="contextFields.length" class="flex flex-wrap gap-3 border-b border-border px-4 py-3">
 						<label v-for="name in contextFields" :key="name" class="flex items-center gap-2 text-xs"><span class="font-mono text-muted-fg">{{ name }}</span><input v-model="contextValues[name]" class="w-40 rounded-lg border border-border bg-canvas px-2 py-1 text-sm"></label>

@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { z } from 'zod';
 import type * as aiModule from '../../ai';
+import type { StoredAgentDefinition } from '../../ai/defined/FileAgentDefinitionStore';
 import type { CliCommand } from '../contracts';
 
 /** What `server/agents/index.ts` exports, read in the app's own module scope. */
@@ -102,18 +103,21 @@ function agentFor(name: string, context: Record<string, unknown>, loaded: AppAge
 }
 
 /** Describes every agent: files first, then code; a code agent built on files replaces that entry. */
+/** How the console shows an agent made of files only. */
+export function describeStoredAgent(stored: StoredAgentDefinition): AgentDescription {
+	const definition = stored.definition;
+	return {
+		name: definition.name, kind: 'files', title: definition.title ?? null, description: definition.description ?? null,
+		model: definition.model ?? null, maxTurns: definition.maxTurns ?? null, reasoningEffort: definition.reasoningEffort ?? null,
+		context: definition.context, tools: definition.tools.map(item => item.name), instructions: stored.instructions,
+		overrides: [], path: `db3/agents/${stored.path}`, revision: stored.revision, className: null,
+	};
+}
+
 export async function describeAgents(directory: string, loaded: AppAgentsModule): Promise<AgentDescription[]> {
 	const store = new loaded.ai.FileAgentDefinitionStore(join(directory, 'db3', 'agents'));
 	const byName = new Map<string, AgentDescription>();
-	for (const stored of await store.list()) {
-		const definition = stored.definition;
-		byName.set(definition.name, {
-			name: definition.name, kind: 'files', title: definition.title ?? null, description: definition.description ?? null,
-			model: definition.model ?? null, maxTurns: definition.maxTurns ?? null, reasoningEffort: definition.reasoningEffort ?? null,
-			context: definition.context, tools: definition.tools.map(item => item.name), instructions: stored.instructions,
-			overrides: [], path: `db3/agents/${stored.path}`, revision: stored.revision, className: null,
-		});
-	}
+	for (const stored of await store.list()) byName.set(stored.definition.name, describeStoredAgent(stored));
 	for (const candidate of loaded.agents as AnyAgentClass[]) {
 		if (typeof candidate !== 'function') continue;
 		const spec = candidate.spec;

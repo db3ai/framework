@@ -1,9 +1,9 @@
 import type { AgentDefinition } from '../ai/defined/AgentDefinition';
 import type { AgentStreamEvent } from '../ai/contracts/AgentProtocol';
-import type { AgentDescription } from '../cli/commands/agents';
+import { describeStoredAgent, type AgentDescription } from '../cli/commands/agents';
 import type { ConsoleExecutor } from './ConsoleDatabase';
 
-export type { AgentDescription };
+export { describeStoredAgent, type AgentDescription };
 
 /** A function tool agents can use, as the console lists it. */
 export interface ConsoleAgentTool {
@@ -80,11 +80,17 @@ export class ConsoleAgentLogs {
 			FROM ai_conversations c WHERE c.agent = ? ORDER BY c.updated_at DESC, c.id DESC LIMIT ${size}`,
 			[name],
 		).catch(missingTables);
-		return rows.map(row => ({
+		return named(rows, ['id', 'title', 'user_id', 'created_at', 'updated_at', 'message_count', 'cost']).map(row => ({
 			id: String(row.id), title: text(row.title), user: text(row.user_id),
 			messages: Number(row.message_count ?? 0), costUSD: row.cost === null || row.cost === undefined ? null : Number(row.cost),
 			createdAt: time(row.created_at), updatedAt: time(row.updated_at),
 		}));
+	}
+
+	/** Every agent the app has had conversations with, including ones written in code, by name. */
+	async seen(): Promise<{ name: string; conversations: number }[]> {
+		const { rows } = await this.executor.run('SELECT agent, COUNT(*) AS conversations FROM ai_conversations WHERE agent IS NOT NULL GROUP BY agent ORDER BY agent', []).catch(missingTables);
+		return named(rows, ['agent', 'conversations']).map(row => ({ name: String(row.agent), conversations: Number(row.conversations ?? 0) }));
 	}
 
 	/** One conversation's messages, in order. */
@@ -93,7 +99,7 @@ export class ConsoleAgentLogs {
 			'SELECT id, role, content, tool_name, tool_state, model, created_at FROM ai_messages WHERE conversation_id = ? ORDER BY sequence, created_at, id LIMIT 500',
 			[conversationId],
 		).catch(missingTables);
-		return rows.map(row => ({ id: String(row.id), role: String(row.role), content: text(row.content), toolName: text(row.tool_name), toolState: text(row.tool_state), model: text(row.model), createdAt: time(row.created_at) }));
+		return named(rows, ['id', 'role', 'content', 'tool_name', 'tool_state', 'model', 'created_at']).map(row => ({ id: String(row.id), role: String(row.role), content: text(row.content), toolName: text(row.tool_name), toolState: text(row.tool_state), model: text(row.model), createdAt: time(row.created_at) }));
 	}
 
 	/** The instructions, tools and model an agent last sent to its provider, from the request log. */
@@ -103,7 +109,7 @@ export class ConsoleAgentLogs {
 			WHERE c.agent = ? AND r.request LIKE '%"instructions"%' ORDER BY r.created_at DESC, r.id DESC LIMIT 1`,
 			[name],
 		).catch(missingTables);
-		const row = rows[0];
+		const row = named(rows, ['id', 'model', 'request', 'created_at'])[0];
 		if (!row) return null;
 		let request: { instructions?: unknown; tools?: unknown[] } = {};
 		try { request = typeof row.request === 'string' ? JSON.parse(row.request) : (row.request as typeof request) ?? {}; } catch { request = {}; }
@@ -114,6 +120,11 @@ export class ConsoleAgentLogs {
 			createdAt: time(row.created_at),
 		};
 	}
+}
+
+/** Rows by column name; an executor that returns rows as arrays (Cloud's tunnel) gets them named in select order. */
+function named(rows: readonly unknown[], columns: readonly string[]): Record<string, unknown>[] {
+	return rows.map(row => Array.isArray(row) ? Object.fromEntries(columns.map((column, index) => [column, row[index]])) : row as Record<string, unknown>);
 }
 
 /** An app that has never set up AI has no conversation tables yet: that reads as no conversations. */

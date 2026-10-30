@@ -81,8 +81,7 @@ export class FileAgentDefinitionStore {
 		const definition = parseAgentDefinition(input.definition);
 		const existing = await this.read(definition.name);
 		if ((existing?.revision ?? null) !== options.expectedRevision) throw new AgentDefinitionConflictError(definition.name);
-		const json = serializeAgentDefinition(definition);
-		const instructions = normalizedInstructions(input.instructions);
+		const { json, instructions } = agentFiles(input);
 		const folder = join(this.#root, definition.name);
 		await mkdir(folder, { recursive: true });
 		await writeAtomically(join(folder, INSTRUCTIONS_FILE), instructions);
@@ -118,6 +117,32 @@ export function readAgentDefinitionSync(root: string, name: string): StoredAgent
 	let instructions = '';
 	try { instructions = readFileSync(join(folder, INSTRUCTIONS_FILE), 'utf8'); }
 	catch (error) { if (!missing(error)) throw error; }
+	return stored(name, json, instructions);
+}
+
+/**
+ * The two files for an agent, as they're written: `agent.json` in stable order and the
+ * instructions with LF line endings. For hosts that save the files somewhere other than a folder,
+ * such as a git branch.
+ *
+ * @param input - The definition and its instructions.
+ * @returns The checked definition, both files' text and the revision they make.
+ */
+export function agentFiles(input: { definition: unknown; instructions: string }): { definition: AgentDefinition; json: string; instructions: string; revision: string } {
+	const definition = parseAgentDefinition(input.definition);
+	const json = serializeAgentDefinition(definition);
+	const instructions = normalizedInstructions(input.instructions);
+	return { definition, json, instructions, revision: revisionFor(json, instructions) };
+}
+
+/**
+ * Reads an agent from its files' text, for hosts that don't read them from a folder.
+ *
+ * @param name - The agent's folder name.
+ * @param json - `agent.json`.
+ * @param instructions - `instructions.md`, or '' when it has none.
+ */
+export function agentFromFiles(name: string, json: string, instructions: string): StoredAgentDefinition {
 	return stored(name, json, instructions);
 }
 

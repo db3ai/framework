@@ -5,3 +5,5 @@ export { default as ConsoleScreens } from './ConsoleScreens.vue';
 export { httpConsoleSource, ConsoleRequestError, type ConsoleSource } from './source';
 export * from './databaseView';
 export * from './storageView';
+export { default as AgentsScreen } from './AgentsScreen.vue';
+export { agentName, applyEvent, canEdit, costText, definitionFrom, kindLabel, formFor as agentFormFor, type AgentForm, type PlaygroundItem } from './agentsView';

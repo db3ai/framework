@@ -2,7 +2,7 @@
 	"name": "@db3.ai/console",
 	"version": "0.1.0",
 	"private": true,
-	"description": "The db3 console screens (Database, Storage, Flows) shared by Dock and db3 Cloud.",
+	"description": "The db3 console screens (Database, Storage, Flows, Agents) shared by Dock and db3 Cloud.",
 	"type": "module",
 	"exports": {
 		".": "./src/index.ts",

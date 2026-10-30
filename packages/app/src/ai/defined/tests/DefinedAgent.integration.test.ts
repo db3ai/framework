@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { AgentDefinitionConflictError, AiMessage, AiRateLimitBucket, AiRateLimitReservation, AiRequest, DefinedAgent, FileAgentDefinitionStore, defineAgent, defineTool, registerAgentTools } from '@db3.ai/app/ai';
+import { AgentDefinitionConflictError, agentFiles, agentFromFiles, AiMessage, AiRateLimitBucket, AiRateLimitReservation, AiRequest, DefinedAgent, FileAgentDefinitionStore, defineAgent, defineTool, registerAgentTools } from '@db3.ai/app/ai';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { Conversation } from '../../examples/Conversation';
 
@@ -74,6 +74,14 @@ describe('agents defined as files', () => {
 		expect(first.instructions).toBe('Help customers.\nThe customer is cus_9.\n');
 		expect(first.tools.map((item: { name: string }) => item.name)).toEqual(['issue_refund']);
 		expect((await Conversation.query().where('id', result.conversationId).first())?.agent).toBe('support');
+	});
+
+	it('gives hosts that save elsewhere the same files and revisions as the folder store', async () => {
+		const stored = (await store().read('support'))!;
+		const files = agentFiles({ definition: stored.definition, instructions: stored.instructions });
+		expect(files.revision).toBe(stored.revision);
+		expect(agentFromFiles('support', files.json, files.instructions)).toEqual(stored);
+		expect(() => agentFromFiles('other', files.json, files.instructions)).toThrow('the folder and the name must match');
 	});
 
 	it('says which tool is missing and which agent has no files', async () => {
