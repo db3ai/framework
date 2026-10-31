@@ -32,6 +32,7 @@ import { loggingApiArticle, loggingArticle } from './articles/logging';
 import { securityApiArticle, securityArticle } from './articles/security';
 import { encryptedFieldsArticle, fieldsApiArticle, fieldsArticle, queriesArticle } from './articles/fieldNotes';
 import { migrationsApiArticle, migrationsArticle } from './articles/migrations';
+import { safeMigrationsArticle } from './articles/safeMigrations';
 import { modelDataArticle, transactionsArticle } from './articles/dataRecipes';
 import { apiIndexArticle, appApiArticle, packageAppArticle, packagePureArticle, testingArticle, testingWorkflowArticle } from './articles/qualityAndPackages';
 import { aiApiArticle, aiArticles } from './articles/ai';
@@ -914,6 +915,7 @@ const guideArticles: DocArticle[] = [
 	workspaceNotesArticle,
 	apiWorkflowArticle,
 	modelDataArticle,
+	safeMigrationsArticle,
 	backgroundArticle,
 	privateFilesArticle,
 	authWorkflowArticle,
