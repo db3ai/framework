@@ -14,6 +14,7 @@
 		"test": "vitest run --maxWorkers=1 --configLoader runner",
 		"db3": "db3",
 		"repl": "db3 repl",
+		"agents": "db3 agents:list --json",
 		"db:migrate": "db3 db:migrate",
 		"db:check": "db3 db:check",
 		"db:make:migration": "npm run check && db3 db:make-migration",

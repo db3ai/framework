@@ -8,6 +8,7 @@
 		{ "name": "scheduler", "kind": "scheduler", "script": "scheduler", "args": ["scheduler:work"] }
 	],
 	"database": { "engine": "mariadb", "migrate": "db:migrate" },
+	"agents": "agents",
 	"env": {
 		"required": ["APP_ORIGIN"],
 		"optional": ["APP_NAME", "APP_ADMIN_EMAIL", "APPS_MANAGE_ONLINE", "OPENAI_API_KEY", "OPENAI_MODEL", "GOOGLE_AUTH_CLIENT_ID", "DEMO_ROOM_CODE"]
