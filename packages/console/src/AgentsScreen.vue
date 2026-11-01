@@ -190,6 +190,7 @@ watch(() => props.source, () => { agents.value = null; selected.value = ''; void
 					<span class="text-[11px] text-muted-fg">{{ kindLabel(item.kind) }}<template v-if="item.title"> · {{ item.name }}</template></span>
 				</button>
 				<p v-if="!agents.length && !creating" class="px-2 py-3 text-sm text-muted-fg">No agents yet.</p>
+				<p v-if="readOnly" class="px-2 py-2 text-xs text-muted-fg" data-agents-read-only>{{ readOnly }}</p>
 				<button v-if="!readOnly" type="button" class="mt-1 min-h-8 rounded-lg border border-dashed border-border px-2 text-left text-sm text-muted-fg hover:bg-muted" :class="creating && 'bg-muted text-canvas-fg'" data-agent-new @click="startNew">+ New agent</button>
 			</nav>
 
@@ -310,7 +311,7 @@ watch(() => props.source, () => { agents.value = null; selected.value = ''; void
 					</div>
 				</div>
 			</div>
-			<p v-else class="m-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-fg">Pick an agent, or make a new one. Agents made here are saved as files in db3/agents.</p>
+			<p v-else class="m-4 rounded-xl border border-dashed border-border p-6 text-sm text-muted-fg" data-agents-empty>{{ readOnly ? (agents.length ? 'Pick an agent to see it.' : `No agents to show. ${readOnly}`) : agents.length ? 'Pick an agent, or make a new one. Agents made here are saved as files in db3/agents.' : 'No agents yet. Make one with New agent; it is saved as files in db3/agents.' }}</p>
 		</div>
 	</section>
 </template>
