@@ -51,9 +51,9 @@ export class FlowStepRun extends ActiveRecord {
 			blockId: field.string({
 				column: 'block_id',
 				required: true,
-				length: 26,
-				maxLength: 26,
-				comment: 'Stable block occurrence ULID from the definition snapshot.',
+				length: 64,
+				maxLength: 64,
+				comment: 'Block occurrence ULID (schema 1) or step name (schema 2) from the definition snapshot.',
 			}),
 
 			blockType: field.string({
@@ -88,6 +88,12 @@ export class FlowStepRun extends ActiveRecord {
 				maxLength: 20,
 				index: true,
 				comment: 'Current durable lifecycle state for this block execution.',
+			}),
+
+			exit: field.string({
+				length: 64,
+				maxLength: 64,
+				comment: 'Named exit the step took, for blocks with exits and failures routed to an error exit.',
 			}),
 
 			attempt: field.integer({
@@ -163,6 +169,7 @@ export class FlowStepRun extends ActiveRecord {
 	declare blockName: string | null;
 	declare sequence: number | null;
 	declare status: FlowStepStatus | null;
+	declare exit: string | null;
 	declare attempt: number | null;
 	declare queueJobId: string | null;
 	declare nestedRun: EntityRef<FlowRun> | null;

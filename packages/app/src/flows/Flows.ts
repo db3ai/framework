@@ -2,12 +2,14 @@ import { ActiveRecord } from '../db';
 import type { QueueJob } from '../queue';
 import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE, FLOW_SYSTEM_BLOCKS, SUBFLOW_BLOCK_TYPE } from './blocks';
 import { FLOW_REPLAY_DEFINITION, FLOW_RUN_EVENT_TYPE, FLOW_RUN_STATUS, FLOW_STEP_STATUS } from './constants';
-import type { CompiledFlowBlock, FlowBlockLogInput, FlowBlockMetadata, FlowDefinition, FlowDefinitionSummary, FlowDefinitionWriteOptions, FlowExecutionDefinition, FlowReplayOptions, FlowResolvedBlockContract, FlowRunOptions, FlowValue, FlowValueDefinitions, FlowValues, FlowsOptions, StoredFlowDefinition } from './contracts';
+import { isFlowGraphDefinition, type AnyFlowDefinition, type CompiledFlowBlock, type FlowBlockLogInput, type FlowBlockMetadata, type FlowDefinition, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowExecutionDefinition, type FlowGraphDefinition, type FlowReplayOptions, type FlowResolvedBlockContract, type FlowRunOptions, type FlowValue, type FlowValueDefinitions, type FlowValues, type FlowsOptions, type StoredFlowDefinition } from './contracts';
 import { FlowBlockRegistry } from './FlowBlockRegistry';
 import { FlowCompiler } from './FlowCompiler';
 import { FlowDefinitionError } from './FlowDefinitionError';
 import { flowErrorSnapshot } from './errors';
 import { FlowStepJob } from './FlowStepJob';
+import { FlowGraphCompiler } from './graph/FlowGraphCompiler';
+import { FlowGraphRuntime } from './graph/FlowGraphRuntime';
 import { validateFlowValues } from './flowValueValidator';
 import { FlowRun, FlowRunEvent, FlowStepRun } from './models';
 
@@ -19,12 +21,17 @@ interface NestedRunParent {
 }
 
 interface NestedDefinitionSelection {
-	stored: StoredFlowDefinition;
+	stored: StoredLegacyDefinition | StoredExecutionDefinition;
 	replayOf: FlowRun | null;
 }
 
 interface StoredExecutionDefinition extends Omit<StoredFlowDefinition, 'definition'> {
 	definition: FlowExecutionDefinition;
+}
+
+/** A stored schema 1 flow. */
+interface StoredLegacyDefinition extends Omit<StoredFlowDefinition, 'definition'> {
+	definition: FlowDefinition;
 }
 
 /**
@@ -48,6 +55,9 @@ export class Flows {
 	/** Registered executable block types. */
 	readonly blocks: FlowBlockRegistry;
 	readonly #compiler: FlowCompiler;
+	/** Checks version 2 flows. */
+	readonly graphs: FlowGraphCompiler;
+	readonly #graph: FlowGraphRuntime;
 	readonly #queueName: string;
 	readonly #maxTries: number;
 	readonly #maxPayloadBytes: number;
@@ -64,6 +74,15 @@ export class Flows {
 		this.#queueName = options.queueName ?? 'flows';
 		this.#maxTries = options.maxTries ?? 3;
 		this.#maxPayloadBytes = options.maxPayloadBytes ?? DEFAULT_MAX_PAYLOAD_BYTES;
+		this.graphs = new FlowGraphCompiler(this.blocks);
+		this.#graph = new FlowGraphRuntime({
+			compiler: this.graphs,
+			queue: options.queue,
+			queueName: this.#queueName,
+			maxTries: this.#maxTries,
+			maxPayloadBytes: this.#maxPayloadBytes,
+			env: options.env,
+		});
 		this.options.queue.registerJob(FlowStepJob);
 	}
 
@@ -83,15 +102,27 @@ export class Flows {
 	 * @returns Stored definition and provider metadata.
 	 */
 	async definition(id: string): Promise<StoredFlowDefinition> {
-		const stored = await this.definitions.read(id);
+		const stored = await this.definitions.read(id) ?? await this.#readByName(id);
 
 		if (!stored) {
 			throw new Error(`Flow definition "${id}" was not found.`);
 		}
 
-		await this.#resolveStoredDefinition(stored);
+		if (isFlowGraphDefinition(stored.definition)) this.graphs.compile(stored.definition);
+		else await this.#resolveStoredDefinition(stored as StoredLegacyDefinition);
 
 		return stored;
+	}
+
+	/**
+	 * Finds a version 2 flow by its name.
+	 *
+	 * @param name - Flow name, such as `lead-intake`.
+	 * @returns Stored definition or null.
+	 */
+	async #readByName(name: string): Promise<StoredFlowDefinition | null> {
+		const summary = (await this.definitions.list()).find(candidate => candidate.schemaVersion === 2 && candidate.name === name);
+		return summary ? await this.definitions.read(summary.id) : null;
 	}
 
 	/**
@@ -102,9 +133,14 @@ export class Flows {
 	 * @returns Stored definition and new revision.
 	 */
 	async saveDefinition(
-		definition: FlowDefinition,
+		definition: AnyFlowDefinition,
 		options: FlowDefinitionWriteOptions = {},
 	): Promise<StoredFlowDefinition> {
+		if (isFlowGraphDefinition(definition)) {
+			this.graphs.compile(definition);
+			return await this.definitions.write(definition, options);
+		}
+
 		await this.#resolveStoredDefinition({
 			definition,
 			revision: options.expectedRevision ?? 'pending',
@@ -134,7 +170,7 @@ export class Flows {
 	 * @returns Stored definition with resolved contracts and child snapshots.
 	 */
 	async #resolveStoredDefinition(
-		stored: StoredFlowDefinition,
+		stored: StoredLegacyDefinition | StoredExecutionDefinition,
 		ancestry: string[] = [],
 	): Promise<StoredExecutionDefinition> {
 		if (isExecutionDefinition(stored.definition)) {
@@ -170,14 +206,14 @@ export class Flows {
 
 			const child = await this.definitions.read(instance.flowId);
 
-			if (!child) {
+			if (!child || isFlowGraphDefinition(child.definition)) {
 				throw new FlowDefinitionError([{
 					path: `blocks.${instance.id}.flowId`,
 					message: `Nested flow definition "${instance.flowId}" was not found.`,
 				}]);
 			}
 
-			const resolvedChild = await this.#resolveStoredDefinition(child, nextAncestry);
+			const resolvedChild = await this.#resolveStoredDefinition(child as StoredLegacyDefinition, nextAncestry);
 
 			nestedDefinitions[instance.id] = resolvedChild;
 
@@ -224,7 +260,23 @@ export class Flows {
 			? await FlowRun.findOrFail(options.replayOfRunId)
 			: null;
 
-		return await this.#createAndDispatch(stored, input, replayOf, null, null, null);
+		if (isFlowGraphDefinition(stored.definition)) return await this.#graph.start(stored, input, { replayOf });
+
+		return await this.#createAndDispatch(stored as StoredLegacyDefinition, input, replayOf, null, null, null);
+	}
+
+	/**
+	 * Starts a flow by name or id and returns at once; the run continues on the queue.
+	 *
+	 * @param flow - Flow name, such as `lead-intake`, or its ULID.
+	 * @param input - Run input values.
+	 * @returns The new run.
+	 *
+	 * @example
+	 * const run = await app().flows.start('lead-intake', { name, email, message });
+	 */
+	async start(flow: string, input: FlowValues): Promise<FlowRun> {
+		return await this.run(flow, input);
 	}
 
 	/**
@@ -243,8 +295,15 @@ export class Flows {
 			throw new Error(`Flow run "${runId}" does not contain replayable input.`);
 		}
 
+		if (isFlowGraphDefinition(previous.definitionSnapshot)) {
+			const graph = definitionSource === FLOW_REPLAY_DEFINITION.latest
+				? await this.definition(requiredString(previous.flowId, 'Historical flow id is required.'))
+				: { definition: previous.definitionSnapshot, revision: requiredString(previous.definitionRevision, 'Historical definition revision is required.') };
+			return await this.#graph.start(graph, input, { replayOf: previous, replayDefinition: definitionSource });
+		}
+
 		const stored = definitionSource === FLOW_REPLAY_DEFINITION.latest
-			? await this.definition(requiredString(previous.flowId, 'Historical flow id is required.'))
+			? await this.definition(requiredString(previous.flowId, 'Historical flow id is required.')) as StoredLegacyDefinition
 			: {
 				definition: requiredDefinition(previous.definitionSnapshot),
 				revision: requiredString(previous.definitionRevision, 'Historical definition revision is required.'),
@@ -305,6 +364,11 @@ export class Flows {
 
 		if (run.status === FLOW_RUN_STATUS.failed) return;
 
+		if (isFlowGraphDefinition(run.definitionSnapshot)) {
+			await this.#graph.processStep(run, blockId, queueJob);
+			return;
+		}
+
 		const compiled = this.#compiler.compile(requiredDefinition(run.definitionSnapshot));
 		const compiledBlock = compiled.blocks.find(candidate => candidate.instance.id === blockId);
 
@@ -352,7 +416,7 @@ export class Flows {
 	 * @returns Created durable run after its root step is queued.
 	 */
 	async #createAndDispatch(
-		stored: StoredFlowDefinition,
+		stored: StoredLegacyDefinition | StoredExecutionDefinition,
 		input: FlowValues,
 		replayOf: FlowRun | null,
 		parent: NestedRunParent | null,
@@ -651,8 +715,11 @@ export class Flows {
 			};
 		}
 
+		const latest = await this.definition(nestedFlowId);
+		if (isFlowGraphDefinition(latest.definition)) throw new Error(`Nested flow "${nestedFlowId}" uses file shape 2; schema 1 flows can only nest schema 1 flows.`);
+
 		return {
-			stored: await this.definition(nestedFlowId),
+			stored: latest as StoredLegacyDefinition,
 			replayOf: previousChild,
 		};
 	}
@@ -1031,8 +1098,9 @@ function requiredString(value: string | null | undefined, message: string): stri
  * @param value - Nullable definition snapshot.
  * @returns Required flow definition.
  */
-function requiredDefinition(value: FlowExecutionDefinition | null | undefined): FlowExecutionDefinition {
+function requiredDefinition(value: FlowExecutionDefinition | FlowGraphDefinition | null | undefined): FlowExecutionDefinition {
 	if (!value) throw new Error('Flow run definition snapshot is required.');
+	if (isFlowGraphDefinition(value)) throw new Error('Expected a schema 1 flow run.');
 
 	return value;
 }

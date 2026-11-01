@@ -18,6 +18,7 @@ export const FLOW_STEP_STATUS = {
 	waiting: 'waiting',
 	completed: 'completed',
 	failed: 'failed',
+	skipped: 'skipped',
 } as const;
 
 /**
@@ -36,6 +37,7 @@ export const FLOW_RUN_EVENT_TYPE = {
 	stepCompleted: 'step.completed',
 	stepRetrying: 'step.retrying',
 	stepFailed: 'step.failed',
+	stepSkipped: 'step.skipped',
 	nestedStarted: 'nested.started',
 	nestedCompleted: 'nested.completed',
 	nestedFailed: 'nested.failed',

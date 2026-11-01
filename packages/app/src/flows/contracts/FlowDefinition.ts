@@ -111,8 +111,12 @@ export interface StoredNestedFlowDefinition {
 export interface FlowDefinitionSummary {
 	/** Stable flow ULID. */
 	id: string;
-	/** Human-readable flow name. */
+	/** Human-readable flow name; for version 2 flows, the lower-case name used to start it. */
 	name: string;
+	/** Version 2 flows: human-readable title. */
+	title?: string;
+	/** File shape version. */
+	schemaVersion?: 1 | 2;
 	/** Optional developer-facing description. */
 	description?: string;
 	/** Public input contract exposed when this flow is used as a subflow block. */

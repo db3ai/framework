@@ -468,7 +468,7 @@ export class FlowCompiler {
  * @param path - Definition path used in issue messages.
  * @param issues - Mutable issue collection populated by validation.
  */
-function validateValueDefinitions(
+export function validateValueDefinitions(
 	definitions: FlowValueDefinitions,
 	path: string,
 	issues: FlowDefinitionIssue[],

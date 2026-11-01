@@ -159,3 +159,42 @@ checking that the saved trigger belongs to the authorized flow, it calls
 Direct programmatic calls use that same API and Flow Input contract whether or
 not external trigger blocks are present. Triggers do not alter nested flow or
 replay execution. A browser should never store trigger secrets inside a graph.
+
+## File shape 2: named steps, references and exits
+
+New flows use `schemaVersion: 2` in `db3/flows/<name>.flow.json`. Steps are keyed by
+readable names, values move by `{{reference}}`, and `edges` say only what runs after what.
+
+```json
+{
+	"schemaVersion": 2,
+	"id": "01JD7V0Q8M4V7K9R2S6T3W5X1Y",
+	"name": "lead-intake",
+	"title": "Lead intake",
+	"inputs": { "email": { "type": "string", "required": true }, "message": { "type": "string", "required": true } },
+	"outputs": { "kind": { "type": "string", "value": "{{classify.kind}}" } },
+	"steps": {
+		"classify": { "type": "app.classify-lead", "config": { "message": "{{input.message}}" } },
+		"block": { "type": "app.block-sender", "config": { "email": "{{input.email}}" } },
+		"crm": { "type": "app.add-to-crm", "config": { "email": "{{input.email}}", "apiKey": { "secret": "CRM_KEY" } } },
+		"alert": { "type": "app.alert", "config": { "text": "CRM failed: {{crm.error.message}}" } }
+	},
+	"edges": [["input", "classify"], ["classify.spam", "block"], ["classify.lead", "crm"], ["crm.error", "alert"]],
+	"layout": { "classify": [0, 0] }
+}
+```
+
+- References: `{{input.x}}`, `{{step.field}}` (only steps that run before this one), `{{env.X}}`.
+  A setting that is exactly one reference keeps the value's type. Secrets are written
+  `{ "secret": "NAME" }` and show as `[secret NAME]` in run history.
+- Exits: a block declares `exits` (or `exitsFor(config)`) and returns `exit(name, values)`.
+  Edges leave through `step.exit`. Every step also has an `error` exit: after its last
+  retry, a step with an `error` edge takes it (output `{ error: { name, message } }`) and the
+  run carries on; without one the run fails. `control.switch` and `control.if` are built in.
+- Branches: a step is queued once any edge into it is taken and the rest are decided, and
+  skipped when none is. Steps on separate branches run side by side as separate jobs.
+- Checks: `saveDefinition` and `definition` run `FlowGraphCompiler`, which rejects unknown
+  block types and settings, missing exits, loops, unconnected steps, and references to
+  steps that do not run first or outputs they do not have.
+- Starting: `app().flows.start('lead-intake', input)` finds the flow by name or id.
+  Replay works as for schema 1. Nesting other flows, triggers and agent steps come next.

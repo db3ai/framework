@@ -58,16 +58,37 @@ export interface FlowBlockDefinition<
 	/** Serializable configuration fields shown in the block inspector. */
 	config?: FlowValueDefinitions;
 	/**
+	 * Named exits. When set, `run` returns `exit(name, values)` and only the edges
+	 * leaving through that exit run. Version 2 flows only.
+	 */
+	exits?: string[];
+	/** Exits that depend on a step's settings, such as one per switch case. Wins over `exits`. */
+	exitsFor?(config: FlowValues): string[];
+	/** Outputs that depend on a step's settings, such as an agent's `returns`. Wins over `outputs`. */
+	outputsFor?(config: FlowValues): FlowValueDefinitions;
+	/**
 	 * Executes the block with validated input and runtime context.
 	 *
 	 * @param input - Values assembled from the flow input or incoming connections.
 	 * @param context - Durable run context, configuration, and logging API.
 	 * @returns Values emitted through the block output ports.
 	 */
-	run?(input: TInput, context: FlowBlockContext<TConfig>): TOutput | Promise<TOutput>;
+	run?(input: TInput, context: FlowBlockContext<TConfig>): TOutput | FlowExit<TOutput> | Promise<TOutput | FlowExit<TOutput>>;
+}
+
+/** Marks a block result that names the exit it takes. */
+export const FLOW_EXIT = Symbol.for('db3.flow.exit');
+
+/**
+ * Block result naming one of the block's exits, made with `exit(name, values)`.
+ */
+export interface FlowExit<TOutput extends FlowValues = FlowValues> {
+	readonly [FLOW_EXIT]: string;
+	/** Output values the step returns. */
+	readonly values: TOutput;
 }
 
 /**
  * Designer-safe metadata for one registered executable block type.
  */
-export type FlowBlockMetadata = Omit<FlowBlockDefinition, 'run'>;
+export type FlowBlockMetadata = Omit<FlowBlockDefinition, 'run' | 'exitsFor' | 'outputsFor'>;

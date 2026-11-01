@@ -10,7 +10,7 @@ import type { FlowStepJobApp } from './contracts';
 export interface FlowStepJobData extends Record<string, unknown> {
 	/** Durable flow run ULID. */
 	runId: string;
-	/** Block occurrence ULID from the run definition snapshot. */
+	/** Block occurrence ULID (schema 1) or step name (schema 2) from the run definition snapshot. */
 	blockId: string;
 }
 
@@ -32,8 +32,8 @@ export class FlowStepJob extends QueueableJob<FlowStepJobData> {
 			throw new Error('FlowStepJob requires a valid runId ULID.');
 		}
 
-		if (typeof data.blockId !== 'string' || !isUlid(data.blockId)) {
-			throw new Error('FlowStepJob requires a valid blockId ULID.');
+		if (typeof data.blockId !== 'string' || !data.blockId || data.blockId.length > 64) {
+			throw new Error('FlowStepJob requires a block ULID or step name.');
 		}
 
 		super(data);

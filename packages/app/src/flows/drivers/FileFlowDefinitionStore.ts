@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 
-import type { FlowDefinition, FlowDefinitionStore, FlowDefinitionSummary, FlowDefinitionWriteOptions, StoredFlowDefinition } from '../contracts';
+import { isFlowGraphDefinition, type AnyFlowDefinition, type FlowDefinition, type FlowDefinitionStore, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowGraphDefinition, type FlowValueDefinition, type FlowValueDefinitions, type StoredFlowDefinition } from '../contracts';
 
 /**
  * Options for a Git-friendly file definition provider.
@@ -54,9 +54,10 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 				.map(stored => ({
 					id: stored.definition.id,
 					name: stored.definition.name,
+					...(isFlowGraphDefinition(stored.definition) ? { schemaVersion: 2 as const, ...(stored.definition.title ? { title: stored.definition.title } : {}) } : {}),
 					description: stored.definition.description,
 					inputs: structuredClone(stored.definition.inputs),
-					outputs: structuredClone(stored.definition.outputs),
+					outputs: outputContract(stored.definition),
 					revision: stored.revision,
 				path: stored.path,
 			}))
@@ -87,7 +88,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 	 * @returns Stored definition metadata after writing.
 	 */
 	async write(
-		definition: FlowDefinition,
+		definition: AnyFlowDefinition,
 		options: FlowDefinitionWriteOptions = {},
 	): Promise<StoredFlowDefinition> {
 		const storedDefinitions = await this.#readAll();
@@ -102,7 +103,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 		}
 
 		const path = existing?.path
-			?? normalizeRelativePath(options.path ?? `${slugify(definition.name)}/flow.json`);
+			?? normalizeRelativePath(options.path ?? (isFlowGraphDefinition(definition) ? `${definition.name}.flow.json` : `${slugify(definition.name)}/flow.json`));
 		const occupied = storedDefinitions.find(stored => stored.path === path && stored.definition.id !== definition.id);
 
 		if (occupied) {
@@ -227,8 +228,51 @@ async function findDefinitionFiles(root: string): Promise<string[]> {
  * @param definition - Source definition to serialize.
  * @returns Git-friendly JSON content ending in a newline.
  */
-function serializeDefinition(definition: FlowDefinition): string {
-	return `${JSON.stringify(orderDefinition(definition), null, '\t')}\n`;
+function serializeDefinition(definition: AnyFlowDefinition): string {
+	return `${JSON.stringify(isFlowGraphDefinition(definition) ? orderGraphDefinition(definition) : orderDefinition(definition), null, '\t')}\n`;
+}
+
+/**
+ * Applies the version 2 section order: what the flow is, how it starts, its steps,
+ * its edges, then canvas positions last so moving a box leaves the logic untouched.
+ * Steps keep the order they were written in.
+ *
+ * @param definition - Version 2 flow.
+ * @returns Flow-shaped object with stable property order.
+ */
+function orderGraphDefinition(definition: FlowGraphDefinition): Record<string, unknown> {
+	return {
+		schemaVersion: 2,
+		id: definition.id,
+		name: definition.name,
+		...(definition.title ? { title: definition.title } : {}),
+		...(definition.description ? { description: definition.description } : {}),
+		inputs: sortRecord(definition.inputs),
+		...(definition.outputs && Object.keys(definition.outputs).length ? { outputs: sortRecord(definition.outputs) } : {}),
+		...(definition.triggers && Object.keys(definition.triggers).length ? { triggers: definition.triggers } : {}),
+		steps: Object.fromEntries(Object.entries(definition.steps).map(([name, step]) => [name, {
+			type: step.type,
+			...(step.title ? { title: step.title } : {}),
+			...(step.flow ? { flow: step.flow } : {}),
+			...(step.config ? { config: step.config } : {}),
+			...(step.attach ? { attach: step.attach } : {}),
+		}])),
+		edges: definition.edges,
+		...(definition.layout ? { layout: Object.fromEntries(Object.entries(definition.layout).map(([name, [x, y]]) => [name, [Math.round(x), Math.round(y)]])) } : {}),
+	};
+}
+
+/**
+ * The public output contract, without version 2 output values.
+ *
+ * @param definition - Flow of either shape.
+ * @returns Output definitions.
+ */
+function outputContract(definition: AnyFlowDefinition): FlowValueDefinitions {
+	return Object.fromEntries(Object.entries(definition.outputs ?? {}).map(([name, output]) => {
+		const { value: _value, ...contract } = output as FlowValueDefinition & { value?: unknown };
+		return [name, structuredClone(contract)];
+	}));
 }
 
 /**
@@ -345,9 +389,16 @@ function normalizeRelativePath(path: string): string {
  * @param value - Parsed JSON value.
  * @param path - Provider path used in validation errors.
  */
-function assertDefinitionEnvelope(value: unknown, path: string): asserts value is FlowDefinition {
+function assertDefinitionEnvelope(value: unknown, path: string): asserts value is AnyFlowDefinition {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`Flow definition at "${path}" must be an object.`);
+	}
+
+	if (isFlowGraphDefinition(value)) {
+		if (typeof value.id !== 'string' || typeof value.name !== 'string' || !value.steps || typeof value.steps !== 'object' || !Array.isArray(value.edges)) {
+			throw new Error(`Flow definition at "${path}" needs an id, a name, steps and edges.`);
+		}
+		return;
 	}
 
 	const definition = value as Partial<FlowDefinition>;

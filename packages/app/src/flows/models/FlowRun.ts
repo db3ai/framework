@@ -1,7 +1,7 @@
 import { ActiveRecord, type FieldBuilder } from '../../db';
 import type { EntityRef } from '../../db/fields/LinkField';
 import { FLOW_REPLAY_DEFINITION, FLOW_RUN_STATUS, type FlowReplayDefinition, type FlowRunStatus } from '../constants';
-import type { FlowErrorSnapshot, FlowExecutionDefinition, FlowValues } from '../contracts';
+import type { FlowErrorSnapshot, FlowExecutionDefinition, FlowGraphDefinition, FlowValues } from '../contracts';
 
 /**
  * Durable invocation of one immutable flow definition snapshot.
@@ -69,7 +69,7 @@ export class FlowRun extends ActiveRecord {
 				comment: 'SHA-256 revision of the source definition used for this run.',
 			}),
 
-			definitionSnapshot: field.jsonLongText<FlowExecutionDefinition>({
+			definitionSnapshot: field.jsonLongText<FlowExecutionDefinition | FlowGraphDefinition>({
 				column: 'definition_snapshot',
 				required: true,
 				comment: 'Immutable normalized flow definition executed by this run.',
@@ -150,7 +150,7 @@ export class FlowRun extends ActiveRecord {
 	declare status: FlowRunStatus | null;
 	declare replayDefinition: FlowReplayDefinition | null;
 	declare definitionRevision: string | null;
-	declare definitionSnapshot: FlowExecutionDefinition | null;
+	declare definitionSnapshot: FlowExecutionDefinition | FlowGraphDefinition | null;
 	declare input: FlowValues | null;
 	declare output: FlowValues | null;
 	declare error: FlowErrorSnapshot | null;

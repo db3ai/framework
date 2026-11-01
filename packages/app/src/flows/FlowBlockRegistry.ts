@@ -73,7 +73,7 @@ export class FlowBlockRegistry {
 	 */
 	metadata(): FlowBlockMetadata[] {
 		return [...this.#blocks.values()]
-			.map(({ run: _run, ...metadata }) => metadata)
+			.map(({ run: _run, exitsFor: _exitsFor, outputsFor: _outputsFor, ...metadata }) => metadata)
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 }

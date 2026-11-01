@@ -107,7 +107,8 @@ async function openFlow(flowId: string, resetBreadcrumbs = false, requestedRunId
 		]);
 		if (disposed) return;
 
-		definition.value = structuredClone(stored.definition);
+		const opened = blockDefinition(stored);
+		definition.value = structuredClone(opened);
 		revision.value = stored.revision;
 		sourcePath.value = stored.path ?? null;
 		dirty.value = false;
@@ -115,7 +116,7 @@ async function openFlow(flowId: string, resetBreadcrumbs = false, requestedRunId
 		selectedConnectionId.value = null;
 		runs.value = recentRuns;
 		runDetails.value = null;
-		runInput.value = initialInput(stored.definition);
+		runInput.value = initialInput(opened);
 		runInputValid.value = true;
 
 		const crumb = { id: stored.definition.id, name: stored.definition.name, ...(requestedRunId ? { runId: requestedRunId } : {}) };
@@ -181,7 +182,7 @@ async function openNestedBlock(blockId: string): Promise<void> {
 
 		const storedParent = await props.client.save(parent, revision.value ?? undefined);
 
-		definition.value = structuredClone(storedParent.definition);
+		definition.value = structuredClone(blockDefinition(storedParent));
 		revision.value = storedParent.revision;
 		sourcePath.value = storedParent.path ?? null;
 		dirty.value = false;
@@ -361,7 +362,7 @@ async function saveDefinition(): Promise<void> {
 		emit('saved', stored);
 		breadcrumbs.value = breadcrumbs.value.map(crumb => crumb.id === stored.definition.id ? { ...crumb, name: stored.definition.name } : crumb);
 
-		definition.value = structuredClone(stored.definition);
+		definition.value = structuredClone(blockDefinition(stored));
 		revision.value = stored.revision;
 		sourcePath.value = stored.path ?? null;
 		dirty.value = false;
@@ -562,6 +563,18 @@ function defaultValue(schema: FlowValueDefinition): FlowValue {
  * @param caught - Unknown rejected value.
  * @returns Human-readable error text.
  */
+/**
+ * Reads a stored flow this designer can edit: the block-and-port shape (schema 1).
+ *
+ * @param stored - Stored flow.
+ * @returns The schema 1 definition.
+ * @throws When the flow uses file shape 2, which this designer does not edit yet.
+ */
+function blockDefinition(stored: StoredFlowDefinition): FlowDefinition {
+	if (stored.definition.schemaVersion === 2) throw new Error(`${stored.definition.title ?? stored.definition.name} uses file shape 2, which this designer cannot edit yet.`);
+	return stored.definition;
+}
+
 function errorMessage(caught: unknown): string {
 	return caught instanceof Error ? caught.message : String(caught);
 }

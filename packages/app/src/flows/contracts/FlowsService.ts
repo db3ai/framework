@@ -19,6 +19,8 @@ export interface FlowsOptions {
 	maxTries?: number;
 	/** Maximum serialized input or output size retained per boundary. */
 	maxPayloadBytes?: number;
+	/** Settings and secrets read by version 2 flows (`{{env.X}}`, `{ "secret": "X" }`). Defaults to `process.env`. */
+	env?: () => Record<string, string | undefined>;
 }
 
 /**
