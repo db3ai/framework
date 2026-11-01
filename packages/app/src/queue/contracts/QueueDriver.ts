@@ -1,4 +1,5 @@
 import type { QueueSelection } from './QueueSelection';
+import type { QueueWorkerSnapshot } from './QueueWorkerSnapshot';
 import type { QueueWaitOptions } from './QueueWaitOptions';
 import type { JobEnvelope, QueueDriverName, QueueJob, QueueJobId } from './QueuePayload';
 
@@ -62,6 +63,8 @@ export interface QueueDriver {
 
 	/** Inspects pending, delayed, reserved and chained work for maintenance; callers must quiesce producers first. */
 	hasPendingJobs?(jobPrefix: string): Promise<boolean>;
+	/** Optionally stores worker presence beside the jobs so hosting tools can read it; failures are isolated by the reporter. */
+	reportWorker?(snapshot: QueueWorkerSnapshot): Promise<void>;
 	/** Driver name stored on failed job records and shown in diagnostics. */
 	readonly name: QueueDriverName | string;
 

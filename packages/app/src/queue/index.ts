@@ -1,5 +1,6 @@
 export * from './FailedJob';
 export * from './QueuedJob';
+export * from './QueueWorkerRecord';
 export * from './Queue';
 export * from './QueueEvents';
 export * from './QueueableJob';

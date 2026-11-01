@@ -73,9 +73,9 @@ export class Queue implements queue.QueueService {
 	 */
 	get driverName(): string { return this.driver.name; }
 
-	/** Reports worker presence through the application-owned sink without changing delivery semantics. */
+	/** Reports worker presence to the driver's store and the application-owned sink without changing delivery semantics. */
 	async reportWorker(snapshot: queue.QueueWorkerSnapshot): Promise<void> {
-		await this.options.onWorkerHeartbeat?.(snapshot);
+		await Promise.all([this.driver.reportWorker?.(snapshot), this.options.onWorkerHeartbeat?.(snapshot)]);
 	}
 
 	/** Returns the optional queue lifecycle monitor. */

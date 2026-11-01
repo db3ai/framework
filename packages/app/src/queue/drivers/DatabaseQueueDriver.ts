@@ -1,6 +1,7 @@
 import { ActiveRecord, RecordValidationError, withQueryMonitorCategory, type Database, type FieldError } from '../../db';
 import { FailedJob } from '../FailedJob';
 import { QueuedJob } from '../QueuedJob';
+import { QueueWorkerRecord } from '../QueueWorkerRecord';
 import type * as queue from '../contracts';
 import { jobEnvelopeHasPrefix } from '../jobEnvelopeHasPrefix';
 
@@ -9,6 +10,10 @@ import { jobEnvelopeHasPrefix } from '../jobEnvelopeHasPrefix';
  */
 export class DatabaseQueueDriver implements queue.QueueDriver {
 	readonly name = 'database';
+	/** When the presence table was last found missing, so apps without it pay one check per interval. */
+	#presenceMissingAt: number | null = null;
+	/** When stale presence rows were last pruned. */
+	#presencePrunedAt = 0;
 
 	/**
 	 * Creates a database-backed queue driver.
@@ -35,6 +40,35 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 			if (rows.length < 100) return false;
 			after = rows[rows.length - 1].id;
 		}
+	}
+
+	/**
+	 * Upserts a worker's presence into `jobs_workers` when the app installed QueueWorkerRecord,
+	 * and prunes rows that stopped reporting a day ago. Apps without the table are skipped quietly.
+	 *
+	 * @param snapshot - Latest worker presence.
+	 */
+	async reportWorker(snapshot: queue.QueueWorkerSnapshot): Promise<void> {
+		const now = unixTimestamp();
+		if (this.#presenceMissingAt !== null && now - this.#presenceMissingAt < PRESENCE_RECHECK_SECONDS) return;
+		await withQueueQueryCategory(async () => {
+			if (this.#presenceMissingAt !== null || this.#presencePrunedAt === 0) {
+				if (!(await this.db.knex.schema.hasTable(QueueWorkerRecord.table))) { this.#presenceMissingAt = now; return; }
+				this.#presenceMissingAt = null;
+			}
+			const seconds = (value: string | null) => value === null ? null : Math.floor(Date.parse(value) / 1000);
+			const row = {
+				id: snapshot.id, name: snapshot.name.slice(0, 255), hostname: snapshot.hostname.slice(0, 255), pid: snapshot.pid,
+				selection: JSON.stringify(snapshot.selection), status: snapshot.status, current_queue: snapshot.currentQueue, current_job_id: snapshot.currentJobId,
+				processed: snapshot.processed, failed: snapshot.failed, started_at: seconds(snapshot.startedAt), heartbeat_at: seconds(snapshot.heartbeatAt), last_job_at: seconds(snapshot.lastJobAt),
+			};
+			const { id: _id, started_at: _started, ...changes } = row;
+			await this.db.knex(QueueWorkerRecord.table).insert(row).onConflict('id').merge(changes);
+			if (now - this.#presencePrunedAt >= PRESENCE_PRUNE_SECONDS) {
+				this.#presencePrunedAt = now;
+				await this.db.knex(QueueWorkerRecord.table).where('heartbeat_at', '<', now - PRESENCE_KEEP_SECONDS).delete();
+			}
+		});
 	}
 
 	/**
@@ -277,6 +311,13 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
  * @param callback - Queue database operation to execute.
  * @returns The callback result.
  */
+/** Seconds between checks for a presence table the app has not installed. */
+const PRESENCE_RECHECK_SECONDS = 300;
+/** Seconds between prunes of stale presence rows. */
+const PRESENCE_PRUNE_SECONDS = 600;
+/** Presence rows older than this are deleted; hosting tools treat a missed heartbeat as gone long before. */
+const PRESENCE_KEEP_SECONDS = 86_400;
+
 function withQueueQueryCategory<TResult>(callback: () => TResult): TResult {
 	return withQueryMonitorCategory('queue', callback);
 }

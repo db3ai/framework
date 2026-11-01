@@ -1868,6 +1868,141 @@
 			"foreignKeys": []
 		},
 		{
+			"name": "jobs_workers",
+			"comment": null,
+			"columns": [
+				{
+					"name": "current_job_id",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "current_queue",
+					"type": "varchar(255)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "failed",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Jobs that failed for good since the worker started.",
+					"default": 0
+				},
+				{
+					"name": "heartbeat_at",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Unix seconds of the latest report."
+				},
+				{
+					"name": "hostname",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Host the worker runs on; the pod name under Kubernetes."
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": "Worker slot identity from QueueWorkerSnapshot."
+				},
+				{
+					"name": "last_job_at",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Unix seconds when the latest job finished."
+				},
+				{
+					"name": "name",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Worker name, such as the --name option or QUEUE_WORKER_NAME."
+				},
+				{
+					"name": "pid",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "processed",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Jobs that succeeded since the worker started.",
+					"default": 0
+				},
+				{
+					"name": "selection",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Queues the worker consumes and excludes."
+				},
+				{
+					"name": "started_at",
+					"type": "int unsigned",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Unix seconds."
+				},
+				{
+					"name": "status",
+					"type": "varchar(16)",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "idle, busy, stopping or stopped."
+				}
+			],
+			"indexes": [
+				{
+					"name": "jobs_workers_heartbeat_at_index",
+					"columns": [
+						{
+							"name": "heartbeat_at"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				},
+				{
+					"name": "jobs_workers_hostname_index",
+					"columns": [
+						{
+							"name": "hostname"
+						}
+					],
+					"unique": false,
+					"type": "normal"
+				}
+			],
+			"foreignKeys": []
+		},
+		{
 			"name": "notes",
 			"comment": null,
 			"columns": [

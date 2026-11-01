@@ -535,7 +535,14 @@ or lightweight queue contracts; it does not poll retained history.
 
 ### Live worker presence
 
-Set `QueueOptions.onWorkerHeartbeat` to persist or publish `QueueWorkerSnapshot`
+The database driver stores each worker's latest snapshot in `jobs_workers` when the
+app installs `QueueWorkerRecord` (add it to the model registry beside `QueuedJob` and
+generate a migration). db3 Cloud reads that table, with `jobs` and `jobs_failed`, to
+show which queues each worker consumes, idle or busy, its current job, jobs processed
+and failed, and per-queue waiting, running, delayed and failed counts. Apps without
+the table skip it quietly; rows that stop reporting are deleted after a day.
+
+Set `QueueOptions.onWorkerHeartbeat` to also persist or publish `QueueWorkerSnapshot`
 records in the application's own monitoring store. Every worker has a unique ID,
 host/PID, exact queue selection and exclusions, current job identity, start time
 and heartbeat. Polling workers report idle/busy/stopping/stopped transitions and

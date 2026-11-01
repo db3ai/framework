@@ -12,7 +12,7 @@ export class QueueWorkerReporter {
 	/** Creates an identity unique to this worker, including multiple workers in the same process. */
 	constructor(selection: QueueSelection, private readonly publish: (snapshot: QueueWorkerSnapshot) => Promise<void>, private readonly logger?: QueueLogger) {
 		const now = new Date().toISOString();
-		this.#snapshot = { id: ulid(), name: process.env.QUEUE_WORKER_NAME || 'queue-worker', hostname: hostname(), pid: process.pid, selection, status: 'idle', currentQueue: null, currentJobId: null, startedAt: now, heartbeatAt: now };
+		this.#snapshot = { id: ulid(), name: process.env.QUEUE_WORKER_NAME || 'queue-worker', hostname: hostname(), pid: process.pid, selection, status: 'idle', currentQueue: null, currentJobId: null, processed: 0, failed: 0, lastJobAt: null, startedAt: now, heartbeatAt: now };
 	}
 
 	/** Starts liveness updates, including while a long job is awaiting network work. */
@@ -30,6 +30,11 @@ export class QueueWorkerReporter {
 		if (this.#snapshot.status === status && this.#snapshot.currentQueue === currentQueue && this.#snapshot.currentJobId === currentJobId) return;
 		this.#snapshot = { ...this.#snapshot, status, currentQueue, currentJobId };
 		void this.flush();
+	}
+
+	/** Counts a finished job; the following idle or busy update publishes it. */
+	finished(status: string): void {
+		this.#snapshot = { ...this.#snapshot, processed: this.#snapshot.processed + (status === 'succeeded' ? 1 : 0), failed: this.#snapshot.failed + (status === 'failed' ? 1 : 0), lastJobAt: new Date().toISOString() };
 	}
 
 	/** Stops timers immediately and flushes a final state when the worker drains. */

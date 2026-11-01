@@ -197,6 +197,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			});
 			if (result) {
 				this.#lastQueue = name;
+				this.#presence.finished(result.status);
 				return result;
 			}
 		}
