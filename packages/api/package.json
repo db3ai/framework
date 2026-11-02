@@ -1,0 +1,24 @@
+{
+	"name": "@db3.ai/api",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Optional public HTTPS API for a db3 app's services (agents, flows, tables, storage, auth). Switched on and routed by db3 Cloud; apps with their own API leave it off.",
+	"license": "MIT",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "vitest run tests/config.test.ts",
+		"test:contract": "vitest run"
+	},
+	"dependencies": {
+		"fastify": "^5.12.7",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.12"
+	}
+}
