@@ -1,6 +1,6 @@
 import type { WebSocketServiceOptions } from '../websocket';
 import type { Knex } from 'knex';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ai, type AIOptions } from '../ai';
 import { Apps, type AppDefinitions, type AppServices, type InstalledApps } from '../apps';
@@ -46,6 +46,7 @@ import {
 	type StorageOptions,
 } from '../storage';
 import { Scheduler } from '../scheduler';
+import { FileFlowDefinitionStore, Flows, FlowStepJob, type FlowBlockDefinition } from '../flows';
 import { Security } from '../security';
 import { Serializer, type SerializerOptions } from '../serialization';
 import { MediaManager, type MediaOptions } from '../media';
@@ -83,6 +84,8 @@ export interface AppOptions<TApps extends AppDefinitions = {}> {
 	/** Serializable classes and ActiveRecord models registered with app().serializer. */
 	serializer?: SerializerOptions;
 	storage?: StorageOptions;
+	/** The app's own flow blocks (code blocks) for `db3/flows`, usually from `server/flows/index.ts`. */
+	flows?: { blocks?: FlowBlockDefinition[] };
 }
 
 /**
@@ -231,8 +234,26 @@ export class App<TApps extends AppDefinitions = {}> {
 			{
 				onLifecycleError: failure => this.log.error({ err: failure.error, component: 'queue', source: failure.source, hook: failure.hook, jobId: failure.event.jobId, jobName: failure.event.jobName, action: failure.event.action }, 'Queue lifecycle handler failed'),
 				...this.options.queue,
+				// Makes app().flows (which registers the job) when a worker meets a flow step first.
+				jobResolver: async request => {
+					if (request.jobName === FlowStepJob.jobName) {
+						void this.flows;
+						return FlowStepJob;
+					}
+					return await this.options.queue?.jobResolver?.(request) ?? null;
+				},
 			},
 		));
+	}
+
+	/** The app's `db3/flows` files, run on the `flows` queue; install `FLOW_MODELS`. */
+	get flows(): Flows {
+		return this.service('flows', () => new Flows({
+			queue: this.queue,
+			queueName: 'flows',
+			definitions: new FileFlowDefinitionStore({ root: join(this.directory, 'db3', 'flows') }),
+			blocks: this.options.flows?.blocks ?? [],
+		}));
 	}
 
 	/**

@@ -116,7 +116,39 @@ export function stepExits(step: FlowGraphStep, block: FlowBlockMetadata | undefi
 		const cases = step.config?.cases;
 		return [...(Array.isArray(cases) ? cases.map(String) : []), 'other'];
 	}
+	if (step.type === 'agent.run' && typeof step.config?.exitOn === 'string') {
+		const field = agentReturns(step)?.[step.config.exitOn];
+		return Array.isArray(field) ? field.map(String) : [];
+	}
 	return block?.exits ?? [];
+}
+
+/**
+ * The fields an agent step answers with, from its `returns` setting.
+ *
+ * @param step - Step in the flow file.
+ * @returns Fields by name, or null.
+ */
+function agentReturns(step: FlowGraphStep): Record<string, FlowValue> | null {
+	const returns = step.config?.returns;
+	return returns && typeof returns === 'object' && !Array.isArray(returns) ? returns : null;
+}
+
+/**
+ * The outputs a step hands later steps. Most come from the block; an agent step's come
+ * from its `returns` setting (or `text`).
+ *
+ * @param step - Step in the flow file.
+ * @param block - Its block metadata.
+ * @returns Output contracts.
+ */
+export function stepOutputs(step: FlowGraphStep, block: FlowBlockMetadata | undefined): FlowValueDefinitions {
+	if (step.type === 'agent.run') {
+		const returns = agentReturns(step);
+		if (!returns) return { text: { type: 'string', required: true } };
+		return Object.fromEntries(Object.entries(returns).map(([name, field]) => [name, { type: Array.isArray(field) || field === 'string' ? 'string' : field === 'number' ? 'number' : 'boolean', required: true }])) as FlowValueDefinitions;
+	}
+	return block?.outputs ?? {};
 }
 
 /**
@@ -341,7 +373,7 @@ export function checkFlow(flow: FlowGraphDefinition, blocks: FlowBlockMetadata[]
 				add(name, `{{${path}}} reads ${root}, which does not run before this step.`);
 			} else {
 				// Blocks whose outputs depend on their settings (such as an agent's returns) declare none; the server checks those.
-				const outputs = byType.get(flow.steps[root].type)?.outputs ?? {};
+				const outputs = stepOutputs(flow.steps[root], byType.get(flow.steps[root].type));
 				if (field && field !== ERROR_EXIT && Object.keys(outputs).length && !(field in outputs)) add(name, `${root} has no output ${field}.`);
 			}
 		}

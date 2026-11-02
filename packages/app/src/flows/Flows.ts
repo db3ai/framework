@@ -1,6 +1,7 @@
 import { ActiveRecord } from '../db';
 import type { QueueJob } from '../queue';
-import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE, FLOW_SYSTEM_BLOCKS, SUBFLOW_BLOCK_TYPE } from './blocks';
+import { FLOW_INPUT_BLOCK_TYPE, FLOW_OUTPUT_BLOCK_TYPE, SUBFLOW_BLOCK_TYPE } from './blocks';
+import { FLOW_SERVER_BLOCKS } from './blocks/server';
 import { FLOW_REPLAY_DEFINITION, FLOW_RUN_EVENT_TYPE, FLOW_RUN_STATUS, FLOW_STEP_STATUS } from './constants';
 import { isFlowGraphDefinition, type AnyFlowDefinition, type CompiledFlowBlock, type FlowBlockLogInput, type FlowBlockMetadata, type FlowDefinition, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowExecutionDefinition, type FlowGraphDefinition, type FlowReplayOptions, type FlowResolvedBlockContract, type FlowRunOptions, type FlowValue, type FlowValueDefinitions, type FlowValues, type FlowsOptions, type StoredFlowDefinition } from './contracts';
 import { FlowBlockRegistry } from './FlowBlockRegistry';
@@ -71,7 +72,7 @@ export class Flows {
 	 */
 	constructor(private readonly options: FlowsOptions) {
 		this.definitions = options.definitions;
-		this.blocks = new FlowBlockRegistry([...FLOW_SYSTEM_BLOCKS, ...options.blocks]);
+		this.blocks = new FlowBlockRegistry([...FLOW_SERVER_BLOCKS, ...options.blocks]);
 		this.#compiler = new FlowCompiler(this.blocks);
 		this.#queueName = options.queueName ?? 'flows';
 		this.#maxTries = options.maxTries ?? 3;

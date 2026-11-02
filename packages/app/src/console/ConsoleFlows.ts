@@ -1,4 +1,4 @@
-import { FLOW_SYSTEM_BLOCKS } from '../flows/blocks';
+import { FLOW_SERVER_BLOCKS } from '../flows/blocks/server';
 import type { AnyFlowDefinition, FlowBlockDefinition, FlowBlockMetadata, FlowDefinitionSummary, FlowDefinitionWriteOptions, StoredFlowDefinition } from '../flows/contracts';
 import { FileFlowDefinitionStore } from '../flows/drivers/FileFlowDefinitionStore';
 import { FlowBlockRegistry } from '../flows/FlowBlockRegistry';
@@ -22,7 +22,7 @@ export interface ConsoleFlows {
  */
 export function fileFlows(root: string, blocks: FlowBlockDefinition[] = []): ConsoleFlows {
 	const store = new FileFlowDefinitionStore({ root });
-	const registry = new FlowBlockRegistry([...FLOW_SYSTEM_BLOCKS, ...blocks]);
+	const registry = new FlowBlockRegistry([...FLOW_SERVER_BLOCKS, ...blocks]);
 	return {
 		listDefinitions: () => store.list(),
 		async definition(id) {

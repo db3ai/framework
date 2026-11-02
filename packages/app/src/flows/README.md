@@ -167,20 +167,14 @@ readable names, values move by `{{reference}}`, and `edges` say only what runs a
 
 ```json
 {
-	"schemaVersion": 2,
-	"id": "01JD7V0Q8M4V7K9R2S6T3W5X1Y",
-	"name": "lead-intake",
-	"title": "Lead intake",
-	"inputs": { "email": { "type": "string", "required": true }, "message": { "type": "string", "required": true } },
+	"schemaVersion": 2, "id": "01JD7V0Q8M4V7K9R2S6T3W5X1Y", "name": "lead-intake",
+	"inputs": { "email": { "type": "string", "required": true } },
 	"outputs": { "kind": { "type": "string", "value": "{{classify.kind}}" } },
 	"steps": {
-		"classify": { "type": "app.classify-lead", "config": { "message": "{{input.message}}" } },
-		"block": { "type": "app.block-sender", "config": { "email": "{{input.email}}" } },
-		"crm": { "type": "app.add-to-crm", "config": { "email": "{{input.email}}", "apiKey": { "secret": "CRM_KEY" } } },
-		"alert": { "type": "app.alert", "config": { "text": "CRM failed: {{crm.error.message}}" } }
+		"classify": { "type": "app.classify-lead", "config": { "email": "{{input.email}}" } },
+		"crm": { "type": "app.add-to-crm", "config": { "apiKey": { "secret": "CRM_KEY" } } }
 	},
-	"edges": [["input", "classify"], ["classify.spam", "block"], ["classify.lead", "crm"], ["crm.error", "alert"]],
-	"layout": { "classify": [0, 0] }
+	"edges": [["input", "classify"], ["classify.lead", "crm"]]
 }
 ```
 

@@ -1,5 +1,6 @@
 export * from './constants';
 export * from './blocks';
+export * from './blocks/server';
 export * from './contracts';
 export * from './defineBlock';
 export * from './drivers';

@@ -2,7 +2,7 @@
 import { computed, nextTick, onMounted, ref } from 'vue';
 import type { FlowBlockMetadata, FlowGraphDefinition, FlowValue, FlowValues } from '@db3.ai/app/flows';
 import type { FlowRunDetailsRecord } from '../contracts';
-import { START, blockKind, settingFields, settingText, settingValue, stepsBefore } from './graph';
+import { START, blockKind, settingFields, settingText, settingValue, stepOutputs, stepsBefore } from './graph';
 
 /**
  * One step up close: what earlier steps hand it (left; click a field to insert its
@@ -31,7 +31,7 @@ const sources = computed(() => {
 	for (const name of stepsBefore(props.flow, props.name)) {
 		const earlier = props.flow.steps[name];
 		const recorded = byStep.value.get(name);
-		const declared = props.blocks.get(earlier.type)?.outputs ?? {};
+		const declared = stepOutputs(earlier, props.blocks.get(earlier.type));
 		const values = recorded?.output ?? Object.fromEntries(Object.entries(declared).map(([key, field]) => [key, `‹${field.type}›`]));
 		groups.push({ root: name, label: `${name} · ${earlier.title || props.blocks.get(earlier.type)?.name || earlier.type}${recorded?.status === 'skipped' ? ' (skipped)' : ''}`, values });
 	}
@@ -146,7 +146,7 @@ onMounted(() => {
 					</template>
 					<template v-else>
 						<p class="note">Declared outputs:</p>
-						<pre class="code">{{ json(block?.outputs ?? {}) }}</pre>
+						<pre class="code">{{ json(stepOutputs(step, block)) }}</pre>
 					</template>
 					<p class="note">Later steps read these as <span class="ref" v-text="mustache(`${name}.field`)" />.</p>
 				</section>
