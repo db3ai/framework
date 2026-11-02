@@ -562,7 +562,10 @@ transitions remain unchanged: essential settlement must be idempotent and recove
 `queue.startWorker({ queues: ['images'], concurrency: 4 })` starts four independent
 execution slots in one Node process. The default is one; integers from 1 to 32 are
 accepted. Each slot has its own claims, lease renewal, fairness and presence
-record, so queue administration may show several slots with the same PID.
+record, so queue administration may show several slots with the same PID. Idle
+slots share one wait: while the selected queues are empty, the pool checks for
+work once per interval rather than once per slot, and each claim wakes another
+idle slot straight away so a backlog still fills every slot.
 `maxJobsPerTick` remains a sequential per-slot batch limit. Provider rate limits
 still apply across all slots. CPU-bound JavaScript still shares the event loop.
 
@@ -597,8 +600,8 @@ ownership, retry fencing and lease renewal. `workOnce()` stays non-blocking.
 SQL and custom drivers without `QueueDriver.waitForWork()` retain the configured
 polling delay. Redis uses a dedicated `XREAD BLOCK` connection per active wait;
 dispatch and rescheduling atomically update a bounded wake stream with the job.
-Each slot reads its own cursor, so notifications wake all eligible claimers rather
-than being consumed by one slot. Notifications are hints: a slot may wake when
+A started pool holds one blocking wait for all its idle slots; a notification wakes
+one slot, and each claim wakes the next. Notifications are hints: a slot may wake when
 another queue changes, and selection/exclusions still apply at claim time.
 
 Redis checks readiness after capturing the stream cursor to close the dispatch

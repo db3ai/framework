@@ -82,7 +82,7 @@ describeRedis('RedisQueueDriver', () => {
 			}
 		});
 
-		it('keeps idle workers blocked, starts four slots promptly and preserves exclusions', async () => {
+		it('keeps an idle pool on one blocked wait, starts four slots promptly and preserves exclusions', async () => {
 			const manager = new Queue({} as Database, { driver, queueMonitor: false });
 			const pop = vi.spyOn(driver, 'pop');
 			const handled: string[] = [];
@@ -91,18 +91,18 @@ describeRedis('RedisQueueDriver', () => {
 			manager.registerHandler('SlotJob', async job => { handled.push(String(job.id)); await gate; });
 			const worker = manager.startWorker({ queues: '*', excludeQueues: ['images'], concurrency: 4, intervalMs: 5000 }, { force: true })!;
 			try {
-				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
 				const calls = pop.mock.calls.length;
 				await delay(350);
 				expect(pop.mock.calls.length).toBe(calls);
 				await manager.dispatch('SlotJob', {}, { queue: 'images' });
-				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
 				expect(handled).toHaveLength(0);
 				for (let i = 0; i < 4; i++) await manager.dispatch('SlotJob', {}, { queue: 'new-queue' });
 				await expect.poll(() => handled.length, { timeout: 2000 }).toBe(4);
 				expect(new Set(handled).size).toBe(4);
 				release();
-				await expect.poll(() => blockedWaitCount(prefix)).toBe(4);
+				await expect.poll(() => blockedWaitCount(prefix)).toBe(1);
 				const stopped = Date.now();
 				await worker.stopAndDrain();
 				expect(Date.now() - stopped).toBeLessThan(1000);

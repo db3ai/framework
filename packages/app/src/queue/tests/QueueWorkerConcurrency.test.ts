@@ -64,6 +64,32 @@ describe('bounded in-process queue concurrency', () => {
 		expect(drained).toBe(true);
 	});
 
+	it('checks an empty queue once per interval for the whole pool, not once per slot', async () => {
+		const claims = vi.spyOn(application.queue, 'workNextJob');
+		try {
+			worker = new QueueWorker(application.queue, { queues: ['images'], concurrency: 4 }, 100);
+			worker.start();
+			await vi.waitFor(() => expect(claims).toHaveBeenCalledTimes(4));
+			claims.mockClear();
+			await new Promise(resolve => setTimeout(resolve, 1050));
+			// About ten checks in a second at 100 ms; four slots polling alone would make about forty.
+			expect(claims.mock.calls.length).toBeGreaterThanOrEqual(6);
+			expect(claims.mock.calls.length).toBeLessThanOrEqual(14);
+		} finally { claims.mockRestore(); }
+	});
+
+	it('wakes idle slots when a claim finds a backlog', async () => {
+		worker = new QueueWorker(application.queue, { queues: ['images'], concurrency: 3 }, 1000);
+		worker.start();
+		await new Promise(resolve => setTimeout(resolve, 100));
+		for (const number of [1, 2, 3]) {
+			gates.set(number, jobGate());
+			await application.queue.dispatch(new ConcurrentWaitingJob({ number }), { queue: 'images' });
+		}
+		// One check after the interval finds a job, and each claim wakes another slot at once.
+		await vi.waitFor(() => expect(started).toHaveLength(3), { timeout: 1800 });
+	});
+
 	it.each([0, -1, 1.5, 33, NaN])('rejects invalid concurrency %s', concurrency => {
 		expect(() => new QueueWorker(application.queue, { concurrency })).toThrow('concurrency');
 	});

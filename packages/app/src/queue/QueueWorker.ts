@@ -22,6 +22,8 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 	readonly #presence: QueueWorkerReporter;
 	/** Independent slots preserve existing claim, lease, fairness and presence semantics. */
 	readonly #slots: QueueWorker[];
+	/** Shared by a started pool's slots so an idle pool checks for work once per interval, not once per slot. */
+	#gate: QueueSlotGate | null = null;
 	#slotsStarted = false;
 	#activeTick: Promise<void> | null = null;
 	#activeJob: Promise<queue.QueueProcessResult | null> | null = null;
@@ -73,7 +75,9 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			if (this.#activeJob) throw new Error('This queue worker is already processing a job.');
 			this.#stopping = false;
 			this.#slotsStarted = true;
-			for (const slot of this.#slots) slot.start();
+			const gate = new QueueSlotGate(signal => this.queueManager.waitForWork({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, { pollIntervalMs: this.intervalMs, signal }), this.intervalMs, this.logger, this.queue);
+			this.#gate = gate;
+			for (const slot of this.#slots) { slot.#gate = gate; slot.start(); }
 			return;
 		}
 		if (this.#running || this.#startupTimer || this.#loop) return;
@@ -111,6 +115,10 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			await tick;
 			this.#activeTick = null;
 			if (this.#stopping) break;
+			if (this.#gate) {
+				await this.#gate.wait(signal);
+				continue;
+			}
 			try {
 				await this.queueManager.waitForWork({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, { pollIntervalMs: this.intervalMs, signal });
 			} catch (error) {
@@ -129,7 +137,7 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		this.#waitController?.abort();
 		if (this.#startupTimer) clearTimeout(this.#startupTimer);
 		this.#startupTimer = null;
-		if (this.#slotsStarted) { for (const slot of this.#slots) slot.stop(); return; }
+		if (this.#slotsStarted) { this.#gate?.stop(); for (const slot of this.#slots) slot.stop(); return; }
 		if (this.#activeJob) this.#presence.update('stopping'); else void this.#presence.stop();
 		if (!this.#running) return;
 		this.#running = false;
@@ -143,6 +151,8 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 		this.stop();
 		if (this.#slotsStarted) {
 			await Promise.all(this.#slots.map(slot => slot.stopAndDrain()));
+			await this.#gate?.stopped();
+			this.#gate = null;
 			this.#slotsStarted = false;
 			return;
 		}
@@ -191,6 +201,8 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 				...options,
 				onClaimed: job => {
 					this.#lastQueue = name;
+					// Work was waiting, so an idle slot checks for more at once rather than at the next interval.
+					this.#gate?.claimed();
 					this.#presence.update('busy', job.queue, String(job.id));
 					options.onClaimed?.(job);
 				},
@@ -342,6 +354,74 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 }
 
 export { QueueWorker as DatabaseQueueWorker };
+
+/**
+ * Lets a pool's idle slots share one wait for work. Slots that found nothing park here; after each
+ * wait one parked slot checks for work. A claim wakes the next parked slot straight away, so a
+ * backlog still spreads across every slot while an empty queue costs one check per interval.
+ */
+class QueueSlotGate {
+	readonly #parked: Array<() => void> = [];
+	readonly #controller = new AbortController();
+	#arrived: (() => void) | null = null;
+	readonly #loop: Promise<void>;
+
+	constructor(
+		private readonly waitForWork: (signal: AbortSignal) => Promise<void>,
+		private readonly intervalMs: number,
+		private readonly logger: queue.QueueLogger | undefined,
+		private readonly label: string,
+	) {
+		this.#loop = this.#run();
+	}
+
+	/** Parks an idle slot until it should check for work, or until it stops. */
+	wait(signal: AbortSignal): Promise<void> {
+		if (signal.aborted || this.#controller.signal.aborted) return Promise.resolve();
+		return new Promise(resolve => {
+			const release = () => { signal.removeEventListener('abort', release); const index = this.#parked.indexOf(release); if (index >= 0) this.#parked.splice(index, 1); resolve(); };
+			signal.addEventListener('abort', release, { once: true });
+			this.#parked.push(release);
+			this.#arrived?.();
+		});
+	}
+
+	/** A slot claimed a job: let one parked slot look for another. */
+	claimed(): void {
+		this.#parked[0]?.();
+	}
+
+	stop(): void {
+		this.#controller.abort();
+		this.#arrived?.();
+		for (const release of [...this.#parked]) release();
+	}
+
+	/** Resolves once the shared wait has ended. */
+	stopped(): Promise<void> {
+		return this.#loop;
+	}
+
+	/** Waits for work only while some slot is parked, then wakes one of them. */
+	async #run(): Promise<void> {
+		const signal = this.#controller.signal;
+		while (!signal.aborted) {
+			if (!this.#parked.length) {
+				await new Promise<void>(resolve => { this.#arrived = resolve; });
+				this.#arrived = null;
+				continue;
+			}
+			try {
+				await this.waitForWork(signal);
+			} catch (error) {
+				if (signal.aborted) break;
+				this.logger?.error?.(`[queue] Worker wait failed for "${this.label}". ${unknownErrorMessage(error)}`);
+				await waitForQueueDelay(this.intervalMs, signal);
+			}
+			if (!signal.aborted) this.#parked[0]?.();
+		}
+	}
+}
 
 /** Validates and copies exact queue names so caller mutations cannot alter worker admission. */
 function normalizeQueueNames(names: readonly string[]): string[] {
