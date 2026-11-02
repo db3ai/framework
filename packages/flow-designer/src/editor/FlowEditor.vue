@@ -76,11 +76,6 @@ async function openFlow(idOrName: string): Promise<void> {
 	loadError.value = null;
 	try {
 		const stored = await props.client.definition(idOrName);
-		if (stored.definition.schemaVersion !== 2) {
-			loadError.value = `${stored.definition.name} uses the old block-and-port shape. Recreate it as a new flow to edit it here.`;
-			flow.value = null;
-			return;
-		}
 		const opened = structuredClone(stored.definition);
 		placeUnplaced(opened);
 		flow.value = opened;
@@ -285,7 +280,7 @@ onMounted(async () => {
 	window.addEventListener('keydown', onKey);
 	try {
 		await loadCatalog();
-		const first = props.initialFlow ?? flows.value.find(item => item.schemaVersion === 2)?.id;
+		const first = props.initialFlow ?? flows.value[0]?.id;
 		if (first) await openFlow(first);
 	} catch (caught) {
 		loadError.value = message(caught);
@@ -308,7 +303,7 @@ onBeforeUnmount(() => {
 			</div>
 			<select :value="flow?.id ?? ''" aria-label="Open a flow" @change="openFlow(($event.target as HTMLSelectElement).value)">
 				<option value="" disabled>Open a flow…</option>
-				<option v-for="item in flows" :key="item.id" :value="item.id">{{ item.title || item.name }}{{ item.schemaVersion === 2 ? '' : ' (old shape)' }}</option>
+				<option v-for="item in flows" :key="item.id" :value="item.id">{{ item.title || item.name }}</option>
 			</select>
 			<button v-if="!readonly" class="btn" @click="newFlow">New flow</button>
 			<span v-if="dirty" class="dirty">Not saved</span>

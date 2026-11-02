@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, relative, resolve, sep } from 'node:path';
 
-import { isFlowGraphDefinition, type AnyFlowDefinition, type FlowDefinition, type FlowDefinitionStore, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowGraphDefinition, type FlowValueDefinition, type FlowValueDefinitions, type StoredFlowDefinition } from '../contracts';
+import { isFlowGraphDefinition, type FlowDefinitionStore, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowGraphDefinition, type FlowValueDefinition, type FlowValueDefinitions, type StoredFlowDefinition } from '../contracts';
 
 /** Where the flow files are. */
 export interface FileFlowDefinitionStoreOptions {
-	/** Directory containing `flow.json` or `*.flow.json` definitions. */
+	/** Directory containing `*.flow.json` files. */
 	root?: string;
 	/** Where the files are kept instead of a directory, such as a git branch. */
 	source?: FlowFileSource;
@@ -47,7 +47,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 				.map(stored => ({
 					id: stored.definition.id,
 					name: stored.definition.name,
-					...(isFlowGraphDefinition(stored.definition) ? { schemaVersion: 2 as const, ...(stored.definition.title ? { title: stored.definition.title } : {}) } : {}),
+					...(stored.definition.title ? { title: stored.definition.title } : {}),
 					description: stored.definition.description,
 					inputs: structuredClone(stored.definition.inputs),
 					outputs: outputContract(stored.definition),
@@ -70,7 +70,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 
 	/** Creates or replaces one flow's file, refusing a stale `expectedRevision`. */
 	async write(
-		definition: AnyFlowDefinition,
+		definition: FlowGraphDefinition,
 		options: FlowDefinitionWriteOptions = {},
 	): Promise<StoredFlowDefinition> {
 		const storedDefinitions = await this.#readAll();
@@ -85,7 +85,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 		}
 
 		const path = existing?.path
-			?? normalizeRelativePath(options.path ?? (isFlowGraphDefinition(definition) ? `${definition.name}.flow.json` : `${slugify(definition.name)}/flow.json`));
+			?? normalizeRelativePath(options.path ?? `${definition.name}.flow.json`);
 		const occupied = storedDefinitions.find(stored => stored.path === path && stored.definition.id !== definition.id);
 
 		if (occupied) {
@@ -196,7 +196,7 @@ async function findDefinitionFiles(root: string): Promise<string[]> {
 			continue;
 		}
 
-		if (entry.isFile() && (entry.name === 'flow.json' || entry.name.endsWith('.flow.json'))) {
+		if (entry.isFile() && entry.name.endsWith('.flow.json')) {
 			paths.push(path);
 		}
 	}
@@ -210,8 +210,8 @@ async function findDefinitionFiles(root: string): Promise<string[]> {
  * @param definition - Source definition to serialize.
  * @returns Git-friendly JSON content ending in a newline.
  */
-function serializeDefinition(definition: AnyFlowDefinition): string {
-	return `${JSON.stringify(isFlowGraphDefinition(definition) ? orderGraphDefinition(definition) : orderDefinition(definition), null, '\t')}\n`;
+function serializeDefinition(definition: FlowGraphDefinition): string {
+	return `${JSON.stringify(orderGraphDefinition(definition), null, '\t')}\n`;
 }
 
 /**
@@ -250,46 +250,11 @@ function orderGraphDefinition(definition: FlowGraphDefinition): Record<string, u
  * @param definition - Flow of either shape.
  * @returns Output definitions.
  */
-function outputContract(definition: AnyFlowDefinition): FlowValueDefinitions {
+function outputContract(definition: FlowGraphDefinition): FlowValueDefinitions {
 	return Object.fromEntries(Object.entries(definition.outputs ?? {}).map(([name, output]) => {
 		const { value: _value, ...contract } = output as FlowValueDefinition & { value?: unknown };
 		return [name, structuredClone(contract)];
 	}));
-}
-
-/**
- * Applies a readable stable property order to a source definition.
- *
- * @param definition - Definition to normalize for source control.
- * @returns Definition-shaped object with stable property order.
- */
-function orderDefinition(definition: FlowDefinition): Record<string, unknown> {
-	return {
-		schemaVersion: definition.schemaVersion,
-		id: definition.id,
-		name: definition.name,
-		...(definition.description ? { description: definition.description } : {}),
-		inputs: sortRecord(definition.inputs),
-		outputs: sortRecord(definition.outputs),
-		blocks: definition.blocks.map(block => ({
-			id: block.id,
-			type: block.type,
-			...(block.name ? { name: block.name } : {}),
-			...(block.flowId ? { flowId: block.flowId } : {}),
-			...(block.config ? { config: sortRecord(block.config) } : {}),
-			position: {
-				x: Math.round(block.position.x),
-				y: Math.round(block.position.y),
-			},
-		})),
-		connections: definition.connections.map(connection => ({
-			id: connection.id,
-			sourceBlockId: connection.sourceBlockId,
-			sourcePort: connection.sourcePort,
-			targetBlockId: connection.targetBlockId,
-			targetPort: connection.targetPort,
-		})),
-	};
 }
 
 /**
@@ -330,22 +295,6 @@ function revisionFor(content: string): string {
 }
 
 /**
- * Produces a readable provider path segment from a flow name.
- *
- * @param name - Human-readable flow name.
- * @returns Safe lowercase path segment.
- */
-function slugify(name: string): string {
-	const slug = name
-		.toLowerCase()
-		.trim()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '');
-
-	return slug || 'flow';
-}
-
-/**
  * Rejects absolute and parent-traversing provider paths.
  *
  * @param path - Candidate provider-relative path.
@@ -358,8 +307,8 @@ function normalizeRelativePath(path: string): string {
 		throw new Error('Flow definition path must be a safe relative path.');
 	}
 
-	if (!(normalized.endsWith('/flow.json') || normalized.endsWith('.flow.json'))) {
-		throw new Error('Flow definition files must be named flow.json or end with .flow.json.');
+	if (!normalized.endsWith('.flow.json')) {
+		throw new Error('Flow definition files end with .flow.json.');
 	}
 
 	return normalized;
@@ -371,26 +320,14 @@ function normalizeRelativePath(path: string): string {
  * @param value - Parsed JSON value.
  * @param path - Provider path used in validation errors.
  */
-function assertDefinitionEnvelope(value: unknown, path: string): asserts value is AnyFlowDefinition {
+function assertDefinitionEnvelope(value: unknown, path: string): asserts value is FlowGraphDefinition {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		throw new Error(`Flow definition at "${path}" must be an object.`);
 	}
 
-	if (isFlowGraphDefinition(value)) {
-		if (typeof value.id !== 'string' || typeof value.name !== 'string' || !value.steps || typeof value.steps !== 'object' || !Array.isArray(value.edges)) {
-			throw new Error(`Flow definition at "${path}" needs an id, a name, steps and edges.`);
-		}
-		return;
-	}
-
-	const definition = value as Partial<FlowDefinition>;
-
-	if (definition.schemaVersion !== 1 || typeof definition.id !== 'string' || typeof definition.name !== 'string') {
-		throw new Error(`Flow definition at "${path}" has an invalid version, id, or name.`);
-	}
-
-	if (!Array.isArray(definition.blocks) || !Array.isArray(definition.connections)) {
-		throw new Error(`Flow definition at "${path}" requires block and connection arrays.`);
+	if (!isFlowGraphDefinition(value)) throw new Error(`Flow definition at "${path}" must use schemaVersion 2.`);
+	if (typeof value.id !== 'string' || typeof value.name !== 'string' || !value.steps || typeof value.steps !== 'object' || !Array.isArray(value.edges)) {
+		throw new Error(`Flow definition at "${path}" needs an id, a name, steps and edges.`);
 	}
 }
 

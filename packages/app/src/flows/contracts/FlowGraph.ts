@@ -1,4 +1,3 @@
-import type { FlowDefinition } from './FlowDefinition';
 import type { FlowValueDefinition, FlowValueDefinitions, FlowValues } from './FlowValue';
 
 /**
@@ -77,9 +76,6 @@ export interface FlowGraphDefinition {
 	/** Canvas positions, kept apart so moving a box leaves the logic untouched. */
 	layout?: Record<string, [number, number]>;
 }
-
-/** A flow file of either shape. */
-export type AnyFlowDefinition = FlowDefinition | FlowGraphDefinition;
 
 /**
  * Narrows a flow file to the version 2 shape.

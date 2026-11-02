@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { FlowEditor, type FlowDesignerCatalog, type FlowEditorClient } from '@db3.ai/flow-designer';
+import { FlowEditor, type FlowEditorCatalog, type FlowEditorClient } from '@db3.ai/flow-designer';
 import '@db3.ai/flow-designer/editor.css';
 import type { FlowGraphDefinition, StoredFlowDefinition } from '@db3.ai/app/flows';
 import type { ConsoleSource } from './source';
@@ -14,7 +14,7 @@ import type { ConsoleSource } from './source';
 const props = defineProps<{ source: ConsoleSource }>();
 
 const client = computed<FlowEditorClient>(() => ({
-	catalog: () => props.source.get<FlowDesignerCatalog>('flows'),
+	catalog: () => props.source.get<FlowEditorCatalog>('flows'),
 	definition: id => props.source.get<StoredFlowDefinition>(`flows/${encodeURIComponent(id)}`),
 	save: (definition: FlowGraphDefinition, expectedRevision?: string) => props.source.send<StoredFlowDefinition>('PUT', `flows/${encodeURIComponent(definition.id)}`, { definition, expectedRevision }),
 }));

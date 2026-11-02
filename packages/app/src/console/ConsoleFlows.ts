@@ -1,6 +1,6 @@
 import { FLOW_SERVER_BLOCKS } from '../flows/blocks/server';
 import type { ConsoleExecutor } from './ConsoleDatabase';
-import type { AnyFlowDefinition, FlowBlockDefinition, FlowBlockMetadata, FlowDefinitionSummary, FlowDefinitionWriteOptions, StoredFlowDefinition } from '../flows/contracts';
+import type { FlowGraphDefinition, FlowBlockDefinition, FlowBlockMetadata, FlowDefinitionSummary, FlowDefinitionWriteOptions, StoredFlowDefinition } from '../flows/contracts';
 import { FileFlowDefinitionStore, type FlowFileSource } from '../flows/drivers/FileFlowDefinitionStore';
 import { FlowBlockRegistry } from '../flows/FlowBlockRegistry';
 import { ConsoleError } from './ConsoleError';
@@ -9,7 +9,7 @@ import { ConsoleError } from './ConsoleError';
 export interface ConsoleFlows {
 	listDefinitions(): Promise<FlowDefinitionSummary[]>;
 	definition(id: string): Promise<StoredFlowDefinition>;
-	saveDefinition(definition: AnyFlowDefinition, options?: FlowDefinitionWriteOptions): Promise<StoredFlowDefinition>;
+	saveDefinition(definition: FlowGraphDefinition, options?: FlowDefinitionWriteOptions): Promise<StoredFlowDefinition>;
 	blockMetadata(): FlowBlockMetadata[];
 }
 
@@ -27,7 +27,7 @@ export function fileFlows(root: string | FlowFileSource, blocks: FlowBlockDefini
 	return {
 		listDefinitions: () => store.list(),
 		async definition(id) {
-			const summary = (await store.list()).find(item => item.id === id || (item.schemaVersion === 2 && item.name === id));
+			const summary = (await store.list()).find(item => item.id === id || item.name === id);
 			const stored = summary ? await store.read(summary.id) : null;
 			if (!stored) throw new ConsoleError('That flow does not exist.', 404);
 			return stored;

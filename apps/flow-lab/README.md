@@ -17,9 +17,9 @@ Open [http://127.0.0.1:5178](http://127.0.0.1:5178). It opens `server/flows/lead
 
 ## Sample Graphs
 
-Each example includes visible `flow.input` and `flow.output` boundaries. Their named ports are the definition's public contract, and generic `flow.subflow` occurrences derive their handles from the referenced child definition.
+Every example is a `server/flows/<name>.flow.json` file. Values move between steps by `{{step.field}}` references, and a `flow.run` step runs another flow and waits for its outputs.
 
-The default example is `server/flows/article-generation/flow.json`:
+`server/flows/article-generation.flow.json`:
 
 ```text
 Validate Entitlements -> Fetch User and Plan -> Build Editorial Context
@@ -27,14 +27,14 @@ Validate Entitlements -> Fetch User and Plan -> Build Editorial Context
 	-> Persist Approved Article
 ```
 
-`Research and Select Links` opens `server/flows/article-research-agent/flow.json`:
+`Research and Select Links` runs `server/flows/article-research-agent.flow.json`:
 
 ```text
 Deep Keyword Research -> Find Internal Candidates -> Find Exchange Candidates
 	-> Select Capped Link Plan -> Observe Research and Links
 ```
 
-`Produce and Finalize Article` opens `server/flows/article-writing-agent/flow.json`:
+`Produce and Finalize Article` runs `server/flows/article-writing-agent.flow.json`:
 
 ```text
 Generate Article Plan -> Plan Exact Image Set -> Write With Stable Anchors
@@ -50,37 +50,31 @@ The finalization block is a hard persistence gate. It rejects missing or misplac
 
 Database reads, link discovery, placement, validation, and persistence are real Flow Lab behavior. AI writing, keyword research, and image-generation blocks remain deterministic demonstrations of future provider-backed boundaries; they do not call external providers yet.
 
-`server/flows/daily-content-planner/flow.json` demonstrates scheduled orchestration:
+`server/flows/daily-content-planner.flow.json` demonstrates scheduled orchestration:
 
 ```text
 Every Day -> Ensure 30 Days Planned -> Pick Next Article -> Article Generation -> Daily Result
 ```
 
-It fills a rolling set of demo content-plan rows, selects the next planned item, and invokes the complete Article Generation flow as a nested block.
+It fills a rolling set of demo content-plan rows, selects the next planned item, and runs the complete Article Generation flow with a `flow.run` step.
 
 The original greeting graphs remain as the smallest executable example.
 
-`server/flows/greeting-debug/flow.json` is the parent example:
+`server/flows/greeting-debug.flow.json` is the parent example:
 
 ```text
-Manual Input -> Require Name -> Greeting Agent -> Flow Output
+Require Name -> Greeting Agent
 ```
 
-`Greeting Agent` is a generic `flow.subflow` block. Double-clicking it opens `server/flows/greeting-agent/flow.json`:
+`Greeting Agent` is a `flow.run` step; double-clicking it opens `server/flows/greeting-agent.flow.json`:
 
 ```text
-Agent Input -> Build Greeting -> Debug Tap -> Wait -> Uppercase -> Agent Output
+Build Greeting -> Observe Greeting -> Wait 800ms -> Uppercase
 ```
 
-Run the parent with the default `Ada` input. The parent visibly waits while the child executes, then returns `HELLO, ADA!`. Selecting any block shows its captured input, output, attempt, timing, error, and logs. Replay snapshot uses the original parent and child definition snapshots; Replay latest resolves both current files.
+Run the parent with `Ada`. It waits while the child runs, then returns `HELLO, ADA!`. Opening a step in a run shows its input, output, attempt, timing, error and logs.
 
-To sketch a new grouping, drag `Subflow` from the block palette, name it, and connect its fallback JSON port. The first double-click creates a sibling child definition with visible input/output terminals, links it to the parent occurrence, saves the parent, and opens the child. Select either terminal to add or configure the public ports that should appear on the parent block.
-
-Click a connection arrow to inspect its source and target ports plus the exact value carried by the selected run. The connection inspector can insert a contract-compatible pass-through block that declares `insertable: true`, such as another wait timer or debug listener, and automatically rewires the serialized graph while shifting downstream blocks to leave usable spacing. The block inspector displays both the stable block type and its execution kind.
-
-Run inputs are rendered from the flow's public value definitions. Primitive values use native controls and `object`, `array`, or `json` values use validated JSON textareas. Optional `editor` metadata can name host components such as `DomTextInput` and `DomJsonInput`; this gives Scout a clean path to render the same definitions through DOM form components later.
-
-Saving in the designer atomically rewrites the same Git-controlled definition file used by the runtime.
+Saving in the editor rewrites the same file the runtime reads.
 
 ## Verification
 
@@ -90,4 +84,4 @@ npm run build --workspace flow-lab
 npm run check --workspace @db3.ai/flow-designer
 ```
 
-The integration tests use disposable generated databases and execute greeting, article-production, and scheduled nested flows through Fastify and the real database queue. Focused article tests cover included and paid image entitlements, optional diagrams, exact image placement, natural link insertion, and the three-internal/one-external caps. The suite also covers graph connection insertion and real demo model reads/writes.
+The integration tests use disposable generated databases and execute greeting, article-production, and scheduled nested flows through Fastify and the real database queue. Focused article tests cover included and paid image entitlements, optional diagrams, exact image placement, natural link insertion, and the three-internal/one-external caps. The suite also covers real demo model reads and writes.

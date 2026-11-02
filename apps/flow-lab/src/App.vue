@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { FlowEditor } from '@db3.ai/flow-designer';
 
-import { FlowLabClient } from './FlowLabClient';
+import { flowLabClient as client } from './FlowLabClient';
 
-const client = new FlowLabClient().editor();
 </script>
 
 <template>

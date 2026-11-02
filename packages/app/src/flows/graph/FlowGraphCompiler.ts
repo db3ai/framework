@@ -2,7 +2,7 @@ import { isUlid } from '@db3.ai/pure/ulid';
 
 import type { FlowBlockDefinition, FlowGraphDefinition, FlowGraphStep, FlowValueDefinitions, FlowValues } from '../contracts';
 import type { FlowBlockRegistry } from '../FlowBlockRegistry';
-import { validateValueDefinitions } from '../FlowCompiler';
+import { validateValueDefinitions } from '../flowValueValidator';
 import { triggerProblems } from '../triggers/triggerProblems';
 import { FLOW_RUN_BLOCK_TYPE } from '../blocks/flowCall';
 import { FlowDefinitionError, type FlowDefinitionIssue } from '../FlowDefinitionError';

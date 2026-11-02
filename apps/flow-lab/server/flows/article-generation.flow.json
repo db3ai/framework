@@ -1,0 +1,179 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDVYBKNBPTHGME52391YBVB",
+	"name": "article-generation",
+	"title": "Article Production",
+	"description": "Loads an article request, researches capped link candidates, produces the entitled image set, validates the assembled markdown, and persists only an approved article.",
+	"inputs": {
+		"request": {
+			"default": {
+				"contentPlanId": "01KXDVYBKM23VQ2DTETC09YM4R",
+				"userId": "01KXDVYBKJFHDBTEH2J8MQC25D",
+				"imagePolicy": {
+					"bodyImageCount": 3,
+					"paidExtraImageAllowance": 0,
+					"requireDiagram": true
+				}
+			},
+			"description": "Article identity and image entitlement supplied by a form, webhook, API, schedule, or manual run.",
+			"editor": {
+				"component": "DomJsonInput",
+				"label": "Article production request",
+				"placeholder": "Enter ids and imagePolicy as JSON",
+				"rows": 12
+			},
+			"required": true,
+			"type": "json"
+		}
+	},
+	"outputs": {
+		"result": {
+			"description": "Persisted article identity, inline asset evidence, link selections, and final metrics.",
+			"required": true,
+			"type": "json",
+			"value": "{{persist-approved-article.result}}"
+		}
+	},
+	"steps": {
+		"validate-entitlements": {
+			"type": "input.article-request",
+			"config": {
+				"form": {
+					"component": "DomForm",
+					"props": {
+						"name": "article-production-request"
+					},
+					"children": [
+						{
+							"component": "DomTextInput",
+							"props": {
+								"label": "User ID",
+								"name": "userId",
+								"required": true
+							}
+						},
+						{
+							"component": "DomTextInput",
+							"props": {
+								"label": "Content plan ID",
+								"name": "contentPlanId",
+								"required": true
+							}
+						},
+						{
+							"component": "DomNumberInput",
+							"props": {
+								"label": "Body images",
+								"name": "imagePolicy.bodyImageCount",
+								"min": 2,
+								"value": 3
+							}
+						},
+						{
+							"component": "DomNumberInput",
+							"props": {
+								"label": "Paid extra image allowance",
+								"name": "imagePolicy.paidExtraImageAllowance",
+								"min": 0,
+								"value": 0
+							}
+						},
+						{
+							"component": "DomToggle",
+							"props": {
+								"label": "Require a diagram or infographic",
+								"name": "imagePolicy.requireDiagram",
+								"value": true
+							}
+						}
+					]
+				},
+				"request": "{{input.request}}"
+			}
+		},
+		"fetch-user-and-plan": {
+			"type": "database.fetch-article-inputs",
+			"config": {
+				"state": "{{validate-entitlements.state}}"
+			}
+		},
+		"build-editorial-context": {
+			"type": "article.build-context",
+			"config": {
+				"state": "{{fetch-user-and-plan.state}}"
+			}
+		},
+		"research-and-select-links": {
+			"type": "flow.run",
+			"flow": "article-research-agent",
+			"config": {
+				"state": "{{build-editorial-context.state}}"
+			}
+		},
+		"produce-and-finalize-article": {
+			"type": "flow.run",
+			"flow": "article-writing-agent",
+			"config": {
+				"state": "{{research-and-select-links.state}}"
+			}
+		},
+		"persist-approved-article": {
+			"type": "database.insert-article",
+			"config": {
+				"state": "{{produce-and-finalize-article.state}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"validate-entitlements"
+		],
+		[
+			"validate-entitlements",
+			"fetch-user-and-plan"
+		],
+		[
+			"fetch-user-and-plan",
+			"build-editorial-context"
+		],
+		[
+			"build-editorial-context",
+			"research-and-select-links"
+		],
+		[
+			"research-and-select-links",
+			"produce-and-finalize-article"
+		],
+		[
+			"produce-and-finalize-article",
+			"persist-approved-article"
+		]
+	],
+	"layout": {
+		"validate-entitlements": [
+			20,
+			130
+		],
+		"fetch-user-and-plan": [
+			340,
+			130
+		],
+		"build-editorial-context": [
+			660,
+			130
+		],
+		"research-and-select-links": [
+			1000,
+			130
+		],
+		"produce-and-finalize-article": [
+			1360,
+			130
+		],
+		"persist-approved-article": [
+			1720,
+			130
+		]
+	}
+}

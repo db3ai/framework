@@ -36,7 +36,7 @@ const VALUE_TYPES: FlowValueType[] = ['string', 'number', 'boolean', 'object', '
 const step = computed(() => props.selected && props.selected !== START && !props.selected.startsWith('edge:') ? props.flow.steps[props.selected] ?? null : null);
 const block = computed(() => step.value ? props.blocks.get(step.value.type) : undefined);
 const fields = computed(() => step.value ? stepFields(step.value, block.value, props.flows) : {});
-const otherFlows = computed(() => (props.flows ?? []).filter(item => item.schemaVersion === 2 && item.name !== props.flow.name));
+const otherFlows = computed(() => (props.flows ?? []).filter(item => item.name !== props.flow.name));
 const exits = computed(() => step.value ? stepExits(step.value, block.value) : []);
 const edge = computed(() => props.selected?.startsWith('edge:') ? props.flow.edges[Number(props.selected.slice(5))] ?? null : null);
 const stepProblems = computed(() => props.problems.filter(problem => problem.step === (step.value ? props.selected : 'flow')).map(problem => problem.message));

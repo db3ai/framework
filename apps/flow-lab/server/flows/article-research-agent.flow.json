@@ -1,0 +1,96 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDVYBKPYZBS5VFAXJ9XPQ77",
+	"name": "article-research-agent",
+	"title": "Article Research Agent",
+	"description": "Researches the topic, discovers same-site and approved exchange pages, and freezes a capped editorial link plan.",
+	"inputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"outputs": {
+		"state": {
+			"type": "json",
+			"required": true,
+			"value": "{{observe-research-and-links.state}}"
+		}
+	},
+	"steps": {
+		"deep-keyword-research": {
+			"type": "agent.keyword-research",
+			"config": {
+				"state": "{{input.state}}"
+			}
+		},
+		"find-internal-candidates": {
+			"type": "search.internal-link-candidates",
+			"config": {
+				"state": "{{deep-keyword-research.state}}"
+			}
+		},
+		"find-exchange-candidates": {
+			"type": "search.external-link-candidates",
+			"config": {
+				"state": "{{find-internal-candidates.state}}"
+			}
+		},
+		"select-capped-link-plan": {
+			"type": "article.select-links",
+			"config": {
+				"state": "{{find-exchange-candidates.state}}"
+			}
+		},
+		"observe-research-and-links": {
+			"type": "debug.state-tap",
+			"config": {
+				"state": "{{select-capped-link-plan.state}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"deep-keyword-research"
+		],
+		[
+			"deep-keyword-research",
+			"find-internal-candidates"
+		],
+		[
+			"find-internal-candidates",
+			"find-exchange-candidates"
+		],
+		[
+			"find-exchange-candidates",
+			"select-capped-link-plan"
+		],
+		[
+			"select-capped-link-plan",
+			"observe-research-and-links"
+		]
+	],
+	"layout": {
+		"deep-keyword-research": [
+			20,
+			150
+		],
+		"find-internal-candidates": [
+			340,
+			150
+		],
+		"find-exchange-candidates": [
+			680,
+			150
+		],
+		"select-capped-link-plan": [
+			1020,
+			150
+		],
+		"observe-research-and-links": [
+			1360,
+			150
+		]
+	}
+}

@@ -1,12 +1,12 @@
 import type { FlowDefinitionSummary } from './FlowDefinition';
-import type { AnyFlowDefinition } from './FlowGraph';
+import type { FlowGraphDefinition } from './FlowGraph';
 
 /**
  * Definition plus provider metadata required for conflict-safe editing.
  */
 export interface StoredFlowDefinition {
 	/** Parsed and validated source-of-truth definition. */
-	definition: AnyFlowDefinition;
+	definition: FlowGraphDefinition;
 	/** Content revision used for optimistic concurrency. */
 	revision: string;
 	/** Provider-relative source path, when one exists. */
@@ -49,5 +49,5 @@ export interface FlowDefinitionStore {
 	 * @param options - Revision and optional creation path.
 	 * @returns Newly stored definition metadata.
 	 */
-	write(definition: AnyFlowDefinition, options?: FlowDefinitionWriteOptions): Promise<StoredFlowDefinition>;
+	write(definition: FlowGraphDefinition, options?: FlowDefinitionWriteOptions): Promise<StoredFlowDefinition>;
 }

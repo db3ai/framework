@@ -185,7 +185,7 @@ export class FlowGraphRuntime {
 			flowId: run.flowId!,
 			runId: run.id!,
 			stepRunId: step.id!,
-			block: { id: compiled.name, type: compiled.step.type, name: compiled.step.title, config: settings, position: { x: 0, y: 0 } },
+			step: { name: compiled.name, type: compiled.step.type, ...(compiled.step.title ? { title: compiled.step.title } : {}) },
 			config,
 			log: async (level, message, data) => {
 				if (data !== undefined) this.#assertSize(data, 'Flow log data');

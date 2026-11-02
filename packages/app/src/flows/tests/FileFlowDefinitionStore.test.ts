@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { ulid } from '@db3.ai/pure/ulid';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { FileFlowDefinitionStore, FlowDefinitionConflictError, type FlowDefinition } from '../index';
+import { FileFlowDefinitionStore, FlowDefinitionConflictError, type FlowGraphDefinition } from '../index';
 
 const roots: string[] = [];
 
@@ -35,30 +35,20 @@ async function createStore(): Promise<{
 }
 
 /**
- * Creates a minimal single-block serialized definition.
+ * Creates a minimal one-step flow.
  *
- * @param name - Flow display name.
- * @returns Flow definition fixture.
+ * @param name - Flow name.
+ * @returns Flow file.
  */
-function definition(name = 'File example'): FlowDefinition {
+function definition(name = 'file-example'): FlowGraphDefinition {
 	return {
-		schemaVersion: 1,
+		schemaVersion: 2,
 		id: ulid(),
 		name,
-		inputs: {
-			value: { type: 'string', required: true },
-		},
-		outputs: {
-			value: { type: 'string', required: true },
-		},
-		blocks: [
-			{
-				id: ulid(),
-				type: 'test.passthrough',
-				position: { x: 0, y: 0 },
-			},
-		],
-		connections: [],
+		inputs: { value: { type: 'string', required: true } },
+		outputs: { value: { type: 'string', value: '{{pass.value}}' } },
+		steps: { pass: { type: 'test.passthrough', config: { value: '{{input.value}}' } } },
+		edges: [['input', 'pass']],
 	};
 }
 
@@ -68,12 +58,12 @@ describe('FileFlowDefinitionStore', () => {
 		const flow = definition();
 		const stored = await store.write(flow);
 		const loaded = await store.read(flow.id);
-		const content = await import('node:fs/promises').then(fs => fs.readFile(join(root, 'file-example/flow.json'), 'utf8'));
+		const content = await import('node:fs/promises').then(fs => fs.readFile(join(root, 'file-example.flow.json'), 'utf8'));
 
-		expect(stored.path).toBe('file-example/flow.json');
+		expect(stored.path).toBe('file-example.flow.json');
 		expect(stored.revision).toMatch(/^[a-f0-9]{64}$/);
 		expect(loaded?.definition).toEqual(flow);
-		expect(content).toMatch(/^\{\n\t"schemaVersion": 1,/);
+		expect(content).toMatch(/^\{\n\t"schemaVersion": 2,/);
 		expect(content.endsWith('\n')).toBe(true);
 	});
 
@@ -95,21 +85,21 @@ describe('FileFlowDefinitionStore', () => {
 
 	it('retains the original source path when a flow name changes', async () => {
 		const { store } = await createStore();
-		const flow = definition('Original name');
+		const flow = definition('original-name');
 		const first = await store.write(flow);
 		const second = await store.write({
 			...flow,
-			name: 'Renamed flow',
+			name: 'renamed-flow',
 		}, {
 			expectedRevision: first.revision,
 		});
 
-		expect(second.path).toBe('original-name/flow.json');
+		expect(second.path).toBe('original-name.flow.json');
 		const summary = (await store.list())[0];
 
-		expect(summary.name).toBe('Renamed flow');
+		expect(summary.name).toBe('renamed-flow');
 		expect(summary.inputs).toEqual(flow.inputs);
-		expect(summary.outputs).toEqual(flow.outputs);
+		expect(summary.outputs).toEqual({ value: { type: 'string' } });
 	});
 
 	it('rejects paths outside the configured project root', async () => {
@@ -122,8 +112,8 @@ describe('FileFlowDefinitionStore', () => {
 
 	it('does not overwrite a different flow occupying the requested path', async () => {
 		const { store } = await createStore();
-		const first = definition('Shared');
-		const second = definition('Shared');
+		const first = definition('shared');
+		const second = definition('shared');
 
 		await store.write(first);
 

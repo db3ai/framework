@@ -2,7 +2,7 @@ import 'dotenv/config';
 import { pathToFileURL } from 'node:url';
 
 import { RecordNotFoundError } from '@db3.ai/app/db';
-import { FlowDefinitionConflictError, FlowDefinitionError, type AnyFlowDefinition, type FlowReplayDefinition, type FlowRunStatus, type FlowValues } from '@db3.ai/app/flows';
+import { FlowDefinitionConflictError, FlowDefinitionError, type FlowGraphDefinition, type FlowReplayDefinition, type FlowRunStatus, type FlowValues } from '@db3.ai/app/flows';
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
 import { registerHttpExchangeMonitor } from '@db3.ai/app/logging';
 import { registerBrowserJsonFormatting } from '@db3.ai/app/server';
@@ -15,7 +15,7 @@ const port = Number(process.env.FLOW_LAB_API_PORT || process.env.API_PORT || pro
 const host = process.env.FLOW_LAB_API_HOST || process.env.API_HOST || process.env.HOST || '127.0.0.1';
 
 interface SaveFlowBody {
-	definition: AnyFlowDefinition;
+	definition: FlowGraphDefinition;
 	expectedRevision?: string;
 	path?: string;
 }
@@ -75,7 +75,7 @@ export async function createServer(runtimeApp: App = app()): Promise<FastifyInst
 		});
 	});
 
-	server.get<{ Params: { id: string }; Querystring: { status?: string; search?: string; page?: string; perPage?: string } }>('/api/flows/:id/run-page', async request => {
+	server.get<{ Params: { id: string }; Querystring: { status?: string; search?: string; page?: string; perPage?: string } }>('/api/flows/:id/runs', async request => {
 		const { runs, total } = await runtimeApp.flows.findRuns(request.params.id, {
 			status: request.query.status as FlowRunStatus | undefined,
 			search: request.query.search,
@@ -84,11 +84,6 @@ export async function createServer(runtimeApp: App = app()): Promise<FastifyInst
 		});
 		return { runs: runs.map(run => run.toJSON()), total };
 	});
-
-	server.get<{ Params: { id: string }; Querystring: { limit?: string } }>('/api/flows/:id/runs', async request => ({
-		runs: (await runtimeApp.flows.listRuns(request.params.id, Number(request.query.limit || 50)))
-			.map(run => run.toJSON()),
-	}));
 
 	server.post<{ Params: { id: string }; Body: RunFlowBody }>('/api/flows/:id/runs', async (request, reply) => {
 		const run = await runtimeApp.flows.run(request.params.id, request.body.input);

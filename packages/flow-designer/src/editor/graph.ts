@@ -15,9 +15,6 @@ const REFERENCE = /\{\{\s*([^{}]+?)\s*\}\}/g;
 /** Names of steps, triggers and flows: lower case letters, digits and dashes. */
 export const NAME = /^[a-z][a-z0-9-]{0,62}$/;
 
-/** Block types from the block-and-port shape that file shape 2 has no use for. */
-const SCHEMA_ONE_BLOCKS = new Set(['flow.input', 'flow.output', 'flow.subflow']);
-
 /** One problem found by {@link checkFlow}, shown on its box and in the save message. */
 export interface FlowProblem {
 	/** Step name, or `flow` for problems with the flow itself. */
@@ -85,8 +82,7 @@ export const KIND_GROUPS: Record<BlockKind, string> = {
  */
 export function libraryGroups(blocks: FlowBlockMetadata[], search = ''): { title: string; kind: BlockKind; blocks: FlowBlockMetadata[] }[] {
 	const query = search.trim().toLowerCase();
-	const usable = [...BUILT_IN_TRIGGERS, ...blocks].filter(block => !SCHEMA_ONE_BLOCKS.has(block.type)
-		&& (!query || `${block.name} ${block.type} ${block.description ?? ''}`.toLowerCase().includes(query)));
+	const usable = [...BUILT_IN_TRIGGERS, ...blocks].filter(block => (!query || `${block.name} ${block.type} ${block.description ?? ''}`.toLowerCase().includes(query)));
 	return (Object.keys(KIND_GROUPS) as BlockKind[])
 		.map(kind => ({ title: KIND_GROUPS[kind], kind, blocks: usable.filter(block => blockKind(block) === kind) }))
 		.filter(group => group.blocks.length);
@@ -100,7 +96,7 @@ export function libraryGroups(blocks: FlowBlockMetadata[], search = ''): { title
  * @returns Its summary, or undefined.
  */
 export function calledFlow(step: FlowGraphStep, flows: FlowDefinitionSummary[]): FlowDefinitionSummary | undefined {
-	return step.flow ? flows.find(flow => flow.schemaVersion === 2 && flow.name === step.flow) : undefined;
+	return step.flow ? flows.find(flow => flow.name === step.flow) : undefined;
 }
 
 /**

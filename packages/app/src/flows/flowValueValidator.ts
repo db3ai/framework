@@ -1,4 +1,7 @@
 import type { FlowValue, FlowValueDefinition, FlowValueDefinitions, FlowValues } from './contracts';
+import type { FlowDefinitionIssue } from './FlowDefinitionError';
+
+const FLOW_VALUE_TYPES = new Set(['string', 'number', 'boolean', 'object', 'array', 'json']);
 
 /**
  * Validates and normalizes named values against a serializable flow schema.
@@ -117,4 +120,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 function articleFor(type: string): 'a' | 'an' {
 	return type === 'object' || type === 'array' ? 'an' : 'a';
+}
+
+/**
+ * Checks a set of value definitions: known types, and defaults that match them.
+ *
+ * @param definitions - Named value definitions.
+ * @param path - Location for issues.
+ * @param issues - Collected issues.
+ */
+export function validateValueDefinitions(definitions: FlowValueDefinitions, path: string, issues: FlowDefinitionIssue[]): void {
+	if (!definitions || typeof definitions !== 'object' || Array.isArray(definitions)) {
+		issues.push({ path, message: 'Value definitions must be an object.' });
+		return;
+	}
+	for (const [name, definition] of Object.entries(definitions)) {
+		if (!name.trim()) issues.push({ path, message: 'Value names cannot be empty.' });
+		if (!definition || typeof definition !== 'object' || !FLOW_VALUE_TYPES.has(definition.type)) {
+			issues.push({ path: `${path}.${name}.type`, message: 'Unsupported flow value type.' });
+			continue;
+		}
+		if (definition.default !== undefined && !matchesDefinition(definition.default, definition)) issues.push({ path: `${path}.${name}.default`, message: 'Default value does not match its declared type.' });
+	}
 }

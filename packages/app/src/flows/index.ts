@@ -6,7 +6,6 @@ export * from './defineBlock';
 export * from './drivers';
 export * from './errors';
 export * from './FlowBlockRegistry';
-export * from './FlowCompiler';
 export * from './FlowDefinitionError';
 export * from './Flows';
 export * from './FlowStepJob';

@@ -52,7 +52,8 @@ describe('Flow Lab API', () => {
 		expect(catalog.flows).toEqual(expect.arrayContaining([
 			expect.objectContaining({
 				id: SAMPLE_FLOW_ID,
-				name: 'Greeting Debug Flow',
+				name: 'greeting-debug',
+				title: 'Greeting Debug Flow',
 				inputs: expect.objectContaining({ name: expect.objectContaining({ type: 'string' }) }),
 				outputs: expect.objectContaining({ greeting: expect.objectContaining({ type: 'string' }) }),
 			}),
@@ -66,9 +67,7 @@ describe('Flow Lab API', () => {
 			expect.objectContaining({ type: 'search.external-link-candidates' }),
 			expect.objectContaining({ type: 'article.plan-images' }),
 			expect.objectContaining({ type: 'article.finalize' }),
-			expect.objectContaining({ type: 'flow.input' }),
-			expect.objectContaining({ type: 'flow.output' }),
-			expect.objectContaining({ type: 'flow.subflow', kind: 'flow' }),
+			expect.objectContaining({ type: 'flow.run', kind: 'flow' }),
 		]));
 
 		const runResponse = await server.inject({
@@ -85,13 +84,7 @@ describe('Flow Lab API', () => {
 		expect(runResponse.statusCode).toBe(202);
 		expect(created.run.status).toBe('queued');
 
-		let processed = 0;
-
-		while (processed < 20 && await runtimeApp.queue.processNextJob('flows')) {
-			processed += 1;
-		}
-
-		expect(processed).toBe(10);
+		await processFlowJobs(runtimeApp, 20);
 
 		const detailsResponse = await server.inject({
 			method: 'GET',
@@ -104,7 +97,7 @@ describe('Flow Lab API', () => {
 		expect(details.run.output).toEqual({
 			greeting: 'HELLO, ADA!',
 		});
-		expect(details.steps).toHaveLength(4);
+		expect(details.steps).toHaveLength(2);
 		expect(details.steps.every((step: { status: string }) => step.status === 'completed')).toBe(true);
 		expect(details.events).toEqual(expect.arrayContaining([
 			expect.objectContaining({
@@ -112,7 +105,7 @@ describe('Flow Lab API', () => {
 			}),
 		]));
 
-		const nestedStep = details.steps.find((step: { blockType: string }) => step.blockType === 'flow.subflow');
+		const nestedStep = details.steps.find((step: { blockType: string }) => step.blockType === 'flow.run');
 		const nestedDetailsResponse = await server.inject({
 			method: 'GET',
 			url: `/api/flow-runs/${nestedStep.nestedRun}`,
@@ -120,7 +113,7 @@ describe('Flow Lab API', () => {
 		const nestedDetails = nestedDetailsResponse.json();
 
 		expect(nestedDetails.run.parentRun).toBe(created.run.id);
-		expect(nestedDetails.steps).toHaveLength(6);
+		expect(nestedDetails.steps).toHaveLength(4);
 		expect(nestedDetails.events).toEqual(expect.arrayContaining([
 			expect.objectContaining({
 				type: 'step.log',
@@ -158,7 +151,7 @@ describe('Flow Lab API', () => {
 		const details = detailsResponse.json();
 
 		expect(details.run.status).toBe('completed');
-		expect(details.steps).toHaveLength(8);
+		expect(details.steps).toHaveLength(6);
 		expect(details.run.output.result.article).toEqual(expect.objectContaining({
 			title: 'Observable AI Workflows: A Practical Guide',
 			contentPlanId: DEMO_CONTENT_PLAN_ID,
@@ -198,8 +191,8 @@ describe('Flow Lab API', () => {
 			url: `/api/flow-runs/${nestedSteps[1].nestedRun}`,
 		})).json();
 
-		expect(researchDetails.steps).toHaveLength(7);
-		expect(writingDetails.steps).toHaveLength(9);
+		expect(researchDetails.steps).toHaveLength(5);
+		expect(writingDetails.steps).toHaveLength(7);
 
 		const articles = await DemoArticle.where('contentPlanId', DEMO_CONTENT_PLAN_ID).all();
 
@@ -232,7 +225,7 @@ describe('Flow Lab API', () => {
 		})).json();
 
 		expect(details.run.status).toBe('completed');
-		expect(details.steps).toHaveLength(6);
+		expect(details.steps).toHaveLength(4);
 		expect(details.run.output.result.article.reviewStatus).toBe('approved');
 		expect((await DemoContentPlan.where('userId', DEMO_USER_ID).all())).toHaveLength(31);
 		expect((await DemoContentPlan
@@ -254,7 +247,7 @@ describe('Flow Lab API', () => {
 		expect(details.run.output).toEqual({ kind: 'lead', crmId: 'crm_ada' });
 		expect(status).toMatchObject({ classify: 'completed', 'block-sender': 'skipped', 'add-to-crm': 'completed', reply: 'completed', 'page-team': 'failed', 'log-failure': 'completed' });
 
-		const page = (await server.inject({ method: 'GET', url: `/api/flows/${created.run.flowId}/run-page?page=1&perPage=5&search=ada%40` })).json();
+		const page = (await server.inject({ method: 'GET', url: `/api/flows/${created.run.flowId}/runs?page=1&perPage=5&search=ada%40` })).json();
 		expect(page.total).toBeGreaterThanOrEqual(1);
 		expect(page.runs[0].id).toBe(created.run.id);
 	});

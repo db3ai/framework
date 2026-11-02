@@ -1,0 +1,124 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDVYBKQDT7MGV900EXRATF2",
+	"name": "article-writing-agent",
+	"title": "Article Production Agent",
+	"description": "Plans the article and exact asset count, writes it, generates and places images, weaves selected links, and enforces final editorial constraints.",
+	"inputs": {
+		"state": {
+			"type": "json",
+			"required": true
+		}
+	},
+	"outputs": {
+		"state": {
+			"type": "json",
+			"required": true,
+			"value": "{{validate-and-finalize.state}}"
+		}
+	},
+	"steps": {
+		"generate-article-plan": {
+			"type": "agent.article-plan",
+			"config": {
+				"state": "{{input.state}}"
+			}
+		},
+		"plan-exact-image-set": {
+			"type": "article.plan-images",
+			"config": {
+				"state": "{{generate-article-plan.state}}"
+			}
+		},
+		"write-with-stable-anchors": {
+			"type": "agent.write-article",
+			"config": {
+				"state": "{{plan-exact-image-set.state}}"
+			}
+		},
+		"generate-planned-images": {
+			"type": "agent.generate-images",
+			"config": {
+				"state": "{{write-with-stable-anchors.state}}"
+			}
+		},
+		"place-images-inline": {
+			"type": "article.place-images",
+			"config": {
+				"state": "{{generate-planned-images.state}}"
+			}
+		},
+		"weave-links-naturally": {
+			"type": "article.weave-links",
+			"config": {
+				"state": "{{place-images-inline.state}}"
+			}
+		},
+		"validate-and-finalize": {
+			"type": "article.finalize",
+			"config": {
+				"state": "{{weave-links-naturally.state}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"generate-article-plan"
+		],
+		[
+			"generate-article-plan",
+			"plan-exact-image-set"
+		],
+		[
+			"plan-exact-image-set",
+			"write-with-stable-anchors"
+		],
+		[
+			"write-with-stable-anchors",
+			"generate-planned-images"
+		],
+		[
+			"generate-planned-images",
+			"place-images-inline"
+		],
+		[
+			"place-images-inline",
+			"weave-links-naturally"
+		],
+		[
+			"weave-links-naturally",
+			"validate-and-finalize"
+		]
+	],
+	"layout": {
+		"generate-article-plan": [
+			20,
+			140
+		],
+		"plan-exact-image-set": [
+			340,
+			140
+		],
+		"write-with-stable-anchors": [
+			680,
+			140
+		],
+		"generate-planned-images": [
+			1020,
+			140
+		],
+		"place-images-inline": [
+			1360,
+			140
+		],
+		"weave-links-naturally": [
+			1700,
+			140
+		],
+		"validate-and-finalize": [
+			2040,
+			140
+		]
+	}
+}

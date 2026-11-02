@@ -75,7 +75,7 @@ describe('Flows file shape 2', () => {
 		expect(Object.keys(parsed.steps)).toEqual(['classify', 'block', 'crm', 'reply', 'page', 'alert']);
 
 		const [summary] = await flows.definitions.list();
-		expect(summary).toMatchObject({ id: flow.id, name: 'lead-intake', title: 'Lead intake', schemaVersion: 2 });
+		expect(summary).toMatchObject({ id: flow.id, name: 'lead-intake', title: 'Lead intake' });
 		expect(summary.outputs.kind).toEqual({ type: 'string', required: true });
 		expect((await flows.definition('lead-intake')).definition).toEqual(flow);
 	});

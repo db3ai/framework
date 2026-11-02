@@ -31,7 +31,7 @@ export async function runTextFlow() {
 			await drain(application);
 			const failure = await application.flows.runDetails(failed.id!);
 			const changed = structuredClone(flow);
-			changed.blocks[1]!.config = { prefix: 'Updated: ' };
+			changed.steps.uppercase!.config = { text: '{{normalize.text}}', prefix: 'Updated: ' };
 			await application.flows.saveDefinition(changed, { expectedRevision: stored.revision });
 			const replay = await application.flows.replay(failed.id!, { definition: 'original', input: { text: 'Fixed note' } });
 			const latest = await application.flows.replay(original.id!, { definition: 'latest' });

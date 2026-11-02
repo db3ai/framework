@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import type { AnyFlowDefinition } from '../flows/contracts';
+import type { FlowGraphDefinition } from '../flows/contracts';
 import { PassThrough } from 'node:stream';
 import type { ConsoleAgents } from './ConsoleAgents';
 import type { ConsoleDatabase } from './ConsoleDatabase';
@@ -136,7 +136,7 @@ export async function registerConsoleRoutes(server: FastifyInstance, prefix: str
 			return { flows: await service.listDefinitions(), blocks: service.blockMetadata() };
 		});
 		scope.get<{ Params: { id: string } }>('/flows/:id', async request => (await flows(request)).definition(request.params.id));
-		scope.put<{ Params: { id: string }; Body: { definition: AnyFlowDefinition; expectedRevision?: string; path?: string } }>('/flows/:id', async request => {
+		scope.put<{ Params: { id: string }; Body: { definition: FlowGraphDefinition; expectedRevision?: string; path?: string } }>('/flows/:id', async request => {
 			await writable(request, 'schema');
 			if (request.params.id !== request.body?.definition?.id) throw new ConsoleError('The flow id in the address must match the definition.', 400);
 			return (await flows(request)).saveDefinition(request.body.definition, { expectedRevision: request.body.expectedRevision, path: request.body.path });

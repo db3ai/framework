@@ -1,0 +1,58 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDNZE8JYH73Z55DA8QKCDM8",
+	"name": "greeting-debug",
+	"title": "Greeting Debug Flow",
+	"description": "A parent flow that validates input, delegates to a nested greeting agent, and exposes the result.",
+	"inputs": {
+		"name": {
+			"default": "Ada",
+			"description": "Name to greet.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"outputs": {
+		"greeting": {
+			"description": "Uppercase greeting produced by the nested agent.",
+			"required": true,
+			"type": "string",
+			"value": "{{greeting-agent.greeting}}"
+		}
+	},
+	"steps": {
+		"require-name": {
+			"type": "validation.require-name",
+			"config": {
+				"name": "{{input.name}}"
+			}
+		},
+		"greeting-agent": {
+			"type": "flow.run",
+			"flow": "greeting-agent",
+			"config": {
+				"name": "{{require-name.name}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"require-name"
+		],
+		[
+			"require-name",
+			"greeting-agent"
+		]
+	],
+	"layout": {
+		"require-name": [
+			280,
+			44
+		],
+		"greeting-agent": [
+			625,
+			44
+		]
+	}
+}

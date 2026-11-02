@@ -1,0 +1,87 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDPRR0NT39S75V942MEV34X",
+	"name": "greeting-agent",
+	"title": "Greeting Agent",
+	"description": "Nested flow that builds, observes, delays, and formats a greeting.",
+	"inputs": {
+		"name": {
+			"default": "Ada",
+			"description": "Validated name supplied by the parent flow.",
+			"required": true,
+			"type": "string"
+		}
+	},
+	"outputs": {
+		"greeting": {
+			"description": "Uppercase greeting returned to the parent block.",
+			"required": true,
+			"type": "string",
+			"value": "{{uppercase.greeting}}"
+		}
+	},
+	"steps": {
+		"build-greeting": {
+			"type": "text.build-greeting",
+			"config": {
+				"prefix": "Hello",
+				"name": "{{input.name}}"
+			}
+		},
+		"observe-greeting": {
+			"type": "debug.tap",
+			"config": {
+				"greeting": "{{build-greeting.greeting}}"
+			}
+		},
+		"wait-800ms": {
+			"type": "control.wait",
+			"config": {
+				"milliseconds": 800,
+				"greeting": "{{observe-greeting.greeting}}"
+			}
+		},
+		"uppercase": {
+			"type": "text.uppercase",
+			"config": {
+				"greeting": "{{wait-800ms.greeting}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"build-greeting"
+		],
+		[
+			"build-greeting",
+			"observe-greeting"
+		],
+		[
+			"observe-greeting",
+			"wait-800ms"
+		],
+		[
+			"wait-800ms",
+			"uppercase"
+		]
+	],
+	"layout": {
+		"build-greeting": [
+			360,
+			180
+		],
+		"observe-greeting": [
+			640,
+			180
+		],
+		"wait-800ms": [
+			920,
+			180
+		],
+		"uppercase": [
+			1200,
+			180
+		]
+	}
+}

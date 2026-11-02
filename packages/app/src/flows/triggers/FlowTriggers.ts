@@ -160,9 +160,7 @@ export class FlowTriggers {
 	async schedule(scheduler: Scheduler): Promise<string[]> {
 		const found: { flow: FlowGraphDefinition; name: string; trigger: FlowGraphTrigger }[] = [];
 		for (const summary of await this.flows.listDefinitions()) {
-			if (summary.schemaVersion !== 2) continue;
 			const stored = await this.flows.definition(summary.id);
-			if (!isFlowGraphDefinition(stored.definition)) continue;
 			for (const [name, trigger] of Object.entries(stored.definition.triggers ?? {})) {
 				if (trigger.type === FLOW_TRIGGER.schedule) found.push({ flow: stored.definition, name, trigger });
 			}

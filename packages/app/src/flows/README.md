@@ -1,169 +1,21 @@
 # Flows
 
+A flow is a file in the app's repo, `db3/flows/<name>.flow.json`, that wires the app's
+blocks into a durable, observable process on the queue. Every app has `app().flows`; pass
+code blocks with `new App({ flows: { blocks } })` and install `QueuedJob`, `FailedJob` and
+`...FLOW_MODELS`. The visual editor (`FlowEditor` in `@db3.ai/flow-designer`) edits the same
+files in Dock, in Cloud and in an app, so simple flows can be sketched with a client and
+then run as they are.
+
 ## Runnable flow and testing
 
-The base `App` does not automatically supply a `flows` property. Copy the
-installed package's `src/flows/examples/` into `examples/` to use the explicit
-`FlowExampleApp` service extension, then run `npx tsx examples/runTextFlow.ts`
-with disposable SQL credentials. It creates/removes its own test database and
-file-definition directory. Two blocks normalize and format text; the lab checks
-steps, progress, blank-input failure and original/latest replay after repair.
-The website includes the exact `tests/examples/runTextFlow.test.ts` consumer
-test. A definition snapshot preserves graph/configuration, not executable code;
-version block types when changing runtime behavior for historical graphs.
+Copy the installed package's `src/flows/examples/` into `examples/`, then run
+`npx tsx examples/runTextFlow.ts` with disposable SQL credentials. It creates and removes
+its own test database and flows folder. Two blocks normalize and format text; the lab checks
+steps, progress, a failure on blank input and original/latest replay after a repair. The
+website includes the exact `tests/examples/runTextFlow.test.ts` consumer test.
 
-Flows are durable, observable graphs layered over the existing queue. A flow definition is the source of truth for both the runtime and visual designer. It contains stable ULIDs, named input/output contracts, configured block occurrences, named-port connections, and graph positions.
-
-Definitions are intentionally separate from run data:
-
-- A `FlowDefinitionStore` reads and writes source definitions.
-- `FileFlowDefinitionStore` stores deterministic `flow.json` files suitable for Git.
-- `FlowRun`, `FlowStepRun`, and `FlowRunEvent` persist invocations, every block boundary, logs, failures, timing, and replay lineage.
-- `FlowStepJob` executes one block at a time through the application's existing queue.
-
-The initial compiler accepts one connected sequential path. Branches and merges are rejected until their scheduling and replay semantics are explicit.
-
-## App Service
-
-An app exposes its configured service as `app().flows`:
-
-```ts
-import { fileURLToPath } from 'node:url';
-import { FileFlowDefinitionStore, Flows } from '@db3.ai/app/flows';
-
-class App extends FrameworkApp {
-	get flows(): Flows {
-		return this.service('flows', () => new Flows({
-			queue: this.queue,
-			queueName: 'flows',
-			definitions: new FileFlowDefinitionStore({
-				root: fileURLToPath(new URL('./flows', import.meta.url)),
-			}),
-			blocks: flowBlocks,
-		}));
-	}
-}
-```
-
-`FlowStepJob` resolves that service from the active application when the queue
-worker handles it. No flow-specific queue context or service injection is
-required.
-
-Install `QueuedJob`, `FailedJob`, and `...FLOW_MODELS` in the app database schema.
-
-## Function Blocks
-
-A function-backed block is one file with a serializable contract and one function:
-
-```ts
-import { defineBlock, type FlowValues } from '@db3.ai/app/flows';
-
-type TextValues = FlowValues & {
-	text: string;
-};
-
-export default defineBlock<TextValues, TextValues>({
-	type: 'text.uppercase',
-	name: 'Uppercase',
-	inputs: {
-		text: { type: 'string', required: true },
-	},
-	outputs: {
-		text: { type: 'string', required: true },
-	},
-	run: input => ({
-		text: input.text.toUpperCase(),
-	}),
-});
-```
-
-The block context exposes durable `log(level, message, data)` entries. A debug tap can therefore log input and return it unchanged without introducing a separate instrumentation system.
-
-Database operations should be explicit app-owned block types such as `database.fetch-content-plan` or `database.insert-article`. These blocks use the app's models and ownership rules. The framework deliberately does not expose a generic arbitrary-table or SQL block, because that would bypass model conversion, tenancy, authorization, and reviewable contracts.
-
-## Definition-Driven Inputs
-
-Public flow inputs and block configuration use `FlowValueDefinition`. In addition to runtime type, requirement, description, and default information, a value may carry optional host-agnostic editor hints:
-
-```ts
-const request = {
-	type: 'json',
-	required: true,
-	editor: {
-		component: 'DomJsonInput',
-		label: 'Article request',
-		rows: 8,
-	},
-} satisfies FlowValueDefinition;
-```
-
-Editor metadata never changes runtime validation. A host may map component names to DOM form fields, native controls, or another component registry while keeping the flow definition as the source of truth.
-
-## Flow Boundaries And Subflows
-
-Every `Flows` service registers three framework-owned structural blocks:
-
-- `flow.input` exposes the containing definition's public inputs inside the graph.
-- `flow.output` terminates the graph and exposes the containing definition's public outputs.
-- `flow.subflow` groups another definition behind one generic nested-flow block.
-
-The child definition is the only public-contract source for a subflow. A parent occurrence only needs the generic type and the child ULID:
-
-```json
-{
-	"id": "01KXDNZE8KRZ9W9AKZAXFEQXPG",
-	"type": "flow.subflow",
-	"name": "Greeting Agent",
-	"flowId": "01KXDPRR0NT39S75V942MEV34X",
-	"position": { "x": 625, "y": 44 }
-}
-```
-
-The compiler resolves that occurrence's named ports from the referenced definition's `inputs` and `outputs`. No app-specific wrapper block is required. The child graph connects its `flow.input` boundary through its implementation to its `flow.output` boundary, so changing the child's public contract updates how every parent renders and validates that subflow.
-
-At runtime the parent step enters `waiting`, a linked child run executes through the queue, and the child output or failure resumes the parent. Execution snapshots include the resolved occurrence contracts and every nested definition. Original-definition replay therefore follows the historical child graph, while latest-definition replay resolves the current child source.
-
-## Running And Replaying
-
-```ts
-const run = await app().flows.run(flowId, {
-	name: 'Ada',
-});
-
-const details = await app().flows.runDetails(run.id!);
-
-await app().flows.replay(run.id!, {
-	definition: 'original',
-});
-```
-
-The runtime captures JSON input and output at every boundary with a default one-megabyte limit. This first version does not redact values automatically, so applications must not pass credentials or unfiltered secrets through captured flow values.
-
-## Definition Providers
-
-`FileFlowDefinitionStore` recursively reads `flow.json` and `*.flow.json`, writes tab-formatted deterministic JSON atomically, and uses SHA-256 revisions for optimistic saves. A future database provider should implement the same `FlowDefinitionStore` contract and store the same definition shape; the runtime must continue to execute definitions rather than a separate UI representation.
-
-## Trigger blocks
-
-Register an external source with `kind: 'trigger'`, no inputs and an object output
-named `FLOW_TRIGGER_PORT` (`trigger`, exported from `@db3.ai/app/flows/blocks`).
-Each occurrence must have exactly one connection from that port to the same named
-port on a `flow.input` block, and no incoming connections. Multiple trigger blocks
-may share Flow Input. The compiler validates these ingress links separately from
-the sequential action path and retains the blocks in execution snapshots, without
-creating executable steps for listeners.
-
-The host owns delivery authentication, credential storage and admission. After
-checking that the saved trigger belongs to the authorized flow, it calls
-`flows.run(flowId, input)` with named values matching `FlowDefinition.inputs`.
-Direct programmatic calls use that same API and Flow Input contract whether or
-not external trigger blocks are present. Triggers do not alter nested flow or
-replay execution. A browser should never store trigger secrets inside a graph.
-
-## File shape 2: named steps, references and exits
-
-New flows use `schemaVersion: 2` in `db3/flows/<name>.flow.json`. Steps are keyed by
-readable names, values move by `{{reference}}`, and `edges` say only what runs after what.
+## The flow file
 
 ```json
 {
@@ -178,6 +30,8 @@ readable names, values move by `{{reference}}`, and `edges` say only what runs a
 }
 ```
 
+- Steps are keyed by readable names; `edges` say only what runs after what. `layout` keeps
+  canvas positions last, so moving a box leaves the logic untouched.
 - References: `{{input.x}}`, `{{step.field}}` (only steps that run before this one), `{{env.X}}`.
   A setting that is exactly one reference keeps the value's type. Secrets are written
   `{ "secret": "NAME" }` and show as `[secret NAME]` in run history.
@@ -190,10 +44,48 @@ readable names, values move by `{{reference}}`, and `edges` say only what runs a
 - Checks: `saveDefinition` and `definition` run `FlowGraphCompiler`, which rejects unknown
   block types and settings, missing exits, loops, unconnected steps, and references to
   steps that do not run first or outputs they do not have.
-- Starting: `app().flows.start('lead-intake', input)` finds the flow by name or id.
-  Replay works as for schema 1. Nesting other flows, triggers and agent steps come next.
 
-### Triggers
+## Blocks
+
+A code block is one `defineBlock` with named inputs, outputs, settings and one function:
+
+```ts
+import { defineBlock, type FlowValues } from '@db3.ai/app/flows';
+
+export default defineBlock<FlowValues & { text: string }, FlowValues & { text: string }>({
+	type: 'text.uppercase',
+	name: 'Uppercase',
+	inputs: { text: { type: 'string', required: true } },
+	outputs: { text: { type: 'string', required: true } },
+	run: input => ({ text: input.text.toUpperCase() }),
+});
+```
+
+A step's `config` supplies the block's inputs and settings. The context gives the run and
+step and a durable `log(level, message, data)`. Keep database work in app-owned blocks
+with scoped models; there is no generic SQL block. `editor` hints on a value (label,
+placeholder, rows, component) shape forms without changing validation.
+
+Built in: `control.switch`, `control.if`, `agent.run` (an agent from `db3/agents`; with
+`returns` it answers in fields, and `exitOn` picks the exit from one of them), and two
+steps that use another flow: `flow.run` waits for its outputs, `flow.start` carries on at
+once with the new `runId`. Their settings are the other flow's inputs.
+
+## Starting, runs and replay
+
+```ts
+const run = await app().flows.start('lead-intake', { email });
+const details = await app().flows.runDetails(run.id!);
+const { runs, total } = await app().flows.findRuns(run.flowId!, { status: 'failed', page: 1 });
+await app().flows.replay(run.id!, { definition: 'original' });
+```
+
+Each run keeps a snapshot of its flow file. Replay with `original` uses the snapshot;
+`latest` reads the file again. The snapshot holds settings, not code: version block types
+when a change would break old runs, and make side-effecting blocks idempotent. Values at
+every step are captured (up to one megabyte), so keep credentials out of them.
+
+## Triggers
 
 Name triggers in the flow file; the running app serves them once it registers the routes:
 
@@ -219,4 +111,11 @@ await app().flows.triggers.schedule(app().scheduler); // in the scheduler proces
   an optional Turnstile check (`turnstileSiteKey`, `turnstileSecret`). Sending it starts a run.
 - Schedule: `every` minute, hour or day (`at` a time, optional `timezone`), with fixed `input`.
   Weekly and cron schedules are not supported yet.
-- From code: `app().flows.start('lead-intake', input)`.
+
+## Where flow files live
+
+`FileFlowDefinitionStore` reads `*.flow.json` files, writes them with a stable key order
+and tabs, and uses SHA-256 revisions for optimistic saves. Give it a `root` folder, or a
+`FlowFileSource` (`list`, `read`, `write`) for files kept elsewhere, such as Cloud's git
+branches. `ConsoleFlowRuns` (in `@db3.ai/app/console`) reads runs with plain SQL for hosts
+that reach the app's database without running the app.

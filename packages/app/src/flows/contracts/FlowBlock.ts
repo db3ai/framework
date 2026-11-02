@@ -1,4 +1,3 @@
-import type { FlowBlockInstance } from './FlowDefinition';
 import type { FlowValue, FlowValueDefinitions, FlowValues } from './FlowValue';
 
 /**
@@ -19,8 +18,8 @@ export interface FlowBlockContext<TConfig extends FlowValues = FlowValues> {
 	runId: string;
 	/** Durable step-run ULID. */
 	stepRunId: string;
-	/** Configured block occurrence being executed. */
-	block: FlowBlockInstance;
+	/** The step being run: its name in the flow file, block type and title. */
+	step: { name: string; type: string; title?: string };
 	/** Validated block configuration with defaults applied. */
 	config: TConfig;
 	/**

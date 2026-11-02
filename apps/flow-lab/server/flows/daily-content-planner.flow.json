@@ -1,0 +1,90 @@
+{
+	"schemaVersion": 2,
+	"id": "01KXDVYBKRNTT0XV0QKASZRQKX",
+	"name": "daily-content-planner",
+	"title": "Daily Content Planner",
+	"description": "Daily scheduled flow that maintains 30 days of planned content, selects the next item, and invokes Article Generation.",
+	"inputs": {
+		"date": {
+			"type": "string",
+			"required": true,
+			"default": "2026-07-13",
+			"description": "Schedule date used for manual development runs.",
+			"editor": {
+				"component": "DomTextInput",
+				"label": "Schedule date",
+				"placeholder": "YYYY-MM-DD"
+			}
+		}
+	},
+	"outputs": {
+		"result": {
+			"type": "json",
+			"required": true,
+			"value": "{{article-generation.result}}"
+		}
+	},
+	"steps": {
+		"every-day": {
+			"type": "trigger.daily-schedule",
+			"config": {
+				"date": "{{input.date}}"
+			}
+		},
+		"ensure-30-days-planned": {
+			"type": "database.ensure-plan-coverage",
+			"config": {
+				"state": "{{every-day.state}}"
+			}
+		},
+		"pick-next-article": {
+			"type": "database.pick-next-content-plan",
+			"config": {
+				"state": "{{ensure-30-days-planned.state}}"
+			}
+		},
+		"article-generation": {
+			"type": "flow.run",
+			"flow": "article-generation",
+			"config": {
+				"request": "{{pick-next-article.request}}"
+			}
+		}
+	},
+	"edges": [
+		[
+			"input",
+			"every-day"
+		],
+		[
+			"every-day",
+			"ensure-30-days-planned"
+		],
+		[
+			"ensure-30-days-planned",
+			"pick-next-article"
+		],
+		[
+			"pick-next-article",
+			"article-generation"
+		]
+	],
+	"layout": {
+		"every-day": [
+			20,
+			150
+		],
+		"ensure-30-days-planned": [
+			340,
+			150
+		],
+		"pick-next-article": [
+			680,
+			150
+		],
+		"article-generation": [
+			1020,
+			150
+		]
+	}
+}
