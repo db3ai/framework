@@ -90,19 +90,18 @@ export function createAgentsCommands(load: () => Promise<AppAgentsModule>): CliC
 	];
 }
 
-type AnyAgentClass = (new (context: Record<string, unknown>) => aiModule.Agent) & { spec?: aiModule.AgentSpec; overrides?: readonly string[]; name: string };
+type AnyAgentClass = (new (context: Record<string, unknown>) => aiModule.Agent) & { spec?: aiModule.AgentSpec; overrides?: readonly string[]; name: string; agentName?: string };
 
 /** Builds the agent to run: a code agent by its name, else the files in db3/agents. */
 function agentFor(name: string, context: Record<string, unknown>, loaded: AppAgentsModule, directory: string): aiModule.Agent {
 	for (const candidate of loaded.agents as AnyAgentClass[]) {
 		if (typeof candidate !== 'function') continue;
 		if (candidate.spec?.name === name) return new candidate(context);
-		if (!candidate.spec && safe(() => field(new candidate({}), 'agentName')) === name) return new candidate(context);
+		if (!candidate.spec && classAgentName(candidate, safe(() => new candidate({}))) === name) return new candidate(context);
 	}
 	return new loaded.ai.DefinedAgent(name, context, directory);
 }
 
-/** Describes every agent: files first, then code; a code agent built on files replaces that entry. */
 /** How the console shows an agent made of files only. */
 export function describeStoredAgent(stored: StoredAgentDefinition): AgentDescription {
 	const definition = stored.definition;
@@ -114,6 +113,7 @@ export function describeStoredAgent(stored: StoredAgentDefinition): AgentDescrip
 	};
 }
 
+/** Describes every agent: files first, then code; a code agent built on files replaces that entry. */
 export async function describeAgents(directory: string, loaded: AppAgentsModule): Promise<AgentDescription[]> {
 	const store = new loaded.ai.FileAgentDefinitionStore(join(directory, 'db3', 'agents'));
 	const byName = new Map<string, AgentDescription>();
@@ -135,19 +135,24 @@ export async function describeAgents(directory: string, loaded: AppAgentsModule)
 			if (spec.from && spec.from !== spec.name) byName.delete(spec.from);
 			continue;
 		}
+		// A class that needs real context to construct is still listed, by its static agentName or class name.
 		const instance = safe(() => new candidate({}));
-		if (!instance) continue;
-		const name = String(field(instance, 'agentName') ?? candidate.name);
-		const tools = safe(() => (instance as unknown as { tools(): { name: string }[] }).tools().map(item => item.name));
+		const name = classAgentName(candidate, instance);
+		const tools = instance ? safe(() => (instance as unknown as { tools(): { name: string }[] }).tools().map(item => item.name)) : null;
 		byName.set(name, {
 			name, kind: 'class', title: null, description: null,
-			model: (field(instance, 'model') as string | undefined) ?? null, maxTurns: (field(instance, 'maxTurns') as number | null | undefined) ?? null,
-			reasoningEffort: (field(instance, 'reasoningEffort') as string | null | undefined) ?? null,
+			model: (instance && field(instance, 'model') as string | undefined) ?? null, maxTurns: (instance && field(instance, 'maxTurns') as number | null | undefined) ?? null,
+			reasoningEffort: (instance && field(instance, 'reasoningEffort') as string | null | undefined) ?? null,
 			context: [], tools: tools ?? [], instructions: null,
 			overrides: ['instructions', 'tools', 'model', 'maxTurns', 'reasoningEffort', 'context'], path: null, revision: null, className: candidate.name || null,
 		});
 	}
 	return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/** A plain Agent subclass's name: its instance's agentName, else a static agentName, else the class name. */
+function classAgentName(candidate: AnyAgentClass, instance: aiModule.Agent | null): string {
+	return String((instance && field(instance, 'agentName')) ?? candidate.agentName ?? candidate.name);
 }
 
 /** Reads a protected agent setting for display. */
