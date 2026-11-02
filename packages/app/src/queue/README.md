@@ -254,6 +254,9 @@ node --import tsx server/console.ts queue:work --queues='*' --exclude-queues=art
 Pass selections in `runQueueConsole({ app, workers: { general: selection } })`
 and use `--pool=general`, without queue flags. `--once` applies the same rules
 and closes the app on success/failure. Existing `--queue=reports` still works.
+`--pool=articles,images,health` runs several pools in one process, each with its
+own slots, interval and admission, so a small deployment needs one worker process
+instead of one per pool. `--once` takes a single pool.
 For timer-free processing, use `new QueueWorker(app.queue, selection).workOnce()`;
 concurrent calls on one worker fail. See the disposable SQL
 [selection lab](examples/runQueueSelection.ts).

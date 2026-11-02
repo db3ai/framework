@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { parseQueueConsoleArgs, queueConsoleOptionNumber, queueConsoleWorkerProcessTitle, queueConsoleSelection, runQueueConsole } from '@db3.ai/app/queue';
+import { parseQueueConsoleArgs, queueConsoleOptionNumber, queueConsoleWorkerProcessTitle, queueConsoleSelection, queueConsoleSelections, runQueueConsole } from '@db3.ai/app/queue';
 
 describe('queue console options', () => {
 	it('selects multiple exact queues and applies exclusions without changing the default', () => {
@@ -14,6 +14,16 @@ describe('queue console options', () => {
 		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--pool=unknown']), { general })).toThrow('Unknown worker pool');
 		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--pool=general', '--queues=*']), { general })).toThrow('cannot be combined');
 		expect(() => queueConsoleSelection(parseQueueConsoleArgs(['queue:work', '--queue=a', '--queues=b']))).toThrow('not both');
+	});
+
+	it('runs several checked-in pools in one process, each keeping its own admission', () => {
+		const articles = { queues: ['articles'], concurrency: 4 };
+		const health = { queues: ['site-health'] };
+		expect(queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles,health']), { articles, health })).toEqual([articles, health]);
+		expect(queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles']), { articles })).toEqual([articles]);
+		expect(() => queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles,nope']), { articles })).toThrow('Unknown worker pool');
+		expect(() => queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles,,health']), { articles, health })).toThrow('distinct pool names');
+		expect(() => queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles,health', '--queues=*']), { articles, health })).toThrow('cannot be combined');
 	});
 
 	it.each(['--queues', '--queues=', '--exclude-queues', '--pool='])('rejects missing selection values: %s', flag => {

@@ -302,9 +302,11 @@ async function workQueue(
 	parsed: ParsedQueueConsoleArgs,
 ): Promise<void> {
 	if (options.signal?.aborted) return;
-	const selection = queueConsoleSelection(parsed, options.workers);
+	const selections = queueConsoleSelections(parsed, options.workers);
+	const selection = selections[0]!;
 	const queue = selection.queues === '*' ? '*' : selection.queues?.join(', ') ?? 'default';
 	const once = queueConsoleOptionBoolean(parsed, 'once');
+	if (once && selections.length > 1) throw new Error('--once works one pool at a time.');
 	const verbose = queueConsoleVerbose(parsed);
 
 	if (!once) {
@@ -339,7 +341,8 @@ async function workQueue(
 		return;
 	}
 
-	const worker = app.queue.startWorker(selection, {
+	// Several pools share this process, each with its own slots, interval and admission.
+	const pools = selections.map(item => app.queue.startWorker(item, {
 		force: true,
 		logger: app.log?.child({
 			component: 'queue-worker',
@@ -347,11 +350,13 @@ async function workQueue(
 		verbose,
 		intervalMs: queueConsoleOptionNumber(parsed, 'interval', process.env.QUEUE_WORKER_INTERVAL_MS),
 		maxJobsPerTick: queueConsoleOptionNumber(parsed, 'max-jobs', process.env.QUEUE_WORKER_MAX_JOBS_PER_TICK),
-	});
+	}));
 
-	if (!worker) {
+	if (pools.some(item => !item)) {
+		await Promise.all(pools.map(item => item?.stopAndDrain()));
 		throw new Error('Queue worker could not start.');
 	}
+	const worker = { stopAndDrain: () => Promise.all(pools.map(item => item!.stopAndDrain())).then(() => undefined) };
 
 	if (options.signal) {
 		try {
@@ -380,6 +385,18 @@ async function workQueue(
 	process.on('SIGTERM', () => {
 		void shutdown('SIGTERM');
 	});
+}
+
+/**
+ * Resolves the worker selections to run: one per pool in `--pool=a,b`, otherwise one.
+ * @example queueConsoleSelections(parseQueueConsoleArgs(['queue:work', '--pool=articles,images']), workers)
+ */
+export function queueConsoleSelections(parsed: ParsedQueueConsoleArgs, workers: QueueConsoleOptions['workers'] = {}): queue.QueueSelection[] {
+	const pool = queueConsoleOptionString(parsed, 'pool');
+	if (!pool?.includes(',')) return [queueConsoleSelection(parsed, workers)];
+	const names = pool.split(',').map(name => name.trim());
+	if (names.some(name => !name) || new Set(names).size !== names.length) throw new Error('--pool takes distinct pool names separated by commas.');
+	return names.map(name => queueConsoleSelection({ ...parsed, options: { ...parsed.options, pool: name } }, workers));
 }
 
 /**
