@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { FlowDesigner } from '@db3.ai/flow-designer';
+import { FlowEditor } from '@db3.ai/flow-designer';
 
 import { FlowLabClient } from './FlowLabClient';
 
-const client = new FlowLabClient();
-const sampleFlowId = '01KXDVYBKNBPTHGME52391YBVB';
+const client = new FlowLabClient().editor();
 </script>
 
 <template>
-	<FlowDesigner :client="client" :initial-flow-id="sampleFlowId" title="Flow Lab" />
+	<main class="lab">
+		<FlowEditor :client="client" initial-flow="lead-intake" />
+	</main>
 </template>

@@ -330,6 +330,36 @@ export class Flows {
 	}
 
 	/**
+	 * Lists one page of a flow's runs, newest first.
+	 *
+	 * @param flowId - Flow ULID.
+	 * @param query - Status filter, search text (matched against the run id and its input), page from 1 and page size.
+	 * @returns The page and how many runs match in all.
+	 *
+	 * @example
+	 * const { runs, total } = await app().flows.findRuns(flow.id, { status: 'failed', search: 'ada@', page: 1, perPage: 20 });
+	 */
+	async findRuns(flowId: string, query: { status?: FlowRun['status']; search?: string; page?: number; perPage?: number } = {}): Promise<{ runs: FlowRun[]; total: number }> {
+		const perPage = Math.max(1, Math.min(query.perPage ?? 20, 100));
+		const page = Math.max(1, Math.floor(query.page ?? 1));
+		const filtered = () => {
+			const builder = FlowRun.query().where('flowId', flowId);
+			if (query.status) builder.where('status', query.status);
+			const search = query.search?.trim();
+			if (search) {
+				const like = `%${search.replace(/[\\%_]/g, match => `\\${match}`)}%`;
+				builder.whereRaw('(flow_runs.id LIKE ? OR CAST(flow_runs.input AS CHAR) LIKE ?)', [like, like]);
+			}
+			return builder;
+		};
+		const [runs, total] = await Promise.all([
+			filtered().orderBy('createdAt', 'desc').orderBy('id', 'desc').limit(perPage).offset((page - 1) * perPage).all(),
+			filtered().count(),
+		]);
+		return { runs, total };
+	}
+
+	/**
 	 * Loads one run with ordered block steps and timeline events.
 	 *
 	 * @param runId - Flow run ULID.

@@ -25,6 +25,7 @@ import Wait from './Wait.js';
 import WaitForJson from './WaitForJson.js';
 import WeaveArticleLinks from './WeaveArticleLinks.js';
 import WriteArticle from './WriteArticle.js';
+import { leadIntakeBlocks } from './LeadIntake.js';
 
 /** Executable block types available to Flow Lab definitions. */
 export const flowBlocks: FlowBlockDefinition[] = [
@@ -53,4 +54,5 @@ export const flowBlocks: FlowBlockDefinition[] = [
 	ScheduleInput,
 	EnsurePlanCoverage,
 	PickNextContentPlan,
+	...leadIntakeBlocks,
 ];

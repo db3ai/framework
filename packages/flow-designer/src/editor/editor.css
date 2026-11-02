@@ -1,0 +1,175 @@
+/*
+ * Flow editor (file shape 2). Colours come from the host's theme tokens (--canvas, --border,
+ * --primary …) with light fallbacks, so the editor matches Dock and Cloud in light and dark.
+ */
+.fe {
+	--fe-panel: var(--canvas, #ffffff);
+	--fe-fg: var(--canvas-fg, #0f172a);
+	--fe-bg: color-mix(in srgb, var(--fe-fg) 3%, var(--fe-panel));
+	--fe-panel-2: var(--muted, #f1f3f8);
+	--fe-line: var(--border, #e1e5ee);
+	--fe-line-2: color-mix(in srgb, var(--fe-line) 60%, var(--fe-panel));
+	--fe-fg-2: var(--muted-fg, #475569);
+	--fe-fg-3: color-mix(in srgb, var(--fe-fg-2) 70%, var(--fe-panel));
+	--fe-accent: var(--primary, #4338ca);
+	--fe-accent-fg: var(--primary-fg, #ffffff);
+	--fe-accent-soft: color-mix(in srgb, var(--fe-accent) 13%, var(--fe-panel));
+	--fe-ok: var(--success, #047857);
+	--fe-warn: var(--warning, #b45309);
+	--fe-bad: var(--destructive, #b91c1c);
+	--fe-ok-soft: color-mix(in srgb, var(--fe-ok) 13%, var(--fe-panel));
+	--fe-warn-soft: color-mix(in srgb, var(--fe-warn) 14%, var(--fe-panel));
+	--fe-bad-soft: color-mix(in srgb, var(--fe-bad) 12%, var(--fe-panel));
+	--fe-trig: #c2410c; --fe-agent: var(--fe-accent); --fe-data: #047857; --fe-msg: #0e7490; --fe-flow: #7c3aed; --fe-code: #1d4ed8; --fe-logic: #a16207;
+	--fe-grid: color-mix(in srgb, var(--fe-fg) 12%, transparent);
+	--fe-edge: color-mix(in srgb, var(--fe-fg) 38%, var(--fe-panel));
+	--fe-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+	display: flex; flex-direction: column; gap: 10px; height: 100%; min-height: 560px;
+	color: var(--fe-fg); font-size: 13px; line-height: 1.45;
+}
+.fe *, .fe *::before, .fe *::after { box-sizing: border-box }
+.fe button { font: inherit; color: inherit; cursor: pointer; background: none; border: 0; padding: 0 }
+.fe button:disabled { cursor: default; opacity: .45 }
+.fe :is(button, input, textarea, select):focus-visible { outline: 2px solid var(--fe-accent); outline-offset: 2px }
+.fe :is(h1, h2, h3, p) { margin: 0 }
+.fe :is(input, textarea, select) { font: inherit; color: var(--fe-fg); background: var(--fe-panel); border: 1px solid var(--fe-line); border-radius: 7px; padding: 6px 9px; min-width: 0 }
+.fe textarea { font-family: var(--fe-mono); font-size: 12px; resize: vertical }
+.fe .mono { font-family: var(--fe-mono); font-size: 11.5px }
+.fe .muted { color: var(--fe-fg-2) } .fe .faint { color: var(--fe-fg-3) }
+.fe .note { font-size: 12px; color: var(--fe-fg-2) }
+
+.fe-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; background: var(--fe-panel); border: 1px solid var(--fe-line); border-radius: 10px; padding: 8px 12px }
+.fe-top .title { display: flex; flex-direction: column; min-width: 0 }
+.fe-top h1 { font-size: 15px; font-weight: 600 }
+.fe-top select { max-width: 220px }
+.fe-tabs { display: flex; gap: 2px; background: var(--fe-panel-2); padding: 3px; border-radius: 8px; margin-left: auto }
+.fe-tabs button { padding: 4px 12px; border-radius: 6px; color: var(--fe-fg-2); font-weight: 500 }
+.fe-tabs button[aria-pressed="true"] { background: var(--fe-panel); color: var(--fe-fg); box-shadow: 0 1px 2px rgb(0 0 0 / .08) }
+.fe .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--fe-line); background: var(--fe-panel); font-weight: 500 }
+.fe .btn.primary { background: var(--fe-accent); border-color: var(--fe-accent); color: var(--fe-accent-fg) }
+.fe .btn.danger { color: var(--fe-bad) }
+.fe .btn.small { padding: 3px 9px; font-size: 12px }
+.fe .dirty { font-size: 12px; color: var(--fe-warn) }
+
+.fe-work { flex: 1; display: grid; grid-template-columns: 200px minmax(0, 1fr) 330px; gap: 10px; min-height: 0 }
+.fe-work.wide { grid-template-columns: minmax(0, 1fr) }
+.fe-pane { background: var(--fe-panel); border: 1px solid var(--fe-line); border-radius: 10px; min-height: 0; overflow: auto }
+
+.fe-lib { padding: 10px }
+.fe-lib input { width: 100% }
+.fe-lib h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fe-fg-3); margin: 14px 0 4px; font-weight: 600 }
+.fe-lib .item { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; padding: 5px 6px; border-radius: 6px; cursor: grab }
+.fe-lib .item:hover { background: var(--fe-panel-2) }
+.fe-lib .item small { display: block; color: var(--fe-fg-3); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 130px }
+
+.fe-tile { flex: none; display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; font-size: 12px; font-weight: 700; color: var(--fe-c); background: color-mix(in srgb, var(--fe-c) 14%, var(--fe-panel)) }
+.fe-tile svg { width: 15px; height: 15px }
+.k-trigger { --fe-c: var(--fe-trig) } .k-agent { --fe-c: var(--fe-agent) } .k-data { --fe-c: var(--fe-data) } .k-msg { --fe-c: var(--fe-msg) }
+.k-flow { --fe-c: var(--fe-flow) } .k-code { --fe-c: var(--fe-code) } .k-logic { --fe-c: var(--fe-logic) } .k-app, .k-start { --fe-c: var(--fe-fg-2) }
+
+.fe-canvas-wrap { position: relative; background-color: var(--fe-bg); background-image: radial-gradient(var(--fe-grid) 1px, transparent 1px); background-size: 18px 18px }
+.fe-canvas { position: relative; min-width: 100%; min-height: 100% }
+.fe-canvas svg.edges { position: absolute; inset: 0; pointer-events: none; overflow: visible }
+.fe-canvas svg.edges path.hit { pointer-events: stroke; stroke: transparent; stroke-width: 12; cursor: pointer }
+.fe-canvas svg.edges path.line { stroke: var(--fe-edge); stroke-width: 1.6; fill: none }
+.fe-canvas svg.edges path.line.sel { stroke: var(--fe-accent); stroke-width: 2.4 }
+.fe-canvas svg.edges path.line.dead { stroke-dasharray: 4 4; opacity: .45 }
+.fe-canvas svg.edges path.line.err { stroke: var(--fe-bad) }
+.fe-canvas svg.edges path.draft { stroke: var(--fe-accent); stroke-width: 1.6; fill: none; stroke-dasharray: 5 4 }
+.fe-hint { position: sticky; left: 10px; top: 10px; z-index: 3; display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 10px 0 0 10px; pointer-events: none }
+.fe-hint > * { pointer-events: auto }
+.fe-hint span { padding: 4px 10px; border-radius: 7px; background: var(--fe-panel); border: 1px solid var(--fe-line); color: var(--fe-fg-2); font-size: 12px }
+.fe-hint button { padding: 4px 10px; border-radius: 7px; background: var(--fe-panel); border: 1px solid var(--fe-line); color: var(--fe-fg-2); font-size: 12px }
+.fe-empty-canvas { position: absolute; left: 300px; top: 150px; max-width: 320px; color: var(--fe-fg-2) }
+
+.fe-node { position: absolute; width: 214px; background: var(--fe-panel); border: 1px solid var(--fe-line); border-radius: 10px; box-shadow: 0 1px 2px rgb(15 23 42 / .06); cursor: grab; user-select: none; touch-action: none }
+.fe-node.sel { border-color: var(--fe-accent); box-shadow: 0 0 0 3px var(--fe-accent-soft) }
+.fe-node.start { border-radius: 26px 10px 10px 26px }
+.fe-node.problem { border-color: var(--fe-bad) }
+.fe-node.skipped { opacity: .45 }
+.fe-node header { height: 52px; display: flex; gap: 9px; align-items: center; padding: 10px 12px }
+.fe-node header b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px }
+.fe-node header small { display: block; color: var(--fe-fg-3); font-size: 11px; font-family: var(--fe-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px }
+.fe-node .triggers { border-top: 1px solid var(--fe-line-2); padding: 4px 12px 6px; font-size: 11.5px; color: var(--fe-fg-2) }
+.fe-node .exits { border-top: 1px solid var(--fe-line-2); padding: 3px 0 }
+.fe-node .exit { position: relative; display: flex; justify-content: flex-end; padding: 0 16px 0 12px; height: 22px; align-items: center; font-size: 11.5px; color: var(--fe-fg-2) }
+.fe-node .exit.err { color: var(--fe-bad) }
+.fe-node .exit.taken { color: var(--fe-ok); font-weight: 600 }
+.fe-port { position: absolute; width: 12px; height: 12px; border-radius: 50%; background: var(--fe-panel); border: 2px solid var(--fe-edge); cursor: crosshair }
+.fe-port:hover, .fe-port.armed { border-color: var(--fe-accent); background: var(--fe-accent-soft) }
+.fe-port.out { right: -7px } .fe-port.in { left: -7px; top: 20px; cursor: default }
+.fe-node > .fe-port.out { top: 20px }
+.fe-node .exit .fe-port { top: 5px }
+.fe-node .exit.err .fe-port { border-color: color-mix(in srgb, var(--fe-bad) 60%, var(--fe-panel)) }
+.fe-badge { position: absolute; top: -9px; padding: 0 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap }
+.fe-badge.status { right: 10px }
+.fe-badge.issue { left: 10px; background: var(--fe-bad-soft); color: var(--fe-bad) }
+.st-completed { background: var(--fe-ok-soft); color: var(--fe-ok) }
+.st-failed { background: var(--fe-bad-soft); color: var(--fe-bad) }
+.st-running, .st-queued, .st-waiting { background: var(--fe-accent-soft); color: var(--fe-accent) }
+.st-skipped, .st-pending { background: var(--fe-panel-2); color: var(--fe-fg-3) }
+
+.fe-insp { padding: 14px; display: flex; flex-direction: column; gap: 14px }
+.fe-insp h2 { font-size: 15px; font-weight: 600 }
+.fe .type { font-family: var(--fe-mono); font-size: 11.5px; color: var(--fe-fg-3) }
+.fe .field { display: flex; flex-direction: column; gap: 4px }
+.fe .field > label, .fe .field > .label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fe-fg-3); font-weight: 600; display: flex; gap: 6px; align-items: baseline }
+.fe .field > label .req { color: var(--fe-bad) }
+.fe .field small { color: var(--fe-fg-3); font-size: 11.5px; text-transform: none; letter-spacing: 0; font-weight: 400 }
+.fe .rows { display: flex; flex-direction: column; border: 1px solid var(--fe-line); border-radius: 8px; overflow: hidden }
+.fe .rows > * { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 6px 10px; border-top: 1px solid var(--fe-line-2) }
+.fe .rows > *:first-child { border-top: 0 }
+.fe .rows em { font-style: normal; color: var(--fe-fg-3) }
+.fe .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--fe-panel-2); color: var(--fe-fg-2) }
+.fe .pill.ok { background: var(--fe-ok-soft); color: var(--fe-ok) } .fe .pill.bad { background: var(--fe-bad-soft); color: var(--fe-bad) } .fe .pill.acc { background: var(--fe-accent-soft); color: var(--fe-accent) }
+.fe .ref { display: inline-block; padding: 0 6px; border-radius: 5px; background: var(--fe-accent-soft); color: var(--fe-accent); font-family: var(--fe-mono); font-size: 11.5px }
+.fe .problems { margin: 0; padding: 8px 10px 8px 26px; border-radius: 8px; background: var(--fe-bad-soft); color: var(--fe-bad); font-size: 12px }
+.fe .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 96px auto auto; gap: 6px; align-items: center }
+.fe .grid2 label { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--fe-fg-2) }
+.fe pre.code { margin: 0; padding: 9px 10px; border-radius: 8px; background: var(--fe-panel-2); border: 1px solid var(--fe-line); font-family: var(--fe-mono); font-size: 11.5px; overflow-x: auto; white-space: pre; max-height: 260px }
+
+.fe-runs .filters { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px }
+.fe-runs .list button { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1px 10px; width: 100%; text-align: left; padding: 7px 10px; border-top: 1px solid var(--fe-line-2) }
+.fe-runs .list button:first-child { border-top: 0 }
+.fe-runs .list button[aria-pressed="true"] { background: var(--fe-accent-soft) }
+.fe-runs .list small { grid-column: 1 / -1; color: var(--fe-fg-3); font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.fe-runs .pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--fe-fg-2) }
+.fe-runs .empty { padding: 10px; color: var(--fe-fg-3); font-size: 12px }
+
+.fe-file pre { margin: 0; padding: 14px 16px; font-family: var(--fe-mono); font-size: 12px; line-height: 1.6; white-space: pre; tab-size: 2 }
+.fe-file .bar { position: sticky; top: 0; display: flex; flex-wrap: wrap; gap: 6px 16px; padding: 9px 16px; border-bottom: 1px solid var(--fe-line); background: var(--fe-panel); font-size: 12px; color: var(--fe-fg-2) }
+
+.fe-toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 20px; z-index: 40; max-width: min(560px, calc(100% - 32px)); background: var(--fe-panel); color: var(--fe-fg); border: 1px solid var(--fe-line); border-radius: 10px; padding: 10px 14px; box-shadow: 0 8px 24px rgb(15 23 42 / .16); font-size: 13px }
+.fe-toast.bad { border-color: var(--fe-bad) }
+.fe-toast ul { margin: 6px 0 0; padding-left: 18px; max-height: 40vh; overflow: auto }
+
+.fe-detail { position: fixed; inset: 0; z-index: 30; background: rgb(15 23 42 / .45); padding: 16px; display: flex }
+.fe-detail .card { flex: 1; display: flex; flex-direction: column; background: var(--fe-panel); border: 1px solid var(--fe-line); border-radius: 12px; overflow: hidden; min-width: 0 }
+.fe-detail .head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 12px 16px; border-bottom: 1px solid var(--fe-line) }
+.fe-detail .head h2 { font-size: 16px; font-weight: 600 }
+.fe-detail .cols { flex: 1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr); min-height: 0 }
+.fe-detail .cols > section { overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0 }
+.fe-detail .cols > section + section { border-left: 1px solid var(--fe-line) }
+.fe-detail .cols h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--fe-fg-3); font-weight: 600 }
+.fe-detail .mid { background: var(--fe-panel-2) }
+.fe-tree { font-family: var(--fe-mono); font-size: 12px; line-height: 1.7; border: 1px solid var(--fe-line); border-radius: 8px; padding: 8px 10px; background: var(--fe-panel) }
+.fe-tree .grp { color: var(--fe-fg-3); margin-top: 6px; font-family: inherit }
+.fe-tree .grp:first-child { margin-top: 0 }
+.fe-tree button { display: flex; gap: 6px; width: 100%; text-align: left; padding: 0 4px; border-radius: 4px; min-width: 0 }
+.fe-tree button:hover { background: var(--fe-accent-soft) }
+.fe-tree .k { color: var(--fe-accent); flex: none } .fe-tree .v { color: var(--fe-fg-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.fe-detail .preview { font-size: 11.5px; color: var(--fe-fg-3); overflow-wrap: anywhere }
+.fe-detail .preview b { color: var(--fe-fg-2); font-weight: 500 }
+
+@media (max-width: 1000px) {
+	.fe-work { grid-template-columns: minmax(0, 1fr); grid-auto-rows: auto }
+	.fe-lib { max-height: 180px }
+	.fe-canvas-wrap { height: 460px }
+	.fe-tabs { margin-left: 0 }
+}
+@media (max-width: 860px) {
+	.fe-detail .cols { grid-template-columns: minmax(0, 1fr); overflow: auto }
+	.fe-detail .cols > section { overflow: visible }
+	.fe-detail .cols > section + section { border-left: 0; border-top: 1px solid var(--fe-line) }
+}

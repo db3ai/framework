@@ -142,6 +142,24 @@ describe('Flows file shape 2', () => {
 		expect(run.error?.message).toBe('Chat service is down.');
 	});
 
+	it('pages, filters and searches runs', async () => {
+		for (const email of ['ana@example.com', 'bo@example.com', 'cy@example.com']) {
+			await flows.start('lead-intake', { email, message: email === 'bo@example.com' ? 'casino' : 'Hello' });
+		}
+		await workUntilIdle(app!);
+
+		const first = await flows.findRuns(flow.id, { page: 1, perPage: 2 });
+		const second = await flows.findRuns(flow.id, { page: 2, perPage: 2 });
+		expect(first.total).toBe(3);
+		expect(first.runs).toHaveLength(2);
+		expect(second.runs).toHaveLength(1);
+		expect(new Set([...first.runs, ...second.runs].map(run => run.id)).size).toBe(3);
+
+		const found = await flows.findRuns(flow.id, { search: 'bo@ex' });
+		expect(found.runs.map(run => run.input?.email)).toEqual(['bo@example.com']);
+		expect((await flows.findRuns(flow.id, { status: 'failed' })).total).toBe(0);
+	});
+
 	it('replays a run with its original file', async () => {
 		const first = await flows.start('lead-intake', { email: 'ana@example.com', message: 'Hello' });
 		await workUntilIdle(app!);

@@ -57,7 +57,7 @@ describe('Flow Lab API', () => {
 				outputs: expect.objectContaining({ greeting: expect.objectContaining({ type: 'string' }) }),
 			}),
 		]));
-		expect(catalog.flows).toHaveLength(6);
+		expect(catalog.flows).toHaveLength(7);
 		expect(catalog.blocks).toEqual(expect.arrayContaining([
 			expect.objectContaining({ type: 'database.fetch-article-inputs' }),
 			expect.objectContaining({ type: 'database.insert-article' }),
@@ -239,6 +239,24 @@ describe('Flow Lab API', () => {
 			.where('userId', DEMO_USER_ID)
 			.where('status', 'planned')
 			.all())).toHaveLength(29);
+	});
+
+	it('runs the lead intake flow down its lead branch and pages the runs', async () => {
+		const created = (await server.inject({
+			method: 'POST',
+			url: '/api/flows/lead-intake/runs',
+			payload: { input: { name: 'Ada', email: 'ada@example.com', message: 'New site please, but fail the page' } },
+		})).json();
+		await processFlowJobs(runtimeApp, 20);
+
+		const details = (await server.inject({ method: 'GET', url: `/api/flow-runs/${created.run.id}` })).json();
+		const status = Object.fromEntries(details.steps.map((step: { blockId: string; status: string }) => [step.blockId, step.status]));
+		expect(details.run.output).toEqual({ kind: 'lead', crmId: 'crm_ada' });
+		expect(status).toMatchObject({ classify: 'completed', 'block-sender': 'skipped', 'add-to-crm': 'completed', reply: 'completed', 'page-team': 'failed', 'log-failure': 'completed' });
+
+		const page = (await server.inject({ method: 'GET', url: `/api/flows/${created.run.flowId}/run-page?page=1&perPage=5&search=ada%40` })).json();
+		expect(page.total).toBeGreaterThanOrEqual(1);
+		expect(page.runs[0].id).toBe(created.run.id);
 	});
 });
 

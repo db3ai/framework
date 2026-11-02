@@ -1,0 +1,44 @@
+{
+	"schemaVersion": 2,
+	"id": "01M6DTMRZXVJBNAMGTXHD9VQT6",
+	"name": "lead-intake",
+	"title": "Lead intake",
+	"description": "Classifies a contact form message. Spam goes to the block list; a lead goes to the CRM, gets a reply, and the team is paged.",
+	"inputs": {
+		"name": { "type": "string", "required": true },
+		"email": { "type": "string", "required": true },
+		"message": { "type": "string", "required": true }
+	},
+	"outputs": {
+		"kind": { "type": "string", "value": "{{classify.kind}}" },
+		"crmId": { "type": "string", "value": "{{add-to-crm.crmId}}" }
+	},
+	"triggers": {
+		"contact": { "type": "trigger.form", "config": { "title": "Contact us" } }
+	},
+	"steps": {
+		"classify": { "type": "lead.classify", "config": { "message": "{{input.message}}" } },
+		"block-sender": { "type": "lead.block-sender", "config": { "email": "{{input.email}}" } },
+		"add-to-crm": { "type": "lead.add-to-crm", "config": { "email": "{{input.email}}", "name": "{{input.name}}" } },
+		"reply": { "type": "mail.demo-reply", "title": "Reply with meeting link", "config": { "to": "{{input.email}}", "text": "Thanks {{input.name}}, pick a time: https://cal.example/sam" } },
+		"page-team": { "type": "slack.demo-post", "config": { "text": "New lead {{input.name}} ({{add-to-crm.crmId}}): {{input.message}}" } },
+		"log-failure": { "type": "lead.add-to-crm", "title": "Note paging failed in CRM", "config": { "email": "{{input.email}}", "name": "Paging failed: {{page-team.error.message}}" } }
+	},
+	"edges": [
+		["input", "classify"],
+		["classify.spam", "block-sender"],
+		["classify.lead", "add-to-crm"],
+		["add-to-crm", "reply"],
+		["add-to-crm", "page-team"],
+		["page-team.error", "log-failure"]
+	],
+	"layout": {
+		"input": [40, 180],
+		"classify": [320, 160],
+		"block-sender": [620, 40],
+		"add-to-crm": [620, 240],
+		"reply": [920, 160],
+		"page-team": [920, 320],
+		"log-failure": [1220, 340]
+	}
+}

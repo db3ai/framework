@@ -1,10 +1,27 @@
-import type { FlowDefinition, FlowReplayDefinition, FlowValues, StoredFlowDefinition } from '@db3.ai/app/flows';
-import type { FlowDesignerCatalog, FlowDesignerClient, FlowRunDetailsRecord, FlowRunRecord } from '@db3.ai/flow-designer';
+import type { FlowDefinition, FlowGraphDefinition, FlowReplayDefinition, FlowValues, StoredFlowDefinition } from '@db3.ai/app/flows';
+import type { FlowDesignerCatalog, FlowDesignerClient, FlowEditorClient, FlowRunDetailsRecord, FlowRunPage, FlowRunQuery, FlowRunRecord } from '@db3.ai/flow-designer';
 
 /**
  * HTTP adapter connecting the reusable designer to the Flow Lab backend.
  */
 export class FlowLabClient implements FlowDesignerClient {
+	/**
+	 * The same API shaped for the file shape 2 editor.
+	 *
+	 * @returns Editor client.
+	 */
+	editor(): FlowEditorClient {
+		return {
+			catalog: () => this.catalog(),
+			definition: id => this.definition(id),
+			save: (definition: FlowGraphDefinition, expectedRevision?: string) => this.save(definition, expectedRevision),
+			runs: (flowId: string, query: FlowRunQuery) => request<FlowRunPage>(`/api/flows/${encodeURIComponent(flowId)}/run-page?${new URLSearchParams(Object.entries(query).map(([key, value]) => [key, String(value)]))}`),
+			run: (flowId, input) => this.run(flowId, input),
+			runDetails: runId => this.runDetails(runId),
+			replay: (runId, definition) => this.replay(runId, definition),
+		};
+	}
+
 	/**
 	 * Loads flow summaries and executable block metadata.
 	 *
@@ -31,7 +48,7 @@ export class FlowLabClient implements FlowDesignerClient {
 	 * @param expectedRevision - Revision loaded by the editor.
 	 * @returns Persisted definition and new revision.
 	 */
-	save(definition: FlowDefinition, expectedRevision?: string): Promise<StoredFlowDefinition> {
+	save(definition: FlowDefinition | FlowGraphDefinition, expectedRevision?: string): Promise<StoredFlowDefinition> {
 		return request(`/api/flows/${encodeURIComponent(definition.id)}`, {
 			method: 'PUT',
 			body: JSON.stringify({

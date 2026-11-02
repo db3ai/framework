@@ -13,7 +13,7 @@ cp apps/flow-lab/.env.example apps/flow-lab/.env
 npm run dev:flow-lab
 ```
 
-Open [http://127.0.0.1:5178](http://127.0.0.1:5178). The API runs on `127.0.0.1:8788`, and the development command starts a worker for the `flows` queue after the API is healthy.
+Open [http://127.0.0.1:5178](http://127.0.0.1:5178). It opens `server/flows/lead-intake.flow.json` (file shape 2) in the new `FlowEditor`; its demo blocks are in `server/flow-blocks/LeadIntake.ts`. A message mentioning casino or crypto takes the spam branch, and one containing "fail" makes Page the team fail into its error exit. The API runs on `127.0.0.1:8788`, and the development command starts a worker for the `flows` queue after the API is healthy.
 
 ## Sample Graphs
 
