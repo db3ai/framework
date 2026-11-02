@@ -5,6 +5,7 @@ import type { Knex } from 'knex';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { Database } from '../../db';
+import { ulid } from '@db3.ai/pure/ulid';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '../../db/test/db';
 import { FailedJob, QueuedJob } from '../../queue';
 import { App } from '../../server';
@@ -158,6 +159,63 @@ describe('Flows file shape 2', () => {
 		const found = await flows.findRuns(flow.id, { search: 'bo@ex' });
 		expect(found.runs.map(run => run.input?.email)).toEqual(['bo@example.com']);
 		expect((await flows.findRuns(flow.id, { status: 'failed' })).total).toBe(0);
+	});
+
+	it('runs another flow and waits for its outputs, or starts one without waiting', async () => {
+		const child: FlowGraphDefinition = {
+			schemaVersion: 2, id: ulid(), name: 'crm-sync',
+			inputs: { email: { type: 'string', required: true } },
+			outputs: { crmId: { type: 'string', value: '{{save.saved}}' } },
+			steps: { save: { type: 'test.record', config: { label: 'crm-{{input.email}}' } } },
+			edges: [['input', 'save']],
+		};
+		const failing: FlowGraphDefinition = { ...child, id: ulid(), name: 'always-fails', outputs: {}, steps: { boom: { type: 'test.fail' } }, edges: [['input', 'boom']] };
+		await flows.saveDefinition(child);
+		await flows.saveDefinition(failing);
+		const parent: FlowGraphDefinition = {
+			schemaVersion: 2, id: ulid(), name: 'parent',
+			inputs: { email: { type: 'string', required: true } },
+			outputs: { crmId: { type: 'string', value: '{{sync.crmId}}' }, note: { type: 'string', value: '{{after-fail.saved}}' } },
+			steps: {
+				sync: { type: 'flow.run', flow: 'crm-sync', config: { email: '{{input.email}}' } },
+				later: { type: 'flow.start', flow: 'crm-sync', config: { email: 'later@example.com' } },
+				risky: { type: 'flow.run', flow: 'always-fails', config: { email: '{{input.email}}' } },
+				'after-fail': { type: 'test.record', config: { label: 'child failed: {{risky.error.message}}' } },
+			},
+			edges: [['input', 'sync'], ['input', 'later'], ['sync', 'risky'], ['risky.error', 'after-fail']],
+		};
+		await flows.saveDefinition(parent);
+
+		const created = await flows.start('parent', { email: 'ana@example.com' });
+		await workUntilIdle(app!);
+
+		const run = await FlowRun.findOrFail(created.id!);
+		expect(run.status).toBe(FLOW_RUN_STATUS.completed);
+		expect(run.output).toEqual({ crmId: 'crm-ana@example.com', note: 'child failed: Chat service is down.' });
+		const steps = Object.fromEntries((await FlowStepRun.where('run', run).all()).map(step => [step.blockId, step]));
+		expect(steps.sync.status).toBe(FLOW_STEP_STATUS.completed);
+		expect(steps.risky).toMatchObject({ status: FLOW_STEP_STATUS.failed, exit: 'error' });
+		const started = await FlowRun.findOrFail(String(steps.later.output?.runId));
+		expect(started).toMatchObject({ status: FLOW_RUN_STATUS.completed, output: { crmId: 'crm-later@example.com' } });
+		expect(started.parentRun).toBeNull();
+	});
+
+	it('refuses flow steps that name a missing flow, wrong inputs, or wait on themselves', async () => {
+		const parent: FlowGraphDefinition = {
+			schemaVersion: 2, id: ulid(), name: 'bad-parent', inputs: {},
+			steps: {
+				missing: { type: 'flow.run', flow: 'no-such-flow' },
+				wrong: { type: 'flow.run', flow: 'lead-intake', config: { colour: 'blue' } },
+				self: { type: 'flow.run', flow: 'bad-parent' },
+			},
+			edges: [['input', 'missing'], ['input', 'wrong'], ['input', 'self']],
+		};
+		const error = await flows.saveDefinition(parent).catch(caught => caught);
+		expect(error).toBeInstanceOf(FlowDefinitionError);
+		expect(error.message).toMatch(/no flow "no-such-flow"/);
+		expect(error.message).toMatch(/lead-intake has no input "colour"/);
+		expect(error.message).toMatch(/lead-intake needs "email"/);
+		expect(error.message).toMatch(/cannot wait on itself/);
 	});
 
 	it('replays a run with its original file', async () => {

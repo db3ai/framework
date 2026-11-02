@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref } from 'vue';
-import type { FlowBlockMetadata, FlowGraphDefinition, FlowValue, FlowValues } from '@db3.ai/app/flows';
+import type { FlowBlockMetadata, FlowDefinitionSummary, FlowGraphDefinition, FlowValue, FlowValues } from '@db3.ai/app/flows';
 import type { FlowRunDetailsRecord } from '../contracts';
-import { START, blockKind, settingFields, settingText, settingValue, stepOutputs, stepsBefore } from './graph';
+import { START, blockKind, settingText, settingValue, stepFields, stepOutputs, stepsBefore } from './graph';
 
 /**
  * One step up close: what earlier steps hand it (left; click a field to insert its
@@ -14,13 +14,14 @@ const props = defineProps<{
 	blocks: Map<string, FlowBlockMetadata>;
 	run?: FlowRunDetailsRecord | null;
 	editable: boolean;
+	flows?: FlowDefinitionSummary[];
 }>();
 
 const emit = defineEmits<{ close: []; changed: [] }>();
 
 const step = computed(() => props.flow.steps[props.name]);
 const block = computed(() => props.blocks.get(step.value.type));
-const fields = computed(() => settingFields(block.value));
+const fields = computed(() => stepFields(step.value, block.value, props.flows));
 const byStep = computed(() => new Map((props.run?.steps ?? []).map(record => [record.blockId, record])));
 const record = computed(() => byStep.value.get(props.name) ?? null);
 
@@ -31,7 +32,7 @@ const sources = computed(() => {
 	for (const name of stepsBefore(props.flow, props.name)) {
 		const earlier = props.flow.steps[name];
 		const recorded = byStep.value.get(name);
-		const declared = stepOutputs(earlier, props.blocks.get(earlier.type));
+		const declared = stepOutputs(earlier, props.blocks.get(earlier.type), props.flows);
 		const values = recorded?.output ?? Object.fromEntries(Object.entries(declared).map(([key, field]) => [key, `‹${field.type}›`]));
 		groups.push({ root: name, label: `${name} · ${earlier.title || props.blocks.get(earlier.type)?.name || earlier.type}${recorded?.status === 'skipped' ? ' (skipped)' : ''}`, values });
 	}
@@ -146,7 +147,7 @@ onMounted(() => {
 					</template>
 					<template v-else>
 						<p class="note">Declared outputs:</p>
-						<pre class="code">{{ json(stepOutputs(step, block)) }}</pre>
+						<pre class="code">{{ json(stepOutputs(step, block, flows)) }}</pre>
 					</template>
 					<p class="note">Later steps read these as <span class="ref" v-text="mustache(`${name}.field`)" />.</p>
 				</section>

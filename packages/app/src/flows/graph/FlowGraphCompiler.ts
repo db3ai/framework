@@ -4,6 +4,7 @@ import type { FlowBlockDefinition, FlowGraphDefinition, FlowGraphStep, FlowValue
 import type { FlowBlockRegistry } from '../FlowBlockRegistry';
 import { validateValueDefinitions } from '../FlowCompiler';
 import { triggerProblems } from '../triggers/triggerProblems';
+import { FLOW_RUN_BLOCK_TYPE } from '../blocks/flowCall';
 import { FlowDefinitionError, type FlowDefinitionIssue } from '../FlowDefinitionError';
 import { matchesDefinition } from '../flowValueValidator';
 import { FLOW_REFERENCE_ROOTS, referencesIn, secretsIn } from './references';
@@ -177,6 +178,8 @@ export class FlowGraphCompiler {
 		const fields = settingFields(block);
 		for (const [key, value] of Object.entries(config)) {
 			const field = fields[key];
+			// A flow step's settings are the other flow's inputs, checked against that flow when saved and run.
+			if (!field && (block.kind ?? 'function') === 'flow') continue;
 			if (!field) {
 				issues.push({ path: `${path}.config.${key}`, message: `${block.name} has no setting "${key}".` });
 				continue;
@@ -275,7 +278,7 @@ export class FlowGraphCompiler {
 					issues.push({ path: at, message: `{{${reference}}}: there is no step "${root}".` });
 				} else if (!readable.has(root)) {
 					issues.push({ path: at, message: `{{${reference}}}: ${root} does not run before this step.` });
-				} else if (field && !(field in steps.get(root)!.outputs) && field !== FLOW_ERROR_EXIT) {
+				} else if (field && !(field in steps.get(root)!.outputs) && field !== FLOW_ERROR_EXIT && steps.get(root)!.step.type !== FLOW_RUN_BLOCK_TYPE) {
 					issues.push({ path: at, message: `{{${reference}}}: ${root} has no output "${field}".` });
 				}
 			}

@@ -1,4 +1,4 @@
-import type { FlowBlockMetadata, FlowGraphDefinition, FlowGraphStep, FlowValue, FlowValueDefinitions, FlowValues } from '@db3.ai/app/flows';
+import type { FlowBlockMetadata, FlowDefinitionSummary, FlowGraphDefinition, FlowGraphStep, FlowValue, FlowValueDefinitions, FlowValues } from '@db3.ai/app/flows';
 
 /** The start of every flow: the run input, and the edge source `input`. */
 export const START = 'input';
@@ -93,6 +93,29 @@ export function libraryGroups(blocks: FlowBlockMetadata[], search = ''): { title
 }
 
 /**
+ * The flow a `flow.run` or `flow.start` step calls.
+ *
+ * @param step - Step in the flow file.
+ * @param flows - Flows in the app.
+ * @returns Its summary, or undefined.
+ */
+export function calledFlow(step: FlowGraphStep, flows: FlowDefinitionSummary[]): FlowDefinitionSummary | undefined {
+	return step.flow ? flows.find(flow => flow.schemaVersion === 2 && flow.name === step.flow) : undefined;
+}
+
+/**
+ * A step's settings: its block's, or the called flow's inputs.
+ *
+ * @param step - Step in the flow file.
+ * @param block - Its block metadata.
+ * @param flows - Flows in the app.
+ * @returns Field contracts.
+ */
+export function stepFields(step: FlowGraphStep, block: FlowBlockMetadata | undefined, flows: FlowDefinitionSummary[] = []): FlowValueDefinitions {
+	return block?.kind === 'flow' ? calledFlow(step, flows)?.inputs ?? {} : settingFields(block);
+}
+
+/**
  * A block's inputs and settings together, as written under a step's `config`.
  *
  * @param block - Block metadata.
@@ -142,7 +165,8 @@ function agentReturns(step: FlowGraphStep): Record<string, FlowValue> | null {
  * @param block - Its block metadata.
  * @returns Output contracts.
  */
-export function stepOutputs(step: FlowGraphStep, block: FlowBlockMetadata | undefined): FlowValueDefinitions {
+export function stepOutputs(step: FlowGraphStep, block: FlowBlockMetadata | undefined, flows: FlowDefinitionSummary[] = []): FlowValueDefinitions {
+	if (step.type === 'flow.run') return calledFlow(step, flows)?.outputs ?? {};
 	if (step.type === 'agent.run') {
 		const returns = agentReturns(step);
 		if (!returns) return { text: { type: 'string', required: true } };
@@ -330,7 +354,7 @@ export function referencesIn(value: FlowValue | undefined): string[] {
  * @param blocks - Registered blocks.
  * @returns Problems found; empty when the flow is ready to save.
  */
-export function checkFlow(flow: FlowGraphDefinition, blocks: FlowBlockMetadata[]): FlowProblem[] {
+export function checkFlow(flow: FlowGraphDefinition, blocks: FlowBlockMetadata[], flows: FlowDefinitionSummary[] = []): FlowProblem[] {
 	const problems: FlowProblem[] = [];
 	const byType = new Map(blocks.map(block => [block.type, block]));
 	const add = (step: string, message: string) => problems.push({ step, message });
@@ -346,7 +370,11 @@ export function checkFlow(flow: FlowGraphDefinition, blocks: FlowBlockMetadata[]
 		}
 		if (!flow.edges.some(([, to]) => to === name)) add(name, 'Nothing leads to this step.');
 
-		const fields = settingFields(block);
+		if (block.kind === 'flow') {
+			if (!step.flow) add(name, 'Pick the flow this step runs.');
+			else if (!calledFlow(step, flows)) add(name, `There is no flow ${step.flow}.`);
+		}
+		const fields = stepFields(step, block, flows);
 		for (const [key, field] of Object.entries(fields)) {
 			const value = step.config?.[key];
 			if (field.required && field.default === undefined && (value === undefined || value === '')) add(name, `${key} is required.`);
@@ -373,7 +401,7 @@ export function checkFlow(flow: FlowGraphDefinition, blocks: FlowBlockMetadata[]
 				add(name, `{{${path}}} reads ${root}, which does not run before this step.`);
 			} else {
 				// Blocks whose outputs depend on their settings (such as an agent's returns) declare none; the server checks those.
-				const outputs = stepOutputs(flow.steps[root], byType.get(flow.steps[root].type));
+				const outputs = stepOutputs(flow.steps[root], byType.get(flow.steps[root].type), flows);
 				if (field && field !== ERROR_EXIT && Object.keys(outputs).length && !(field in outputs)) add(name, `${root} has no output ${field}.`);
 			}
 		}

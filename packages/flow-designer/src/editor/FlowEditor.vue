@@ -113,12 +113,12 @@ function newFlow(): void {
 
 function changed(): void {
 	dirty.value = true;
-	if (problems.value.length && flow.value) problems.value = checkFlow(flow.value, blocks.value);
+	if (problems.value.length && flow.value) problems.value = checkFlow(flow.value, blocks.value, flows.value);
 }
 
 function check(announce = true): boolean {
 	if (!flow.value) return false;
-	problems.value = checkFlow(flow.value, blocks.value);
+	problems.value = checkFlow(flow.value, blocks.value, flows.value);
 	if (problems.value.length) {
 		say(`${problems.value.length} problem${problems.value.length > 1 ? 's' : ''} to fix before saving.`, { bad: true, items: problems.value.map(problem => `${problem.step === 'flow' ? 'Flow' : problem.step}: ${problem.message}`) });
 		return false;
@@ -263,7 +263,9 @@ async function replay(): Promise<void> {
 }
 
 function openBox(name: string): void {
+	const called = flow.value?.steps[name]?.flow;
 	if (name === START) selected.value = START;
+	else if (called && view.value === 'edit') void openFlow(called);
 	else detailFor.value = name;
 }
 
@@ -398,6 +400,7 @@ onBeforeUnmount(() => {
 					:selected="selected === START ? null : selected"
 					:problems="problems"
 					:editable="editable"
+					:flows="flows"
 					@changed="changed"
 					@rename="rename"
 					@remove="remove"
@@ -406,7 +409,7 @@ onBeforeUnmount(() => {
 			</aside>
 		</div>
 
-		<StepDetail v-if="flow && detailFor && flow.steps[detailFor]" :flow="flow" :name="detailFor" :blocks="blockMap" :run="view === 'runs' ? run : null" :editable="editable" @close="detailFor = null" @changed="changed" />
+		<StepDetail v-if="flow && detailFor && flow.steps[detailFor]" :flow="flow" :name="detailFor" :blocks="blockMap" :run="view === 'runs' ? run : null" :editable="editable" :flows="flows" @close="detailFor = null" @changed="changed" />
 
 		<div v-if="toast" class="fe-toast" :class="{ bad: toast.bad }" role="status">
 			<b>{{ toast.text }}</b>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import type { FlowBlockMetadata, FlowGraphDefinition, FlowValueType } from '@db3.ai/app/flows';
+import type { FlowBlockMetadata, FlowDefinitionSummary, FlowGraphDefinition, FlowValueType } from '@db3.ai/app/flows';
 import type { FlowStepRunRecord } from '../contracts';
-import { ERROR_EXIT, START, TRIGGER_TYPES, edgeSource, triggerDefaults, triggerPath, settingFields, settingText, settingValue, stepExits, type FlowProblem } from './graph';
+import { ERROR_EXIT, START, TRIGGER_TYPES, edgeSource, triggerDefaults, triggerPath, stepFields, settingText, settingValue, stepExits, type FlowProblem } from './graph';
 
 /**
  * Settings for what is selected: a step, a line, or (for Start or nothing) the flow
@@ -15,6 +15,8 @@ const props = defineProps<{
 	selected: string | null;
 	problems: FlowProblem[];
 	editable: boolean;
+	/** Flows in the app, for steps that run another flow. */
+	flows?: FlowDefinitionSummary[];
 	/** The shown run's record of the selected step. */
 	stepRun?: FlowStepRunRecord | null;
 }>();
@@ -33,7 +35,8 @@ const VALUE_TYPES: FlowValueType[] = ['string', 'number', 'boolean', 'object', '
 
 const step = computed(() => props.selected && props.selected !== START && !props.selected.startsWith('edge:') ? props.flow.steps[props.selected] ?? null : null);
 const block = computed(() => step.value ? props.blocks.get(step.value.type) : undefined);
-const fields = computed(() => settingFields(block.value));
+const fields = computed(() => step.value ? stepFields(step.value, block.value, props.flows) : {});
+const otherFlows = computed(() => (props.flows ?? []).filter(item => item.schemaVersion === 2 && item.name !== props.flow.name));
 const exits = computed(() => step.value ? stepExits(step.value, block.value) : []);
 const edge = computed(() => props.selected?.startsWith('edge:') ? props.flow.edges[Number(props.selected.slice(5))] ?? null : null);
 const stepProblems = computed(() => props.problems.filter(problem => problem.step === (step.value ? props.selected : 'flow')).map(problem => problem.message));
@@ -180,6 +183,13 @@ function rows(text: string): number {
 			<div class="field">
 				<label for="fe-step-title">Title</label>
 				<input id="fe-step-title" :value="step.title ?? ''" :placeholder="block?.name" :disabled="!editable" @input="setTitle(($event.target as HTMLInputElement).value)">
+			</div>
+			<div v-if="block?.kind === 'flow'" class="field">
+				<label for="fe-step-flow">Flow <small>its inputs are the settings below</small></label>
+				<select id="fe-step-flow" :value="step.flow ?? ''" :disabled="!editable" @change="step.flow = ($event.target as HTMLSelectElement).value; emit('changed')">
+					<option value="" disabled>Pick a flow…</option>
+					<option v-for="item in otherFlows" :key="item.id" :value="item.name">{{ item.title || item.name }}</option>
+				</select>
 			</div>
 			<div v-for="(field, key) in fields" :key="key" class="field">
 				<label :for="`fe-set-${key}`">{{ field.editor?.label ?? key }} <span v-if="field.required && field.default === undefined" class="req">*</span><small>{{ field.type }}</small></label>

@@ -109,10 +109,10 @@ export class FlowRun extends ActiveRecord {
 			parentBlockId: field.string({
 				column: 'parent_block_id',
 				required: false,
-				length: 26,
-				maxLength: 26,
+				length: 64,
+				maxLength: 64,
 				index: true,
-				comment: 'Flow-backed block occurrence in the parent run.',
+				comment: 'Flow-backed block occurrence (ULID) or step name in the parent run.',
 			}),
 
 			startedAt: field.timestamp({

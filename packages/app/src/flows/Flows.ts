@@ -10,6 +10,7 @@ import { FlowDefinitionError } from './FlowDefinitionError';
 import { flowErrorSnapshot } from './errors';
 import { FlowStepJob } from './FlowStepJob';
 import { FlowGraphCompiler } from './graph/FlowGraphCompiler';
+import { FLOW_RUN_BLOCK_TYPE } from './blocks/flowCall';
 import { FlowGraphRuntime } from './graph/FlowGraphRuntime';
 import { FlowTriggers } from './triggers/FlowTriggers';
 import { validateFlowValues } from './flowValueValidator';
@@ -85,6 +86,11 @@ export class Flows {
 			maxTries: this.#maxTries,
 			maxPayloadBytes: this.#maxPayloadBytes,
 			env: options.env,
+			resolveFlow: async name => {
+				const stored = await this.definition(name);
+				if (!isFlowGraphDefinition(stored.definition)) throw new Error(`Flow ${name} uses the old block-and-port shape; a step can only run flows in file shape 2.`);
+				return stored;
+			},
 		});
 		this.options.queue.registerJob(FlowStepJob);
 	}
@@ -118,6 +124,38 @@ export class Flows {
 	}
 
 	/**
+	 * Checks that `flow.run` and `flow.start` steps name a flow that exists and give it the
+	 * inputs it needs, and that no flow waits on itself.
+	 *
+	 * @param definition - Flow being saved.
+	 * @throws FlowDefinitionError listing the problems.
+	 */
+	async #checkFlowCalls(definition: FlowGraphDefinition): Promise<void> {
+		const issues: { path: string; message: string }[] = [];
+		for (const [name, step] of Object.entries(definition.steps)) {
+			if ((this.blocks.get(step.type)?.kind ?? 'function') !== 'flow' || !step.flow) continue;
+			const path = `steps.${name}`;
+			if (step.flow === definition.name) {
+				if (step.type === FLOW_RUN_BLOCK_TYPE) issues.push({ path: `${path}.flow`, message: 'A flow cannot wait on itself.' });
+				continue;
+			}
+			const child = await this.#readByName(step.flow);
+			if (!child || !isFlowGraphDefinition(child.definition)) {
+				issues.push({ path: `${path}.flow`, message: `There is no flow "${step.flow}" in db3/flows.` });
+				continue;
+			}
+			const inputs = child.definition.inputs;
+			for (const key of Object.keys(step.config ?? {})) {
+				if (!inputs[key]) issues.push({ path: `${path}.config.${key}`, message: `${step.flow} has no input "${key}".` });
+			}
+			for (const [key, field] of Object.entries(inputs)) {
+				if (field.required && field.default === undefined && step.config?.[key] === undefined) issues.push({ path: `${path}.config.${key}`, message: `${step.flow} needs "${key}".` });
+			}
+		}
+		if (issues.length) throw new FlowDefinitionError(issues);
+	}
+
+	/**
 	 * Finds a version 2 flow by its name.
 	 *
 	 * @param name - Flow name, such as `lead-intake`.
@@ -141,6 +179,7 @@ export class Flows {
 	): Promise<StoredFlowDefinition> {
 		if (isFlowGraphDefinition(definition)) {
 			this.graphs.compile(definition);
+			await this.#checkFlowCalls(definition);
 			return await this.definitions.write(definition, options);
 		}
 

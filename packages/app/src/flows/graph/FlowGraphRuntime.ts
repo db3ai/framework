@@ -1,7 +1,8 @@
 import { ActiveRecord } from '../../db';
 import type { Queue, QueueJob } from '../../queue';
 import { FLOW_RUN_EVENT_TYPE, FLOW_RUN_STATUS, FLOW_STEP_STATUS, type FlowReplayDefinition } from '../constants';
-import { FLOW_EXIT, type FlowGraphDefinition, type FlowValue, type FlowValueDefinitions, type FlowValues, type StoredFlowDefinition } from '../contracts';
+import { FLOW_EXIT, isFlowGraphDefinition, type FlowGraphDefinition, type FlowValue, type FlowValueDefinitions, type FlowValues, type StoredFlowDefinition } from '../contracts';
+import { FLOW_RUN_BLOCK_TYPE, FLOW_START_BLOCK_TYPE } from '../blocks/flowCall';
 import { isFlowExit } from '../defineBlock';
 import { flowErrorSnapshot } from '../errors';
 import { FlowStepJob } from '../FlowStepJob';
@@ -24,7 +25,12 @@ export interface FlowGraphRuntimeOptions {
 	maxPayloadBytes: number;
 	/** Settings and secrets read by `{{env.X}}` and `{ "secret": "X" }`. Defaults to `process.env`. */
 	env?: () => Record<string, string | undefined>;
+	/** Loads another flow by name, for `flow.run` and `flow.start` steps. */
+	resolveFlow: (name: string) => Promise<StoredFlowDefinition>;
 }
+
+/** How deep flows may call flows that wait for them. */
+const MAX_FLOW_DEPTH = 8;
 
 /**
  * Where a new run comes from.
@@ -32,6 +38,8 @@ export interface FlowGraphRuntimeOptions {
 export interface FlowGraphRunOrigin {
 	replayOf?: FlowRun | null;
 	replayDefinition?: FlowReplayDefinition | null;
+	/** The run and `flow.run` step waiting for this run. */
+	parent?: { run: FlowRun; step: string } | null;
 }
 
 /**
@@ -72,8 +80,8 @@ export class FlowGraphRuntime {
 				output: null,
 				error: null,
 				replayOf: origin.replayOf ?? null,
-				parentRun: null,
-				parentBlockId: null,
+				parentRun: origin.parent?.run ?? null,
+				parentBlockId: origin.parent?.step ?? null,
 				startedAt: null,
 				completedAt: null,
 			});
@@ -167,6 +175,10 @@ export class FlowGraphRuntime {
 		await step.save();
 		await this.#event(run, step, FLOW_RUN_EVENT_TYPE.stepStarted, `${step.blockName} started.`, { attempt: job.attempts });
 
+		if (compiled.step.type === FLOW_RUN_BLOCK_TYPE || compiled.step.type === FLOW_START_BLOCK_TYPE) {
+			await this.#callFlow(run, step, compiled, resolved);
+			return;
+		}
 		if (!block.run) throw new Error(`Block "${block.type}" cannot run in a version 2 flow yet.`);
 
 		const result = await block.run(input, {
@@ -235,6 +247,7 @@ export class FlowGraphRuntime {
 		run.completedAt = new Date();
 		await run.save();
 		await this.#event(run, null, FLOW_RUN_EVENT_TYPE.runFailed, 'Run failed.', data);
+		await this.#childFinished(run);
 		return false;
 	}
 
@@ -308,6 +321,80 @@ export class FlowGraphRuntime {
 		run.completedAt = new Date();
 		await run.save();
 		await this.#event(run, null, FLOW_RUN_EVENT_TYPE.runCompleted, 'Run completed.');
+		await this.#childFinished(run);
+	}
+
+	/**
+	 * Runs a `flow.run` or `flow.start` step: starts the other flow with the step's settings
+	 * as its inputs. `flow.start` completes at once with the new run id; `flow.run` waits, and
+	 * the other run finishing completes or fails this step.
+	 */
+	async #callFlow(run: FlowRun, step: FlowStepRun, compiled: CompiledFlowStep, input: FlowValues): Promise<void> {
+		const name = compiled.step.flow!;
+		const stored = await this.options.resolveFlow(name);
+		if (compiled.step.type === FLOW_START_BLOCK_TYPE) {
+			const child = await this.start(stored, input);
+			step.status = FLOW_STEP_STATUS.completed;
+			step.output = { runId: child.id! };
+			step.completedAt = new Date();
+			await step.save();
+			await this.#event(run, step, FLOW_RUN_EVENT_TYPE.stepCompleted, `${step.blockName} started ${name}.`, { childRunId: child.id! });
+			return;
+		}
+
+		let depth = 0;
+		for (let parent: FlowRun | null = run; parent?.parentRun; parent = await parent.parentRun.load()) depth++;
+		if (depth + 1 >= MAX_FLOW_DEPTH) throw new Error(`Flows may wait on other flows at most ${MAX_FLOW_DEPTH} deep.`);
+
+		step.status = FLOW_STEP_STATUS.waiting;
+		await step.save();
+		await this.#event(run, step, FLOW_RUN_EVENT_TYPE.stepWaiting, `${step.blockName} is waiting for ${name}.`);
+		const child = await this.start(stored, input, { parent: { run, step: compiled.name } });
+		// The child may already have finished (no queued steps); only link it if this step still waits.
+		const current = await FlowStepRun.findOrFail(step.id!);
+		current.set('nestedRun', child);
+		await current.save();
+		await this.#event(run, current, FLOW_RUN_EVENT_TYPE.nestedStarted, `${step.blockName} started ${name}.`, { childRunId: child.id! });
+	}
+
+	/** When a run that a `flow.run` step waits for ends, finishes that step and moves the parent on. */
+	async #childFinished(child: FlowRun): Promise<void> {
+		if (!child.parentRun || !child.parentBlockId) return;
+		const parent = await child.parentRun.load();
+		if (!parent || !isFlowGraphDefinition(parent.definitionSnapshot)) return;
+		const graph = this.options.compiler.compile(parent.definitionSnapshot);
+		const compiled = graph.byName.get(child.parentBlockId);
+		const step = await FlowStepRun.where({ run: parent, blockId: child.parentBlockId }).first();
+		if (!compiled || !step || step.status !== FLOW_STEP_STATUS.waiting) return;
+
+		step.set('nestedRun', child);
+		if (child.status === FLOW_RUN_STATUS.completed) {
+			step.status = FLOW_STEP_STATUS.completed;
+			step.output = child.output ?? {};
+			step.completedAt = new Date();
+			await step.save();
+			await this.#event(parent, step, FLOW_RUN_EVENT_TYPE.nestedCompleted, `${step.blockName} finished.`, { childRunId: child.id! });
+		} else {
+			const error = child.error ?? { name: 'Error', message: 'The flow it ran failed.' };
+			const routed = compiled.outgoing.some(edge => edge.exit === FLOW_ERROR_EXIT);
+			step.status = FLOW_STEP_STATUS.failed;
+			step.error = error;
+			step.exit = routed ? FLOW_ERROR_EXIT : null;
+			step.output = routed ? { error: { name: error.name, message: error.message } } : null;
+			step.completedAt = new Date();
+			await step.save();
+			await this.#event(parent, step, FLOW_RUN_EVENT_TYPE.nestedFailed, `${step.blockName} failed: ${error.message}`, { childRunId: child.id! });
+			if (!routed) {
+				parent.status = FLOW_RUN_STATUS.failed;
+				parent.error = error;
+				parent.completedAt = new Date();
+				await parent.save();
+				await this.#event(parent, null, FLOW_RUN_EVENT_TYPE.runFailed, 'Run failed.', { name: error.name, message: error.message });
+				await this.#childFinished(parent);
+				return;
+			}
+		}
+		await this.#locked(parent, graph);
 	}
 
 	/** Run input, outputs of steps that finished (null for skipped ones) and settings. */
@@ -374,3 +461,4 @@ function edgeState(edge: CompiledFlowEdge, rows: Map<string, FlowStepRun>): 'tak
 function pick(values: FlowValues, definitions: FlowValueDefinitions): FlowValues {
 	return Object.fromEntries(Object.entries(values).filter(([key]) => key in definitions));
 }
+
