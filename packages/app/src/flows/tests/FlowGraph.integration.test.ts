@@ -11,6 +11,7 @@ import { FailedJob, QueuedJob } from '../../queue';
 import { App } from '../../server';
 import { FLOW_MODELS, FLOW_REPLAY_DEFINITION, FLOW_RUN_EVENT_TYPE, FLOW_RUN_STATUS, FLOW_STEP_STATUS, FileFlowDefinitionStore, FlowDefinitionError, FlowRun, FlowRunEvent, Flows, FlowStepJob, FlowStepRun, type FlowGraphDefinition } from '../index';
 import { graphTestBlocks, leadIntakeFlow } from './flowGraphFixtures';
+import { ConsoleFlowRuns, knexExecutor } from '../../console';
 
 /** Test app exposing the flow service through the active-app seam. */
 class FlowGraphTestApp extends App {
@@ -109,6 +110,26 @@ describe('Flows file shape 2', () => {
 		expect(events.filter(event => event.type === FLOW_RUN_EVENT_TYPE.stepSkipped)).toHaveLength(1);
 		expect(events.filter(event => event.type === FLOW_RUN_EVENT_TYPE.stepQueued).map(event => event.message)).toContain('Page team queued.');
 		expect(events.at(-1)!.type).toBe(FLOW_RUN_EVENT_TYPE.runCompleted);
+	});
+
+	it('reads runs back with plain SQL, as Cloud does through a tunnel', async () => {
+		const created = await flows.start('lead-intake', { email: 'ana@example.com', message: 'We need a new website.' });
+		await flows.start('lead-intake', { email: 'bot@example.com', message: 'Win at the casino' });
+		await workUntilIdle(app!);
+		// The tunnel answers with rows as arrays, and bindings written in.
+		const runner = knexExecutor(db);
+		const reader = new ConsoleFlowRuns({ client: 'mysql2', run: async (sql, bindings) => ({ rows: (await runner.run(sql, bindings)).rows.map(row => Object.values(row)), affectedRows: 0 }) });
+
+		const page = await reader.runs(flow.id, { search: 'ana@', perPage: 5 });
+		expect(page.total).toBe(1);
+		expect(page.runs[0]).toMatchObject({ id: created.id, status: 'completed', input: { email: 'ana@example.com' }, parentRun: null });
+		expect((await reader.runs(flow.id, { status: 'failed' })).total).toBe(0);
+
+		const details = await reader.details(created.id!);
+		expect(details!.run.definitionSnapshot).toMatchObject({ name: 'lead-intake' });
+		expect(details!.steps.find(step => step.blockId === 'classify')).toMatchObject({ exit: 'lead', output: { kind: 'lead', score: 87 }, run: created.id });
+		expect(details!.events.at(-1)!.type).toBe(FLOW_RUN_EVENT_TYPE.runCompleted);
+		expect(await reader.details('missing')).toBeNull();
 	});
 
 	it('takes the spam branch and skips everything on the lead side', async () => {

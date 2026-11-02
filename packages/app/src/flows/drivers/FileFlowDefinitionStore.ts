@@ -4,23 +4,23 @@ import { basename, dirname, relative, resolve, sep } from 'node:path';
 
 import { isFlowGraphDefinition, type AnyFlowDefinition, type FlowDefinition, type FlowDefinitionStore, type FlowDefinitionSummary, type FlowDefinitionWriteOptions, type FlowGraphDefinition, type FlowValueDefinition, type FlowValueDefinitions, type StoredFlowDefinition } from '../contracts';
 
-/**
- * Options for a Git-friendly file definition provider.
- */
+/** Where the flow files are. */
 export interface FileFlowDefinitionStoreOptions {
 	/** Directory containing `flow.json` or `*.flow.json` definitions. */
-	root: string;
+	root?: string;
+	/** Where the files are kept instead of a directory, such as a git branch. */
+	source?: FlowFileSource;
 }
 
-/**
- * Error thrown when a save would overwrite a newer definition revision.
- */
+/** Flow files kept elsewhere; paths are relative to the flows folder. */
+export interface FlowFileSource {
+	list(): Promise<string[]>;
+	read(path: string): Promise<string>;
+	write(path: string, content: string): Promise<void>;
+}
+
+/** A save would overwrite a newer revision. */
 export class FlowDefinitionConflictError extends Error {
-	/**
-	 * Creates a revision conflict error.
-	 *
-	 * @param id - Flow definition ULID.
-	 */
 	constructor(public readonly id: string) {
 		super(`Flow definition "${id}" changed after it was loaded.`);
 		this.name = 'FlowDefinitionConflictError';
@@ -31,22 +31,15 @@ export class FlowDefinitionConflictError extends Error {
  * Stores source-of-truth flow definitions as deterministic project JSON files.
  */
 export class FileFlowDefinitionStore implements FlowDefinitionStore {
-	readonly #root: string;
+	readonly #source: FlowFileSource;
 
-	/**
-	 * Creates a file definition provider rooted inside one project.
-	 *
-	 * @param options - File provider options.
-	 */
 	constructor(options: FileFlowDefinitionStoreOptions) {
-		this.#root = resolve(options.root);
+		if (options.source) this.#source = options.source;
+		else if (options.root) this.#source = directorySource(resolve(options.root));
+		else throw new Error('Give the flow file store a root or a source.');
 	}
 
-	/**
-	 * Lists every readable definition beneath the configured root.
-	 *
-	 * @returns Flow summaries ordered by name.
-	 */
+	/** Every flow, by name. */
 	async list(): Promise<FlowDefinitionSummary[]> {
 		const definitions = await this.#readAll();
 
@@ -64,12 +57,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	/**
-	 * Loads one definition by its stable flow ULID.
-	 *
-	 * @param id - Flow ULID.
-	 * @returns Stored definition or null.
-	 */
+	/** One flow by id, or null. */
 	async read(id: string): Promise<StoredFlowDefinition | null> {
 		const matches = (await this.#readAll()).filter(stored => stored.definition.id === id);
 
@@ -80,13 +68,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 		return matches[0] ?? null;
 	}
 
-	/**
-	 * Creates or atomically replaces one deterministic JSON definition file.
-	 *
-	 * @param definition - Definition to persist.
-	 * @param options - Optional expected revision and creation path.
-	 * @returns Stored definition metadata after writing.
-	 */
+	/** Creates or replaces one flow's file, refusing a stale `expectedRevision`. */
 	async write(
 		definition: AnyFlowDefinition,
 		options: FlowDefinitionWriteOptions = {},
@@ -110,13 +92,8 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 			throw new Error(`Flow definition path "${path}" is already used by "${occupied.definition.id}".`);
 		}
 
-		const absolutePath = this.#resolvePath(path);
 		const content = serializeDefinition(definition);
-		const temporaryPath = resolve(dirname(absolutePath), `.${basename(absolutePath)}.${process.pid}.${Date.now()}.tmp`);
-
-		await mkdir(dirname(absolutePath), { recursive: true });
-		await writeFile(temporaryPath, content, 'utf8');
-		await rename(temporaryPath, absolutePath);
+		await this.#source.write(path, content);
 
 		return {
 			definition: structuredClone(definition),
@@ -131,7 +108,7 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 	 * @returns Stored definitions with provider paths and content revisions.
 	 */
 	async #readAll(): Promise<StoredFlowDefinition[]> {
-		const paths = await findDefinitionFiles(this.#root);
+		const paths = (await this.#source.list()).map(normalizeRelativePath).sort();
 		const definitions = await Promise.all(paths.map(path => this.#readPath(path)));
 		const ids = new Set<string>();
 
@@ -149,43 +126,48 @@ export class FileFlowDefinitionStore implements FlowDefinitionStore {
 	/**
 	 * Reads one definition file and attaches revision metadata.
 	 *
-	 * @param absolutePath - Absolute definition file path.
+	 * @param path - Path relative to the flows folder.
 	 * @returns Parsed definition with provider metadata.
 	 */
-	async #readPath(absolutePath: string): Promise<StoredFlowDefinition> {
-		const content = await readFile(absolutePath, 'utf8');
+	async #readPath(path: string): Promise<StoredFlowDefinition> {
+		const content = await this.#source.read(path);
 		let parsed: unknown;
 
 		try {
 			parsed = JSON.parse(content);
 		} catch (error) {
-			throw new Error(`Invalid flow JSON at "${relative(this.#root, absolutePath)}": ${error instanceof Error ? error.message : String(error)}`);
+			throw new Error(`Invalid flow JSON at "${path}": ${error instanceof Error ? error.message : String(error)}`);
 		}
 
-		assertDefinitionEnvelope(parsed, relative(this.#root, absolutePath));
+		assertDefinitionEnvelope(parsed, path);
 
-		return {
-			definition: parsed,
-			revision: revisionFor(content),
-			path: relative(this.#root, absolutePath).split(sep).join('/'),
-		};
+		return { definition: parsed, revision: revisionFor(content), path };
 	}
+}
 
-	/**
-	 * Resolves and contains a provider-relative path beneath the configured root.
-	 *
-	 * @param path - Provider-relative definition path.
-	 * @returns Contained absolute filesystem path.
-	 */
-	#resolvePath(path: string): string {
-		const absolutePath = resolve(this.#root, normalizeRelativePath(path));
-
-		if (absolutePath !== this.#root && !absolutePath.startsWith(`${this.#root}${sep}`)) {
-			throw new Error('Flow definition path must remain inside the configured root.');
-		}
-
+/**
+ * Flow files in a local directory, written atomically.
+ *
+ * @param root - Absolute directory.
+ * @returns File source.
+ */
+function directorySource(root: string): FlowFileSource {
+	const contained = (path: string) => {
+		const absolutePath = resolve(root, path);
+		if (absolutePath !== root && !absolutePath.startsWith(`${root}${sep}`)) throw new Error('Flow definition path must remain inside the configured root.');
 		return absolutePath;
-	}
+	};
+	return {
+		list: async () => (await findDefinitionFiles(root)).map(path => relative(root, path).split(sep).join('/')),
+		read: path => readFile(contained(path), 'utf8'),
+		async write(path, content) {
+			const absolutePath = contained(path);
+			const temporaryPath = resolve(dirname(absolutePath), `.${basename(absolutePath)}.${process.pid}.${Date.now()}.tmp`);
+			await mkdir(dirname(absolutePath), { recursive: true });
+			await writeFile(temporaryPath, content, 'utf8');
+			await rename(temporaryPath, absolutePath);
+		},
+	};
 }
 
 /**
