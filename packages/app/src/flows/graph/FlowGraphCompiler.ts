@@ -3,6 +3,7 @@ import { isUlid } from '@db3.ai/pure/ulid';
 import type { FlowBlockDefinition, FlowGraphDefinition, FlowGraphStep, FlowValueDefinitions, FlowValues } from '../contracts';
 import type { FlowBlockRegistry } from '../FlowBlockRegistry';
 import { validateValueDefinitions } from '../FlowCompiler';
+import { triggerProblems } from '../triggers/triggerProblems';
 import { FlowDefinitionError, type FlowDefinitionIssue } from '../FlowDefinitionError';
 import { matchesDefinition } from '../flowValueValidator';
 import { FLOW_REFERENCE_ROOTS, referencesIn, secretsIn } from './references';
@@ -14,7 +15,7 @@ export const FLOW_GRAPH_NAME = /^[a-z][a-z0-9-]{0,63}$/;
 export const FLOW_ERROR_EXIT = 'error';
 
 /** Built-in ways into a flow. Apps may register more as blocks of kind `trigger`. */
-export const FLOW_TRIGGER_TYPES = ['trigger.webhook', 'trigger.form', 'trigger.schedule', 'trigger.http'] as const;
+export const FLOW_TRIGGER_TYPES = ['trigger.webhook', 'trigger.form', 'trigger.schedule'] as const;
 
 const RESERVED_STEP_NAMES = new Set<string>([...FLOW_REFERENCE_ROOTS, 'output', 'outputs', 'trigger', 'request']);
 
@@ -103,6 +104,7 @@ export class FlowGraphCompiler {
 			else if (!(FLOW_TRIGGER_TYPES as readonly string[]).includes(trigger.type) && registered?.kind !== 'trigger') {
 				issues.push({ path: `triggers.${name}.type`, message: `"${trigger.type}" is not a trigger type.` });
 			}
+			else for (const message of triggerProblems(trigger.type, trigger.config)) issues.push({ path: `triggers.${name}.config`, message });
 		}
 
 		const edges = this.#checkEdges(definition, steps, issues);

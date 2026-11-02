@@ -7,7 +7,7 @@ import EditorCanvas from './EditorCanvas.vue';
 import EditorInspector from './EditorInspector.vue';
 import RunsPanel from './RunsPanel.vue';
 import StepDetail from './StepDetail.vue';
-import { START, addEdge, addStep, blankFlow, blockKind, checkFlow, flowFileText, libraryGroups, placeUnplaced, removeStep, renameStep, settingValue, type FlowProblem } from './graph';
+import { START, addEdge, addStep, blankFlow, blockKind, checkFlow, flowFileText, libraryGroups, placeUnplaced, removeStep, renameStep, settingValue, TRIGGER_TYPES, triggerDefaults, type FlowProblem } from './graph';
 
 /**
  * The flow editor for `db3/flows/<name>.flow.json` (file shape 2): block library,
@@ -149,15 +149,16 @@ async function save(): Promise<void> {
 function addBlock(type: string, at?: [number, number]): void {
 	if (!flow.value || !editable.value) return;
 	const block = blockMap.value.get(type);
-	if (!block) return;
-	if (blockKind(block) === 'trigger') {
+	if (TRIGGER_TYPES.includes(type) || (block && blockKind(block) === 'trigger')) {
 		let name = type.replace(/^trigger\./, '');
 		for (let n = 2; flow.value.triggers?.[name]; n++) name = `${type.replace(/^trigger\./, '')}-${n}`;
-		flow.value.triggers = { ...(flow.value.triggers ?? {}), [name]: { type } };
+		const config = triggerDefaults(type, flow.value.name);
+		flow.value.triggers = { ...(flow.value.triggers ?? {}), [name]: { type, ...(config ? { config } : {}) } };
 		selected.value = START;
 		changed();
 		return;
 	}
+	if (!block) return;
 	const positions = Object.values(flow.value.layout ?? {});
 	const fallback: [number, number] = [Math.max(...positions.map(([x]) => x), 40) + 290, 160];
 	const name = addStep(flow.value, block, at ?? fallback);

@@ -10,6 +10,7 @@ import { flowErrorSnapshot } from './errors';
 import { FlowStepJob } from './FlowStepJob';
 import { FlowGraphCompiler } from './graph/FlowGraphCompiler';
 import { FlowGraphRuntime } from './graph/FlowGraphRuntime';
+import { FlowTriggers } from './triggers/FlowTriggers';
 import { validateFlowValues } from './flowValueValidator';
 import { FlowRun, FlowRunEvent, FlowStepRun } from './models';
 
@@ -58,6 +59,7 @@ export class Flows {
 	/** Checks version 2 flows. */
 	readonly graphs: FlowGraphCompiler;
 	readonly #graph: FlowGraphRuntime;
+	#triggers: FlowTriggers | undefined;
 	readonly #queueName: string;
 	readonly #maxTries: number;
 	readonly #maxPayloadBytes: number;
@@ -263,6 +265,15 @@ export class Flows {
 		if (isFlowGraphDefinition(stored.definition)) return await this.#graph.start(stored, input, { replayOf });
 
 		return await this.#createAndDispatch(stored as StoredLegacyDefinition, input, replayOf, null, null, null);
+	}
+
+	/**
+	 * Webhook, hosted form and schedule triggers for this app's flows.
+	 * Serve them with `registerFlowTriggerRoutes` from `@db3.ai/app/flows/fastify`.
+	 */
+	get triggers(): FlowTriggers {
+		this.#triggers ??= new FlowTriggers(this, { env: this.options.env });
+		return this.#triggers;
 	}
 
 	/**

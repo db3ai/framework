@@ -57,6 +57,13 @@ export function blockKind(block: Pick<FlowBlockMetadata, 'type' | 'kind'>): Bloc
 	return 'app';
 }
 
+/** Triggers the framework serves, offered in the library beside the app's blocks. */
+const BUILT_IN_TRIGGERS: FlowBlockMetadata[] = [
+	{ type: 'trigger.webhook', kind: 'trigger', name: 'Webhook', description: 'POST with a token; the JSON body is the input.', inputs: {}, outputs: {} },
+	{ type: 'trigger.form', kind: 'trigger', name: 'Form', description: 'Hosted form built from the inputs; embed it in an iframe.', inputs: {}, outputs: {} },
+	{ type: 'trigger.schedule', kind: 'trigger', name: 'Schedule', description: 'Every minute, hour or day at a time.', inputs: {}, outputs: {} },
+];
+
 /** Library group names by display kind, in library order. */
 export const KIND_GROUPS: Record<BlockKind, string> = {
 	trigger: 'Triggers',
@@ -78,7 +85,7 @@ export const KIND_GROUPS: Record<BlockKind, string> = {
  */
 export function libraryGroups(blocks: FlowBlockMetadata[], search = ''): { title: string; kind: BlockKind; blocks: FlowBlockMetadata[] }[] {
 	const query = search.trim().toLowerCase();
-	const usable = blocks.filter(block => !SCHEMA_ONE_BLOCKS.has(block.type)
+	const usable = [...BUILT_IN_TRIGGERS, ...blocks].filter(block => !SCHEMA_ONE_BLOCKS.has(block.type)
 		&& (!query || `${block.name} ${block.type} ${block.description ?? ''}`.toLowerCase().includes(query)));
 	return (Object.keys(KIND_GROUPS) as BlockKind[])
 		.map(kind => ({ title: KIND_GROUPS[kind], kind, blocks: usable.filter(block => blockKind(block) === kind) }))
@@ -366,7 +373,35 @@ function emptyValue(type: string): FlowValue {
 }
 
 /** Trigger types the framework serves, plus any trigger blocks the app registers. */
-export const TRIGGER_TYPES = ['trigger.webhook', 'trigger.form', 'trigger.schedule', 'trigger.http'];
+export const TRIGGER_TYPES = ['trigger.webhook', 'trigger.form', 'trigger.schedule'];
+
+/**
+ * Starting settings for a new trigger, so it checks straight away.
+ *
+ * @param type - Trigger type.
+ * @param flowName - Flow name, used to name the webhook token setting.
+ * @returns Trigger settings.
+ */
+export function triggerDefaults(type: string, flowName: string): FlowValues | undefined {
+	if (type === 'trigger.webhook') return { token: { secret: `${flowName.toUpperCase().replace(/-/g, '_')}_WEBHOOK_TOKEN` } };
+	if (type === 'trigger.form') return { title: 'Contact us', thanks: 'Thank you. We have your message.' };
+	if (type === 'trigger.schedule') return { every: 'day', at: '07:00' };
+	return undefined;
+}
+
+/**
+ * Where the running app serves a trigger, relative to the app's address.
+ *
+ * @param type - Trigger type.
+ * @param flowName - Flow name.
+ * @param triggerName - Trigger name.
+ * @returns Path, or null for triggers with no address.
+ */
+export function triggerPath(type: string, flowName: string, triggerName: string): string | null {
+	if (type === 'trigger.webhook') return `POST /_db3/flows/${flowName}/${triggerName}`;
+	if (type === 'trigger.form') return `/_db3/flows/${flowName}/${triggerName}/form`;
+	return null;
+}
 
 /**
  * Shows a setting value in a text box.

@@ -198,3 +198,31 @@ readable names, values move by `{{reference}}`, and `edges` say only what runs a
   steps that do not run first or outputs they do not have.
 - Starting: `app().flows.start('lead-intake', input)` finds the flow by name or id.
   Replay works as for schema 1. Nesting other flows, triggers and agent steps come next.
+
+### Triggers
+
+Name triggers in the flow file; the running app serves them once it registers the routes:
+
+```ts
+import { registerFlowTriggerRoutes } from '@db3.ai/app/flows/fastify';
+await registerFlowTriggerRoutes(server, () => app().flows.triggers);
+await app().flows.triggers.schedule(app().scheduler); // in the scheduler process
+```
+
+```json
+"triggers": {
+	"website": { "type": "trigger.webhook", "config": { "token": { "secret": "LEAD_WEBHOOK_TOKEN" } } },
+	"contact": { "type": "trigger.form", "config": { "title": "Contact us", "thanks": "Thanks!" } },
+	"nightly": { "type": "trigger.schedule", "config": { "every": "day", "at": "07:00" } }
+}
+```
+
+- Webhook: `POST /_db3/flows/<flow>/<trigger>` with `Authorization: Bearer <token>` and the inputs
+  as a JSON object; answers 202 with the run id. An `Idempotency-Key` header returns the first
+  run for a retry and refuses the same key with other inputs (`FlowTriggerDelivery`).
+- Form: `/_db3/flows/<flow>/<trigger>/form` is a page built from the flow inputs (labels from
+  `editor` hints), embeddable in an iframe (`embedOn` limits where), with a hidden honeypot and
+  an optional Turnstile check (`turnstileSiteKey`, `turnstileSecret`). Sending it starts a run.
+- Schedule: `every` minute, hour or day (`at` a time, optional `timezone`), with fixed `input`.
+  Weekly and cron schedules are not supported yet.
+- From code: `app().flows.start('lead-intake', input)`.

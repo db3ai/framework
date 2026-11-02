@@ -6,6 +6,7 @@ import { FlowDefinitionConflictError, FlowDefinitionError, type AnyFlowDefinitio
 import Fastify, { type FastifyInstance, type FastifyBaseLogger } from 'fastify';
 import { registerHttpExchangeMonitor } from '@db3.ai/app/logging';
 import { registerBrowserJsonFormatting } from '@db3.ai/app/server';
+import { registerFlowTriggerRoutes } from '@db3.ai/app/flows/fastify';
 
 import { app, type App } from './app.js';
 import { ensureDatabaseSchema } from './schema.js';
@@ -46,6 +47,8 @@ export async function createServer(runtimeApp: App = app()): Promise<FastifyInst
 		reply.header('cache-control', 'no-store');
 		done();
 	});
+
+	await registerFlowTriggerRoutes(server, () => runtimeApp.flows.triggers);
 
 	server.get('/api/health', async () => ({
 		ok: true,

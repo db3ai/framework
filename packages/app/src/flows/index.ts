@@ -10,5 +10,6 @@ export * from './FlowDefinitionError';
 export * from './Flows';
 export * from './FlowStepJob';
 export * from './graph';
+export * from './triggers';
 export * from './flowValueValidator';
 export * from './models';

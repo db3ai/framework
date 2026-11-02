@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import type { FlowBlockMetadata, FlowGraphDefinition, FlowValueType } from '@db3.ai/app/flows';
 import type { FlowStepRunRecord } from '../contracts';
-import { ERROR_EXIT, START, TRIGGER_TYPES, edgeSource, settingFields, settingText, settingValue, stepExits, type FlowProblem } from './graph';
+import { ERROR_EXIT, START, TRIGGER_TYPES, edgeSource, triggerDefaults, triggerPath, settingFields, settingText, settingValue, stepExits, type FlowProblem } from './graph';
 
 /**
  * Settings for what is selected: a step, a line, or (for Start or nothing) the flow
@@ -100,7 +100,8 @@ function addTrigger(): void {
 	const base = newTrigger.value.replace(/^trigger\./, '');
 	let name = base;
 	for (let n = 2; props.flow.triggers?.[name]; n++) name = `${base}-${n}`;
-	props.flow.triggers = { ...(props.flow.triggers ?? {}), [name]: { type: newTrigger.value } };
+	const config = triggerDefaults(newTrigger.value, props.flow.name);
+	props.flow.triggers = { ...(props.flow.triggers ?? {}), [name]: { type: newTrigger.value, ...(config ? { config } : {}) } };
 	emit('changed');
 }
 
@@ -254,6 +255,7 @@ function rows(text: string): number {
 				</div>
 				<textarea rows="2" spellcheck="false" placeholder='{ "title": "Contact us" }' :value="trigger.config ? JSON.stringify(trigger.config) : ''" :disabled="!editable" :aria-label="`${name} settings`" @input="setTriggerConfig(String(name), ($event.target as HTMLTextAreaElement).value)" />
 				<small v-if="triggerErrors[name]">{{ triggerErrors[name] }}</small>
+				<small v-else-if="triggerPath(trigger.type, flow.name, String(name))" class="mono">{{ triggerPath(trigger.type, flow.name, String(name)) }}</small>
 			</div>
 			<div v-if="editable" class="grid2">
 				<select v-model="newTrigger" aria-label="Trigger type" style="grid-column: span 2">

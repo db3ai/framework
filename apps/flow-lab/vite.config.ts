@@ -16,6 +16,10 @@ export default defineConfig({
 		host: clientHost,
 		port: clientPort,
 		proxy: {
+			'/_db3': {
+				target: `http://${apiHost}:${apiPort}`,
+				changeOrigin: true,
+			},
 			'/api': {
 				target: `http://${apiHost}:${apiPort}`,
 				changeOrigin: true,

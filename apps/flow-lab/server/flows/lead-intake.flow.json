@@ -14,7 +14,8 @@
 		"crmId": { "type": "string", "value": "{{add-to-crm.crmId}}" }
 	},
 	"triggers": {
-		"contact": { "type": "trigger.form", "config": { "title": "Contact us" } }
+		"contact": { "type": "trigger.form", "config": { "title": "Contact us", "intro": "Tell us what you need and we will reply with a meeting link.", "thanks": "Thanks! Check your inbox for a meeting link." } },
+		"website": { "type": "trigger.webhook", "config": { "token": { "secret": "LEAD_INTAKE_WEBHOOK_TOKEN" } } }
 	},
 	"steps": {
 		"classify": { "type": "lead.classify", "config": { "message": "{{input.message}}" } },
