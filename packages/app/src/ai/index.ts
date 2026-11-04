@@ -34,6 +34,7 @@ export type { AIRequestErrorDiagnostics } from './contracts/AIRequestErrorDiagno
 export * from './AIProviderTransport';
 export * from './AIProviderRetryError';
 export * from './AIProviderStoppedError';
+export * from './AIProviderTimeoutError';
 
 export * from './contracts/AgentConversationStream';
 export { AgentConversations, AgentConversationReadError } from './AgentConversations';

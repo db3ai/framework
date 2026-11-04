@@ -8,6 +8,11 @@ Pure, App and Create use one lockstep version and one release entry.
 - Create: new apps include `db3.app.json`, an app profile naming their processes,
 	build script, database and environment variable names; Dock reads it to set
 	up a project's processes.
+- App: AI provider requests now have separate limits for the first response
+	(`ai.timeoutMs`), stream silence (`ai.streamIdleTimeoutMs`, 4 minutes by default)
+	and an optional overall ceiling (`ai.totalTimeoutMs`). Reaching one raises or
+	reports a named `AIProviderTimeoutError` code and logs `ai-provider:timeout`, and
+	a direct request no longer has a fixed limit on reading its response body.
 
 ## [0.1.0] - 2026-10-11
 

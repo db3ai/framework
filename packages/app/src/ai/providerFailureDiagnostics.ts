@@ -1,6 +1,8 @@
+import { AI_PROVIDER_TIMEOUT_CODES } from './AIProviderTimeoutError';
+
 /** Retains only recognized rejection codes, never arbitrary provider-supplied text. */
 export function safeProviderCode(value: string | null): string | null {
-	return value !== null && ['insufficient_quota', 'billing_hard_limit_reached', 'credit_balance_exhausted', 'server_error', 'service_unavailable', 'overloaded', 'overloaded_error', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(value) ? value : null;
+	return value !== null && [...AI_PROVIDER_TIMEOUT_CODES, 'insufficient_quota', 'billing_hard_limit_reached', 'credit_balance_exhausted', 'server_error', 'service_unavailable', 'overloaded', 'overloaded_error', 'ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'ENOTFOUND', 'EAI_AGAIN'].includes(value) ? value : null;
 }
 
 /** Reports rejection HTTP status; a successful SSE handshake is not a rejection status. */

@@ -140,13 +140,13 @@ describe('AI inside an application', () => {
 	});
 
 	it('forwards structured Flex and gives its direct request a longer timeout', async () => {
-		const timeout = vi.spyOn(AbortSignal, 'timeout');
+		const timeout = vi.spyOn(globalThis, 'setTimeout');
 		try {
 			fetch.mockResolvedValueOnce(Response.json({ model: 'gpt-6-sol', service_tier: 'flex', output_text: '{"title":"Done"}', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
 			const result = await application.ai.generateStructured({ model: 'gpt-6-sol', serviceTier: 'flex', instructions: 'Title.', input: 'Hello.', schemaName: 'title', schema: z.object({ title: z.string() }) });
 			expect(result.data.title).toBe('Done');
 			expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
-			expect(timeout).toHaveBeenCalledWith(900_000);
+			expect(timeout).toHaveBeenCalledWith(expect.any(Function), 900_000, 'response_start', 900_000);
 			expect(await AiRequest.findByPk(result.aiRequestId!)).toMatchObject({ costUSD: 0.00003 });
 		} finally { timeout.mockRestore(); }
 	});

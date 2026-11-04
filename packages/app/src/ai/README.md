@@ -414,12 +414,23 @@ OpenAI adapter and do not fail over. Other protocols need a driver implementatio
 Transient network, rate-limit, quota and server failures can advance to another
 provider. Authentication and request validation failures do not. Agent failover
 stops once the SDK emits an event, avoiding automatic replay of tool effects.
-The SDK's wait for agent response headers defaults to 60 seconds for Standard
-and 15 minutes for Flex. An explicit `ai.timeoutMs` overrides those defaults.
-An agent's `requestTimeoutMs` takes precedence for its own model turns without
-changing direct calls or other agents. Once headers arrive, agent streams have
-no fixed body deadline and continue until completion, cancellation or transport
-failure. Direct calls retain their configured whole-request deadline.
+Every provider HTTP request has separate time limits, and each failure is an
+`AIProviderTimeoutError` with a stable `code`:
+
+| Limit | Setting | Default | `code` |
+| --- | --- | --- | --- |
+| Connection and first byte, ending when headers arrive | `ai.timeoutMs`, or an agent's `requestTimeoutMs` | 60 seconds; 15 minutes for Flex | `ai_provider_response_start_timeout` |
+| Silence between body chunks, restarting on every chunk | `ai.streamIdleTimeoutMs` | 4 minutes | `ai_provider_stream_idle_timeout` |
+| Whole request, however active | `ai.totalTimeoutMs` | None | `ai_provider_total_timeout` |
+
+A stream that keeps delivering data continues until completion, cancellation or
+transport failure unless you set the overall limit. Node's `fetch` has its own
+5 minute limits on headers and on body silence, so a longer limit needs a custom
+`ai.fetch`.
+A timeout logs `ai-provider:timeout` with its code and limit. Queue retries see a
+retryable `AIProviderRetryError` carrying the timeout's message. After streamed
+output it becomes a terminal `AIProviderStoppedError` with the same message and
+`providerCode`, because replaying the turn could repeat completed work.
 Recovery-probe leases cover the selected response-start timeout.
 SDK automatic retries remain off; existing bounded retry,
 deferral and provider-stop rules still apply. This option does not add durable
