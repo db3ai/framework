@@ -26,9 +26,6 @@ export interface ProviderTimeouts {
 export function withProviderTimeouts(transport: typeof fetch, timeouts: ProviderTimeouts): typeof fetch {
 	return async (url, init) => {
 		const controller = new AbortController();
-		let expire!: (error: AIProviderTimeoutError) => void;
-		const expired = new Promise<never>((_, reject) => { expire = reject; });
-		expired.catch(() => {});
 		let failed = false;
 		/** Fails the request once, aborting the connection and any pending read. */
 		const fail = (kind: AIProviderTimeoutKind, timeoutMs: number): void => {
@@ -36,7 +33,6 @@ export function withProviderTimeouts(transport: typeof fetch, timeouts: Provider
 			failed = true;
 			const error = new AIProviderTimeoutError(kind, timeoutMs);
 			timeouts.onTimeout?.(error);
-			expire(error);
 			controller.abort(error);
 		};
 		const totalTimer = timeouts.totalMs ? setTimeout(fail, timeouts.totalMs, 'total', timeouts.totalMs) : null;
@@ -46,7 +42,7 @@ export function withProviderTimeouts(transport: typeof fetch, timeouts: Provider
 		const signal = init?.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
 
 		let response: Response;
-		try { response = await Promise.race([transport(url, { ...init, signal }), expired]); }
+		try { response = await untilAborted(transport(url, { ...init, signal }), controller.signal); }
 		catch (error) { finish(); throw error; }
 		finally { clearTimeout(startTimer); }
 		if (!response.body) { finish(); return response; }
@@ -57,7 +53,7 @@ export function withProviderTimeouts(transport: typeof fetch, timeouts: Provider
 			async pull(stream) {
 				const idleTimer = setTimeout(fail, timeouts.streamIdleMs, 'stream_idle', timeouts.streamIdleMs);
 				try {
-					const item = await Promise.race([reader.read(), expired]);
+					const item = await untilAborted(reader.read(), controller.signal);
 					if (item.done) { finish(); stream.close(); } else stream.enqueue(item.value);
 				} catch (error) {
 					finish();
@@ -70,4 +66,20 @@ export function withProviderTimeouts(transport: typeof fetch, timeouts: Provider
 		});
 		return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
 	};
+}
+
+/**
+ * Settles with `work`, or rejects as soon as `signal` aborts, even if `work` ignores the signal.
+ *
+ * The listener is removed when `work` settles. A race against one request-wide promise
+ * would keep every chunk read so far alive for as long as the stream stays open.
+ */
+function untilAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		/** Rejects with the timeout that aborted the request. */
+		const onAbort = (): void => reject(signal.reason);
+		if (signal.aborted) onAbort();
+		else signal.addEventListener('abort', onAbort, { once: true });
+		work.then(resolve, reject).finally(() => signal.removeEventListener('abort', onAbort));
+	});
 }

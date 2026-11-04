@@ -78,6 +78,18 @@ describe('provider time limits', () => {
 		expect(onTimeout).toHaveBeenCalledOnce();
 	});
 
+	it('holds no per-read state once a read completes, so long streams stay bounded', async () => {
+		const added = vi.spyOn(AbortSignal.prototype, 'addEventListener');
+		const removed = vi.spyOn(AbortSignal.prototype, 'removeEventListener');
+		try {
+			const response = await withProviderTimeouts(async () => chunks(50, 0, 'close'), limits)(url);
+			expect(await drain(response)).toEqual({ chunks: 50, error: null });
+			const aborts = (spy: typeof added | typeof removed) => spy.mock.calls.filter(([type]) => type === 'abort').length;
+			expect(aborts(added)).toBeGreaterThanOrEqual(50);
+			expect(aborts(removed)).toBe(aborts(added));
+		} finally { added.mockRestore(); removed.mockRestore(); }
+	});
+
 	it('does not blame the provider for a slow reader', async () => {
 		const response = await withProviderTimeouts(async () => chunks(2, 0, 'close'), limits)(url);
 		const reader = response.body!.getReader();
