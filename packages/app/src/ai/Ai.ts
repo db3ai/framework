@@ -1178,11 +1178,14 @@ export class Ai {
 	 *
 	 * @param attempt - Resolved provider connection and model.
 	 * @param initialLease - Optional preflight reservation consumed by the first request.
+	 * @param serviceTier - Provider processing tier for this agent.
+	 * @param requestTimeoutMs - Optional agent-only wait for response headers, overriding the service default.
 	 * @returns SDK provider using the service's transport and rate-limit lifecycle.
 	 */
-	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default'): ModelProvider {
+	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default', requestTimeoutMs: number | null = null): ModelProvider {
 		assertAIServiceTier(attempt.provider, serviceTier);
-		const timeoutMs = this.requestTimeoutMs(serviceTier);
+		if (requestTimeoutMs !== null && (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0)) throw new AIConfigurationError('Agent requestTimeoutMs must be positive.');
+		const timeoutMs = requestTimeoutMs ?? this.requestTimeoutMs(serviceTier);
 		return new OpenAIProvider({
 			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease, timeoutMs), timeout: timeoutMs, maxRetries: 0 }),
 			useResponses: attempt.supportsResponsesApi,
@@ -1199,11 +1202,14 @@ export class Ai {
 	 *
 	 * @param attempt - Provider and model selected for this SDK attempt.
 	 * @param initialLease - First-request reservation, if acquired by the agent.
+	 * @param timeoutMs - Maximum wait for response headers; streamed bodies have no wall-clock deadline.
 	 * @returns Transport that maintains provider capacity and request diagnostics.
 	 */
 	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null, timeoutMs: number): typeof fetch {
 		let pendingLease = initialLease;
-		const transport = this.providerTransport.transport(attempt, this.fetcher(timeoutMs));
+		// The SDK limits the wait for response headers. Its timer ends when streaming
+		// begins, so a healthy body must not inherit a fixed wall-clock deadline.
+		const transport = this.providerTransport.transport(attempt, this.fetcher(timeoutMs, undefined, { streamBodyDeadline: false }));
 		return async (url, init) => {
 			const aiRequest = aiExecutionContext.getStore()?.aiRequest ?? null;
 			const lease = pendingLease ?? await this.acquireRateLimit({
@@ -1247,18 +1253,23 @@ export class Ai {
 		return { provider: AI_PROVIDER.openai, model, apiKey: this.requireApiKey(), baseUrl: this.baseUrl(), supportsResponsesApi: true };
 	}
 
-	/** Resolves a tier-aware request timeout while respecting an explicit service override. */
+	/** Resolves the tier-aware provider timeout while respecting an explicit service override. */
 	private requestTimeoutMs(serviceTier: AIServiceTier): number {
 		return this.options.timeoutMs ?? (serviceTier === 'flex' ? 900_000 : 60_000);
 	}
 
 	/**
-	 * Fetch implementation used by provider calls.
+	 * Wraps provider fetch with the selected timeout and optional spending budget.
+	 *
+	 * @param timeoutMs - Deadline for direct calls when a streamed-body deadline is enabled.
+	 * @param context - Provider-budget attribution for the call.
+	 * @param options - Disables a body-wide deadline when the SDK owns response-start timeout.
+	 * @returns Fetch transport with the selected signal and budget hooks.
 	 */
-	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000, context?: Omit<AIProviderBudgetInput, 'request'>): typeof fetch {
+	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000, context?: Omit<AIProviderBudgetInput, 'request'>, options: { streamBodyDeadline?: boolean } = {}): typeof fetch {
 		const transport = this.options.fetch || fetch;
 		return (url, init) => {
-			const signal = init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
+			const signal = options.streamBodyDeadline === false ? init?.signal : init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
 			if (!this.options.providerBudget) return transport(url, { ...init, signal });
 			const state = aiExecutionContext.getStore();
 			const aiRequest = context?.aiRequest ?? state?.aiRequest ?? null;
