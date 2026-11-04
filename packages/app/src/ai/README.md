@@ -414,13 +414,17 @@ OpenAI adapter and do not fail over. Other protocols need a driver implementatio
 Transient network, rate-limit, quota and server failures can advance to another
 provider. Authentication and request validation failures do not. Agent failover
 stops once the SDK emits an event, avoiding automatic replay of tool effects.
-The SDK's wait for agent response headers defaults to 60 seconds for Standard
-and 15 minutes for Flex. An explicit `ai.timeoutMs` overrides those defaults.
-An agent's `requestTimeoutMs` takes precedence for its own model turns without
-changing direct calls or other agents. Once headers arrive, agent streams have
-no fixed body deadline and continue until completion, cancellation or transport
-failure. Direct calls retain their configured whole-request deadline.
-Recovery-probe leases cover the selected response-start timeout.
+A provider request fails only if it gets stuck. One timer runs while waiting on
+the provider and resets when the response starts and on every chunk, so an active
+stream can run for any length of time. If nothing arrives for `ai.timeoutMs`
+(4 minutes by default) the request fails with an `AIProviderTimeoutError`, code
+`ai_provider_inactivity_timeout`, and logs `ai-provider:timeout`. Node's `fetch`
+has its own 5 minute limits, so a longer value needs a custom `ai.fetch`.
+
+Queue retries see a retryable `AIProviderRetryError` carrying the timeout's message.
+After streamed output it becomes a terminal `AIProviderStoppedError` with the same
+message and `providerCode`, because replaying the turn could repeat completed work.
+Recovery-probe leases cover this timeout.
 SDK automatic retries remain off; existing bounded retry,
 deferral and provider-stop rules still apply. This option does not add durable
 checkpoints or guarantee multi-hour recovery. A partial stream or exhausted

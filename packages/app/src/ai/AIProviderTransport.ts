@@ -1,5 +1,6 @@
 import { AIProviderRetryError } from './AIProviderRetryError';
 import { AIProviderStoppedError } from './AIProviderStoppedError';
+import { AIProviderTimeoutError } from './AIProviderTimeoutError';
 import type { AIProviderAttempt } from './contracts/Providers';
 import { isNetworkFailure } from './AIFailover';
 import { ProviderSseObserver } from './ProviderSseObserver';
@@ -19,7 +20,7 @@ export class AIProviderTransport {
 		if (!isTransientProviderFailure(error)) return null;
 		const failures = (this.#retryCounts.get(attempt) ?? 0) + 1;
 		this.#retryCounts.set(attempt, failures);
-		return new AIProviderRetryError(retryAfterMs ?? Math.min(30_000, 1000 * 2 ** Math.min(failures - 1, 5)), details.code, details);
+		return new AIProviderRetryError(retryAfterMs ?? Math.min(30_000, 1000 * 2 ** Math.min(failures - 1, 5)), details.code, { ...details, ...(error instanceof AIProviderTimeoutError ? { detail: error.message } : {}) });
 	}
 
 	/**
@@ -32,7 +33,12 @@ export class AIProviderTransport {
 			this.#requestFailures.delete(attempt);
 			let response: Response;
 			try { response = await fetcher(url, init); }
-			catch (error) { throw this.#failure(attempt, error) ?? error; }
+			catch (error) {
+				const decision = this.#failure(attempt, error) ?? error;
+				// The SDK replaces a failed fetch with its own connection error; keep the named timeout.
+				if (error instanceof AIProviderTimeoutError) this.#requestFailures.set(attempt, decision as Error);
+				throw decision;
+			}
 			if (!response.headers.get('content-type')?.includes('text/event-stream')) {
 				let payload: { error?: unknown; response?: { error?: unknown } } | null;
 				try { payload = await response.clone().json() as typeof payload; }

@@ -13,6 +13,8 @@ import { aiExecutionContext, scopedAiOptions } from './AiExecutionContext';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { parseJsonObjectText, responseErrorMessage, responseOutputText } from '@db3.ai/pure';
 import { app } from '../server/appContext';
+import { withProviderInactivityTimeout } from './withProviderInactivityTimeout';
+import type { AIProviderTimeoutError } from './AIProviderTimeoutError';
 import { AiConversation } from './AiConversation';
 import { AiMessage, AI_MESSAGE_ROLE, type AiMessageRole } from './AiMessage';
 import { AiRequest, AI_REQUEST_STATUS } from './AiRequest';
@@ -91,6 +93,10 @@ export class AIUsagePersistenceError extends Error {
 
 /** Total terminal persistence attempts, including the initial save. */
 const TERMINAL_AI_REQUEST_SAVE_ATTEMPTS = 3;
+/** Below the 5 minute limits in Node's fetch, so the named error fires first. */
+const DEFAULT_INACTIVITY_TIMEOUT_MS = 240_000;
+/** Keeps the SDK's own timer as a backstop, so the named timeout is what callers see. */
+const SDK_TIMEOUT_MARGIN_MS = 5_000;
 
 /**
  * Small application-level wrapper around OpenAI's Responses API.
@@ -322,7 +328,6 @@ export class Ai {
 			.filter(attempt => attempt.supportsResponsesApi);
 		const serviceTier = input.serviceTier ?? 'default';
 		for (const attempt of attempts) assertAIServiceTier(attempt.provider, serviceTier);
-		const timeoutMs = this.requestTimeoutMs(serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
 		let tracked: TrackedRequest | null = null;
 		let trackedSettled = false;
@@ -391,7 +396,7 @@ export class Ai {
 					baseUrl: attempt.baseUrl,
 					apiKey: attempt.apiKey,
 					request,
-					fetcher: this.providerTransport.transport(attempt, this.fetcher(timeoutMs, { provider: attempt.provider, model: attempt.model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: tracked?.scopeId ?? options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: tracked?.userId ?? options.user, usage: options.usage })),
+					fetcher: this.providerTransport.transport(attempt, this.fetcher({ provider: attempt.provider, model: attempt.model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: tracked?.scopeId ?? options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: tracked?.userId ?? options.user, usage: options.usage })),
 				});
 				const { payload, metadata } = result;
 				const providerFailure = this.providerTransport.requestFailure(attempt, null);
@@ -1179,15 +1184,12 @@ export class Ai {
 	 * @param attempt - Resolved provider connection and model.
 	 * @param initialLease - Optional preflight reservation consumed by the first request.
 	 * @param serviceTier - Provider processing tier for this agent.
-	 * @param requestTimeoutMs - Optional agent-only wait for response headers, overriding the service default.
 	 * @returns SDK provider using the service's transport and rate-limit lifecycle.
 	 */
-	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default', requestTimeoutMs: number | null = null): ModelProvider {
+	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default'): ModelProvider {
 		assertAIServiceTier(attempt.provider, serviceTier);
-		if (requestTimeoutMs !== null && (!Number.isFinite(requestTimeoutMs) || requestTimeoutMs <= 0)) throw new AIConfigurationError('Agent requestTimeoutMs must be positive.');
-		const timeoutMs = requestTimeoutMs ?? this.requestTimeoutMs(serviceTier);
 		return new OpenAIProvider({
-			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease, timeoutMs), timeout: timeoutMs, maxRetries: 0 }),
+			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease), timeout: this.inactivityTimeoutMs() + SDK_TIMEOUT_MARGIN_MS, maxRetries: 0 }),
 			useResponses: attempt.supportsResponsesApi,
 		});
 	}
@@ -1202,14 +1204,11 @@ export class Ai {
 	 *
 	 * @param attempt - Provider and model selected for this SDK attempt.
 	 * @param initialLease - First-request reservation, if acquired by the agent.
-	 * @param timeoutMs - Maximum wait for response headers; streamed bodies have no wall-clock deadline.
 	 * @returns Transport that maintains provider capacity and request diagnostics.
 	 */
-	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null, timeoutMs: number): typeof fetch {
+	private agentFetcher(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null): typeof fetch {
 		let pendingLease = initialLease;
-		// The SDK limits the wait for response headers. Its timer ends when streaming
-		// begins, so a healthy body must not inherit a fixed wall-clock deadline.
-		const transport = this.providerTransport.transport(attempt, this.fetcher(timeoutMs, undefined, { streamBodyDeadline: false }));
+		const transport = this.providerTransport.transport(attempt, this.fetcher());
 		return async (url, init) => {
 			const aiRequest = aiExecutionContext.getStore()?.aiRequest ?? null;
 			const lease = pendingLease ?? await this.acquireRateLimit({
@@ -1253,24 +1252,21 @@ export class Ai {
 		return { provider: AI_PROVIDER.openai, model, apiKey: this.requireApiKey(), baseUrl: this.baseUrl(), supportsResponsesApi: true };
 	}
 
-	/** Resolves the tier-aware provider timeout while respecting an explicit service override. */
-	private requestTimeoutMs(serviceTier: AIServiceTier): number {
-		return this.options.timeoutMs ?? (serviceTier === 'flex' ? 900_000 : 60_000);
+	/** Resolves how long a provider may send nothing before its request counts as stuck. */
+	private inactivityTimeoutMs(): number {
+		return this.options.timeoutMs ?? DEFAULT_INACTIVITY_TIMEOUT_MS;
 	}
 
 	/**
-	 * Wraps provider fetch with the selected timeout and optional spending budget.
+	 * Wraps provider fetch with the inactivity limit and optional spending budget.
 	 *
-	 * @param timeoutMs - Deadline for direct calls when a streamed-body deadline is enabled.
 	 * @param context - Provider-budget attribution for the call.
-	 * @param options - Disables a body-wide deadline when the SDK owns response-start timeout.
-	 * @returns Fetch transport with the selected signal and budget hooks.
+	 * @returns Fetch transport with the limit and budget hooks.
 	 */
-	private fetcher(timeoutMs = this.options.timeoutMs ?? 60_000, context?: Omit<AIProviderBudgetInput, 'request'>, options: { streamBodyDeadline?: boolean } = {}): typeof fetch {
-		const transport = this.options.fetch || fetch;
+	private fetcher(context?: Omit<AIProviderBudgetInput, 'request'>): typeof fetch {
+		const transport = withProviderInactivityTimeout(this.options.fetch || fetch, this.inactivityTimeoutMs(), error => logProviderTimeout(error, context));
 		return (url, init) => {
-			const signal = options.streamBodyDeadline === false ? init?.signal : init?.signal ? AbortSignal.any([init.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs);
-			if (!this.options.providerBudget) return transport(url, { ...init, signal });
+			if (!this.options.providerBudget) return transport(url, init);
 			const state = aiExecutionContext.getStore();
 			const aiRequest = context?.aiRequest ?? state?.aiRequest ?? null;
 			const input: Omit<AIProviderBudgetInput, 'request'> = context ?? { provider: (aiRequest?.provider ?? AI_PROVIDER.openai) as AIProvider, model: aiRequest?.model ?? this.config('model', 'gpt-4.1-mini'), operation: aiRequest?.operation ?? 'agents.run.stream', aiRequest, rootAiRequest: state?.rootAiRequest ?? null, scope: aiRequest ? aiRequest.get(this.scopeField) as AIRecordIdentity | string | null : null, user: aiRequest?.user as AIRecordIdentity | string | null };
@@ -1279,7 +1275,7 @@ export class Ai {
 				const code = error && typeof error === 'object' && 'code' in error ? String(error.code) : null;
 				app().log.warn({ action: 'provider-budget:settle-deferred', aiRequestId: aiRequest?.id ?? null, provider: input.provider, model: input.model, errorCode: code && /^[A-Z0-9_]{1,80}$/.test(code) ? code : null }, 'Provider result retained; spending reservation remains pending for reconciliation.');
 			};
-			return providerBudgetFetch(transport, url, { ...init, signal }, input, this.options.providerBudget, onSettlementError);
+			return providerBudgetFetch(transport, url, init ?? {}, input, this.options.providerBudget, onSettlementError);
 		};
 	}
 
@@ -1441,7 +1437,7 @@ export class Ai {
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 
 			providerStarted = true;
-			const response = await this.providerTransport.transport(providerAttempt, this.fetcher(undefined, { provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.imagesUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher({ provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.imagesUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -1621,7 +1617,7 @@ export class Ai {
 
 			await this.attachRateLimitRequest(lease, tracked?.aiRequest ?? null);
 			providerStarted = true;
-			const response = await this.providerTransport.transport(providerAttempt, this.fetcher(undefined, { provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.embeddingsUrl(), {
+			const response = await this.providerTransport.transport(providerAttempt, this.fetcher({ provider: providerAttempt.provider, model, operation, aiRequest: tracked?.aiRequest ?? null, rootAiRequest: null, scope: options[this.scopeField] as AIRecordIdentity | string | null ?? null, user: options.user, usage: options.usage }))(this.embeddingsUrl(), {
 				method: 'POST',
 				headers: {
 					authorization: `Bearer ${apiKey}`,
@@ -1768,6 +1764,14 @@ export type {
  *
  * @returns Null-valued provider metadata.
  */
+/** Records a reached time limit for operators; logging can never affect the request. */
+function logProviderTimeout(error: AIProviderTimeoutError, context?: Omit<AIProviderBudgetInput, 'request'>): void {
+	const aiRequest = context?.aiRequest ?? aiExecutionContext.getStore()?.aiRequest ?? null;
+	const fields = { action: 'ai-provider:timeout', code: error.code, timeoutMs: error.timeoutMs, aiRequestId: aiRequest?.id ?? null, provider: context?.provider ?? aiRequest?.provider ?? null, model: context?.model ?? aiRequest?.model ?? null };
+	try { app().log.warn(fields, error.message); }
+	catch { console.warn(error.message, fields); }
+}
+
 function emptyProviderResponseMetadata(): AIProviderResponseMetadata {
 	return {
 		providerRequestId: null,

@@ -11,8 +11,8 @@ export class AIProviderStoppedError extends QueueTerminalError {
 	providerStarted = false;
 
 	/** Stops exhausted-credit work or unsafe replay after output, retaining only safe provider diagnostics. */
-	constructor(readonly reason: 'quota' | 'outage', providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null; stopStage?: 'stream-output' } = {}) {
-		super(reason === 'quota' ? 'AI provider credits exhausted; this run stopped.' : 'AI provider interrupted after streamed output; this run stopped to prevent unsafe replay.');
+	constructor(readonly reason: 'quota' | 'outage', providerCode: string | null = null, diagnostics: { status?: number | null; requestId?: string | null; stopStage?: 'stream-output'; detail?: string } = {}) {
+		super(reason === 'quota' ? 'AI provider credits exhausted; this run stopped.' : `${diagnostics.detail ?? 'AI provider interrupted after streamed output.'} This run stopped to prevent unsafe replay.`);
 		this.name = 'AIProviderStoppedError';
 		this.providerCode = safeProviderCode(providerCode);
 		this.status = safeProviderStatus(diagnostics.status);

@@ -18,6 +18,7 @@ const FAILOVERABLE_ERROR_CODES = new Set([
 const NETWORK_ERROR_NAMES = new Set([
 	'AbortError',
 	'TimeoutError',
+	'AIProviderTimeoutError',
 	'APIConnectionError',
 	'APIConnectionTimeoutError',
 	'ConnectTimeoutError',
