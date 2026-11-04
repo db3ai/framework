@@ -124,12 +124,8 @@ export type AIAllowanceChecker = (input: AIAllowanceCheckInput) => void | Promis
 export interface AIOptions {
 	/** Durable background viewing; disabled until the stream models/columns are installed. */
 	streaming?: import('./AgentStreamingOptions').AgentStreamingOptions;
-	/** Maximum wait for response headers on each provider HTTP request, including SDK model turns. */
+	/** How long a provider may send nothing before its request fails as stuck. Defaults to 4 minutes. */
 	timeoutMs?: number;
-	/** Maximum silence between response body chunks. Defaults to 4 minutes. */
-	streamIdleTimeoutMs?: number;
-	/** Optional ceiling on each provider HTTP request, however active. Unset by default. */
-	totalTimeoutMs?: number;
 	/** Persisted logical scope field. Apps may map this to an existing domain field. */
 	scopeField?: string;
 	/** Model subclasses registered by the application migration workflow. */

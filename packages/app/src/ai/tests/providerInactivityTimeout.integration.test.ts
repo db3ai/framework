@@ -26,8 +26,8 @@ const neverResponds: typeof fetch = (_url, init) => new Promise((_, reject) => {
 
 beforeAll(async () => {
 	vi.stubEnv('OPENAI_AGENTS_TRACING_DISABLED', 'true');
-	database = await createGeneratedTestDatabase('ai_provider_timeouts');
-	application = new App({ db: database.db, ai: { apiKey: 'synthetic-test-key', model: 'test-model', fetch: fetcher, timeoutMs: 60, streamIdleTimeoutMs: 80, models: { conversation: AiConversation } }, queue: { driver: 'database', queueMonitor: false } });
+	database = await createGeneratedTestDatabase('ai_provider_inactivity');
+	application = new App({ db: database.db, ai: { apiKey: 'synthetic-test-key', model: 'test-model', fetch: fetcher, timeoutMs: 80, models: { conversation: AiConversation } }, queue: { driver: 'database', queueMonitor: false } });
 	await application.db.install(AiConversation, AiRateLimitBucket, AiRequest, AiMessage, AiRateLimitReservation, QueuedJob, FailedJob);
 	application.queue.registerJob(AgentRunJob);
 	registerQueuedAgent('TimeoutAgent', TimeoutAgent);
@@ -52,13 +52,13 @@ async function attempt() {
 	return application.queue.workNextJob('timeouts');
 }
 
-describe('provider timeouts through a real agent run', () => {
+describe('provider inactivity timeout through a real agent run', () => {
 	it('reports a response that never starts by name, leaving it retryable', async () => {
 		fetcher.mockImplementation(neverResponds);
 		const result = await attempt();
 		expect(result?.status).toBe('released');
 		expect(result?.error).toBeInstanceOf(AIProviderRetryError);
-		expect(result?.error).toMatchObject({ providerCode: 'ai_provider_response_start_timeout', message: 'AI provider did not start responding within 60ms.' });
+		expect(result?.error).toMatchObject({ providerCode: 'ai_provider_inactivity_timeout', message: 'AI provider sent nothing for 80ms; the request appears stuck.' });
 	});
 
 	it('stops a stream that stalls after output, saying why', async () => {
@@ -69,13 +69,13 @@ describe('provider timeouts through a real agent run', () => {
 		expect(result?.status).toBe('failed');
 		expect(result?.error).toBeInstanceOf(AIProviderStoppedError);
 		expect(result?.error).toMatchObject({
-			providerCode: 'ai_provider_stream_idle_timeout',
-			message: 'AI provider stream stalled: no data received for 80ms. This run stopped to prevent unsafe replay.',
+			providerCode: 'ai_provider_inactivity_timeout',
+			message: 'AI provider sent nothing for 80ms; the request appears stuck. This run stopped to prevent unsafe replay.',
 		});
 		expect(await AiRequest.query().firstOrFail()).toMatchObject({ status: 'failed', errorMessage: (result?.error as Error).message });
 	});
 
-	it('lets a stream that keeps delivering run well past both limits', async () => {
+	it('lets a stream that keeps delivering run well past the limit', async () => {
 		const completed = { ...inProgress, status: 'completed', output: [{ type: 'message', id: 'msg_test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text: 'Done.', annotations: [] }] }], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
 		let sequence = 1;
 		fetcher.mockImplementation(async () => new Response(new ReadableStream<Uint8Array>({

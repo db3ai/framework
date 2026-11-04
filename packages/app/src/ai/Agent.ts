@@ -141,8 +141,6 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	protected readonly model?: string;
 	/** OpenAI processing tier for this agent. Override to opt into local Flex experiments. */
 	protected readonly serviceTier: AIServiceTier = 'default';
-	/** Optional wait for response headers on this agent's model turns, in milliseconds. */
-	protected readonly requestTimeoutMs: number | null = null;
 	private currentInput: AgentRunInputPayload | null = null;
 	#recorder: AgentStreamRecorder | undefined;
 
@@ -1100,7 +1098,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 					const compactionHistory = new AgentCompactionHistory();
 					const runner = new Runner({
 						model: attempt.model,
-						modelProvider: compactionHistory.provider(app().ai.createAgentProvider(attempt, rateLimitLease, prepared.serviceTier, this.requestTimeoutMs)),
+						modelProvider: compactionHistory.provider(app().ai.createAgentProvider(attempt, rateLimitLease, prepared.serviceTier)),
 						modelSettings: {
 							...modelSettingsForProvider(invocation.modelSettings, attempt.provider, prepared.serviceTier),
 							retry: {

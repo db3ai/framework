@@ -106,49 +106,12 @@ describe('AI inside an application', () => {
 		expect(await AiRateLimitReservation.query().count()).toBe(0);
 	});
 
-	it('keeps an active agent stream open past its response-start timeout', async () => {
-		/** Sets a short response-start timeout to catch a body-wide deadline. */
-		class LongHelpAgent extends HelpAgent {
-			protected override readonly requestTimeoutMs = 100;
-		}
-		const eventBody = await textStream('Long run completed.').text();
-		let finishStream: (() => void) | undefined;
-		let finished = false;
-		fetch.mockImplementationOnce(async (_url, init) => {
-			const stream = new ReadableStream<Uint8Array>({
-				start(controller) {
-					const encoder = new TextEncoder();
-					const firstEventEnd = eventBody.indexOf('\n\n') + 2;
-					controller.enqueue(encoder.encode(eventBody.slice(0, firstEventEnd)));
-					init?.signal?.addEventListener('abort', () => controller.error(init.signal?.reason), { once: true });
-					finishStream = () => {
-						if (finished) return;
-						finished = true;
-						controller.enqueue(encoder.encode(eventBody.slice(firstEventEnd)));
-						controller.close();
-					};
-				},
-			});
-			return new Response(stream, { headers: { 'content-type': 'text/event-stream' } });
-		});
-		const run = new LongHelpAgent({ guidePath: 'help.md' }).run('Help.');
-		try {
-			await new Promise(resolve => setTimeout(resolve, 180));
-			finishStream?.();
-			await expect(run).resolves.toMatchObject({ finalOutput: 'Long run completed.' });
-		} finally { finishStream?.(); }
-	});
-
-	it('forwards structured Flex and gives its direct request a longer timeout', async () => {
-		const timeout = vi.spyOn(globalThis, 'setTimeout');
-		try {
-			fetch.mockResolvedValueOnce(Response.json({ model: 'gpt-6-sol', service_tier: 'flex', output_text: '{"title":"Done"}', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
-			const result = await application.ai.generateStructured({ model: 'gpt-6-sol', serviceTier: 'flex', instructions: 'Title.', input: 'Hello.', schemaName: 'title', schema: z.object({ title: z.string() }) });
-			expect(result.data.title).toBe('Done');
-			expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
-			expect(timeout).toHaveBeenCalledWith(expect.any(Function), 900_000, 'response_start', 900_000);
-			expect(await AiRequest.findByPk(result.aiRequestId!)).toMatchObject({ costUSD: 0.00003 });
-		} finally { timeout.mockRestore(); }
+	it('forwards structured Flex', async () => {
+		fetch.mockResolvedValueOnce(Response.json({ model: 'gpt-6-sol', service_tier: 'flex', output_text: '{"title":"Done"}', usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14 } }));
+		const result = await application.ai.generateStructured({ model: 'gpt-6-sol', serviceTier: 'flex', instructions: 'Title.', input: 'Hello.', schemaName: 'title', schema: z.object({ title: z.string() }) });
+		expect(result.data.title).toBe('Done');
+		expect(JSON.parse(String(fetch.mock.calls[0][1]?.body)).service_tier).toBe('flex');
+		expect(await AiRequest.findByPk(result.aiRequestId!)).toMatchObject({ costUSD: 0.00003 });
 	});
 
 	it('preserves the selected tier when a queued agent is reconstructed', async () => {
