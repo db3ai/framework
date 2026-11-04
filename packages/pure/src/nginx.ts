@@ -35,7 +35,7 @@ interface Directive {
 /**
  * Parses nginx configuration (the output of `nginx -T`) into upstreams, proxy
  * targets and server blocks. Only the names matter: callers resolve them to
- * containers (Dock, by Docker network alias) or processes (Cloud, by Service name).
+ * containers (Dock, by Docker network alias) or processes (by Kubernetes Service name).
  *
  * @param config - nginx configuration text.
  * @returns Upstreams, proxy targets and servers.
@@ -137,7 +137,7 @@ function parseDirectives(tokens: string[]): Directive[] {
 }
 
 /**
- * Blue/green role of an upstream from its name: `scout_active` or `db3_docs_previous`.
+ * Blue/green role of an upstream from its name: `app_active` or `docs_previous`.
  *
  * @param name - Upstream name.
  * @returns `active`, `previous`, or `direct` for any other upstream.
