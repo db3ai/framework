@@ -34,8 +34,8 @@ interface Directive {
 
 /**
  * Parses nginx configuration (the output of `nginx -T`) into upstreams, proxy
- * targets and server blocks. Only the names matter: they are resolved against
- * Docker network aliases later.
+ * targets and server blocks. Only the names matter: callers resolve them to
+ * containers (Dock, by Docker network alias) or processes (Cloud, by Service name).
  *
  * @param config - nginx configuration text.
  * @returns Upstreams, proxy targets and servers.

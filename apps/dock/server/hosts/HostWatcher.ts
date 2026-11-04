@@ -6,7 +6,7 @@ import { DockRequestError } from '../projects/ProjectStore.js';
 import { buildTopology } from './buildTopology.js';
 import { cpuPercent, INSPECT_FORMAT, parseApiStats, parseEvent, parseInfo, parseInspect, parsePs, parseStats, splitSections, type ApiStats, type EngineInfo, type InspectRow, type PsRow, type StatsRow } from './parseDocker.js';
 import { KUBE_PRELUDE, parseKubeNodes, parseKubePods, type KubeNodes, type KubeTarget } from './parseKube.js';
-import { parseNginxRoutes, type NginxRoutes } from './parseNginxRoutes.js';
+import { parseNginxRoutes, type NginxRoutes } from '@db3.ai/pure/nginx';
 import { LISTEN_OK, NO_MOUNTS, parseAccessCounts, parseDisks, parseListening, parseTunnelLog, parseTunnelMetrics, type TunnelLog, type TunnelMetrics } from './parseRuntime.js';
 import { CONTAINER_NAME, RemoteShell } from './RemoteShell.js';
 

@@ -1,6 +1,6 @@
 import { buildTopology } from '../../server/hosts/buildTopology.js';
 import type { InspectRow, PsRow } from '../../server/hosts/parseDocker.js';
-import { parseNginxRoutes } from '../../server/hosts/parseNginxRoutes.js';
+import { parseNginxRoutes } from '@db3.ai/pure/nginx';
 
 /** A cut-down copy of the production Scout layout: gateway, two slots, database. */
 export function scoutFixture(): Parameters<typeof buildTopology>[0] {

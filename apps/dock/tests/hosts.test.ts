@@ -9,7 +9,7 @@ import { HostStore } from '../server/hosts/HostStore.js';
 import { HostWatcher } from '../server/hosts/HostWatcher.js';
 import { cpuPercent, labelFromList, parseApiStats, parseEvent, parseInspect, parsePorts, parsePs, parseSize, splitSections, type InspectRow, type PsRow } from '../server/hosts/parseDocker.js';
 import { cpuQuantity, memoryQuantity, parseKubeNodes, parseKubePods } from '../server/hosts/parseKube.js';
-import { parseNginxRoutes, upstreamRole } from '../server/hosts/parseNginxRoutes.js';
+import { parseNginxRoutes, upstreamRole } from '@db3.ai/pure/nginx';
 import { LISTEN_OK, NO_MOUNTS, parseAccessCounts, parseDisks, parseListening, parseTunnelLog, parseTunnelMetrics } from '../server/hosts/parseRuntime.js';
 import { RemoteShell } from '../server/hosts/RemoteShell.js';
 import { scoutFixture } from './fixtures/hostFixture.js';

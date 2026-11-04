@@ -27,6 +27,7 @@
 		"./dates": "./src/dates.ts",
 		"./errors": "./src/errors.ts",
 		"./http": "./src/http.ts",
+		"./nginx": "./src/nginx.ts",
 		"./records": "./src/records.ts",
 		"./strings": "./src/strings.ts",
 		"./ulid": "./src/ulid.ts",

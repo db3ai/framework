@@ -1,7 +1,7 @@
 import type { AppGroup, ContainerRole, ContainerSnapshot, DiskUsage, HostDefinition, InboundRoute, ListeningPort, RequestStats, SlotGroup, TunnelInfo } from '../../shared/hostContracts.js';
 import { emptyHistory, type UsageHistory } from '../../shared/usageHistory.js';
 import type { InspectRow, PsRow, StatsRow } from './parseDocker.js';
-import { upstreamRole, type NginxRoutes } from './parseNginxRoutes.js';
+import { upstreamRole, type NginxRoutes } from '@db3.ai/pure/nginx';
 import type { TunnelLog, TunnelMetrics } from './parseRuntime.js';
 
 /** Everything sampled from one host, ready to be turned into snapshots. */
