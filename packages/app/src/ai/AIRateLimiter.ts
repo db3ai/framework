@@ -581,6 +581,13 @@ function applyDefaultRateLimitBucketState(
 	now: Date,
 ): boolean {
 	let changed = false;
+	// A bucket filled from an older default (e.g. Flare's former 5/minute) adopts the new policy.
+	// Dimensions the provider reports are never filled from defaults, so only default-owned values reset.
+	const previousSource = (bucket.metadata?.defaultRateLimit as { source?: string } | undefined)?.source;
+	if (previousSource && previousSource !== defaultRateLimit.source) {
+		if (defaultRateLimit.limitRequests !== null) { bucket.limitRequests = null; bucket.remainingRequests = null; bucket.requestsResetAt = null; }
+		if (defaultRateLimit.limitTokens !== null) { bucket.limitTokens = null; bucket.remainingTokens = null; bucket.tokensResetAt = null; }
+	}
 
 	if (defaultRateLimit.limitRequests !== null) {
 		if (bucket.limitRequests === null || bucket.limitRequests === undefined) {

@@ -204,6 +204,33 @@ describe('AIRateLimiter metadata parsing', () => {
 		}
 	}, 30000);
 
+	it('moves a bucket filled from an older default onto the current default', async () => {
+		const database = await createGeneratedTestDatabase('ai_rate_limiter_default_change');
+		const app = new App({ db: database.db, dbOptions: { reportSchemaDiff: false } });
+
+		try {
+			await app.db.install(AiConversation, AiRateLimitBucket, AiRequest, AiRateLimitReservation);
+			const model = 'gpt-image-2.5-flare';
+			// The production row left by the former 5/minute policy, exhausted until a future reset.
+			await AiRateLimitBucket.create({
+				bucketKey: `openai:images:${model}`, provider: 'openai', endpoint: imagesRateLimitEndpoint(), limitKey: model,
+				limitRequests: 5, remainingRequests: 0, requestsResetAt: new Date(Date.now() + 50_000),
+				metadata: { defaultRateLimit: { source: 'local:gpt-image-2.5-flare:conservative', appliedAt: new Date().toISOString() } },
+			}).save();
+
+			const limiter = new AIRateLimiter();
+			const lease = await limiter.acquire({ endpoint: imagesRateLimitEndpoint(), model, operation: 'images.generate', estimatedTokens: 10 });
+			await limiter.observe(lease, providerResponseMetadata(new Headers({ 'x-request-id': 'req_after_change' })));
+
+			const bucket = await AiRateLimitBucket.where('bucketKey', `openai:images:${model}`).first();
+			expect(bucket).toMatchObject({ limitRequests: 100, remainingRequests: 99 });
+			expect(bucket?.metadata).toMatchObject({ defaultRateLimit: { source: 'local:gpt-image-2.5-flare:100-per-minute' } });
+		} finally {
+			await app.close();
+			await database.destroy();
+		}
+	}, 30000);
+
 	it('cleans released and expired reservations after release', async () => {
 		const database = await createGeneratedTestDatabase('ai_rate_limiter_cleanup');
 		const app = new App({
