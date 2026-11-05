@@ -27,6 +27,14 @@ explicitly register only the providers they need. The package staging command
 builds their runtime and declaration exports alongside App and Pure; no separate
 repository or npm publication is required for local development.
 
+## Docker base image
+
+[`ghcr.io/db3ai/node-browser`](./deploy/images/node-browser/README.md) is a public image
+for ARM and Intel with Node 24 and Playwright's Chromium, the runtime db3 apps are tested on.
+Start an app's Dockerfile from it (`FROM ghcr.io/db3ai/node-browser:24-playwright-1.63.0`) and a
+build only installs npm packages and copies the compiled app. It is rebuilt when
+`deploy/images` changes and weekly for security fixes, not on framework code changes.
+
 ## Development
 
 Requirements: Node.js 24 or newer, MariaDB for database integration suites, and
