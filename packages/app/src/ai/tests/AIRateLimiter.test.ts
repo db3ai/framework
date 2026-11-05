@@ -147,7 +147,8 @@ describe('AIRateLimiter metadata parsing', () => {
 		}
 	}, 30000);
 
-	it.each(['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-flare-20260901'])('uses conservative image capacity for %s when headers are absent', async model => {
+	it.each(['gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-flare-20260901'])('uses default image capacity for %s when headers are absent', async model => {
+		const limit = model === 'gpt-image-2' ? 5 : 100;
 		const database = await createGeneratedTestDatabase('ai_rate_limiter_image_defaults');
 		const app = new App({
 			db: database.db,
@@ -161,7 +162,7 @@ describe('AIRateLimiter metadata parsing', () => {
 
 			const limiter = new AIRateLimiter();
 
-			for (let index = 0; index < 5; index++) {
+			for (let index = 0; index < limit; index++) {
 				const lease = await limiter.acquire({
 					endpoint: imagesRateLimitEndpoint(),
 					model,
@@ -179,14 +180,14 @@ describe('AIRateLimiter metadata parsing', () => {
 				.first();
 
 			expect(bucket).toMatchObject({
-				limitRequests: 5,
+				limitRequests: limit,
 				remainingRequests: 0,
 				limitTokens: model === 'gpt-image-2' ? 100000 : null,
 				remainingTokens: model === 'gpt-image-2' ? 99950 : null,
 			});
 			expect(bucket?.metadata).toMatchObject({
 				defaultRateLimit: {
-					source: model === 'gpt-image-2' ? 'openai:gpt-image-2:tier-1' : 'local:gpt-image-2.5-flare:conservative',
+					source: model === 'gpt-image-2' ? 'openai:gpt-image-2:tier-1' : 'local:gpt-image-2.5-flare:100-per-minute',
 				},
 			});
 			await expect(limiter.acquire({

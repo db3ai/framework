@@ -550,8 +550,8 @@ function providerDefaultRateLimit(
 	model: string,
 ): ProviderDefaultRateLimit | null {
 	if (provider === AI_PROVIDER.openai && endpoint === AI_RATE_LIMIT_ENDPOINT.images && (model === 'gpt-image-2.5-flare' || model.startsWith('gpt-image-2.5-flare-'))) {
-		// Conservative local admission policy, not a claim about the account's provider tier.
-		return { limitRequests: 5, limitTokens: null, windowMs: ONE_MINUTE_MS, source: 'local:gpt-image-2.5-flare:conservative' };
+		// Local admission policy: 100 of the account's 250 images/minute, leaving headroom for other callers.
+		return { limitRequests: 100, limitTokens: null, windowMs: ONE_MINUTE_MS, source: 'local:gpt-image-2.5-flare:100-per-minute' };
 	}
 	if (
 		provider === AI_PROVIDER.openai

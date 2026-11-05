@@ -465,9 +465,10 @@ failed, coordination/request IDs and expiry. They omit SQL, bindings, exception
 messages, prompts and responses. Monitor these warnings to investigate recurring
 contention; preserving the provider outcome does not establish its lock holder.
 
-Flare image buckets use a conservative local fallback of five requests per
-minute when response headers omit capacity; this is an admission policy, not
-an assertion about the account's provider tier. Observed headers remain authoritative.
+Flare image buckets use a local fallback of 100 requests per minute when
+response headers omit capacity (OpenAI image responses send token limits only).
+This is an admission policy below the account's 250 images/minute tier, not an
+assertion about the tier itself; provider 429s still defer the job. Observed headers remain authoritative.
 An image attempt deferred before provider execution is finalized in the audit
 trail rather than left pending. Queue owners retain durable waiting state separately.
 Ordinary direct text, image and embedding HTTP rejections throw `AIRequestError`
