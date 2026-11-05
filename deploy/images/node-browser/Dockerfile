@@ -3,7 +3,7 @@
 # app: no apt or Chromium download per build, and no emulation when a builder of one CPU type
 # builds for another. Published as ghcr.io/db3ai/node-browser:<node>-playwright-<version> by
 # .github/workflows/base-images.yml; an app picks the tag matching its own playwright version.
-ARG NODE_VERSION=24.15.0
+ARG NODE_VERSION=24.22.1
 FROM node:${NODE_VERSION}-bookworm-slim
 ARG PLAYWRIGHT_VERSION
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
