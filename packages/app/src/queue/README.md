@@ -382,7 +382,23 @@ failures and ambiguous lease losses.
 
 Payloads, lifecycle events and stored exceptions can expose sensitive values.
 Never queue secrets; redact before exporting telemetry, restrict access to
-inspection/replay and define retention. There is no automatic failure pruning.
+inspection/replay and define retention.
+
+### Retention
+
+`pruneJobRuns(retention)` deletes finished runs older than their window, with
+their attempts and events, in small batches. Waiting, running and blocked runs
+are never touched. Run IDs are ULIDs, so age is a primary-key range and no
+`created_at` index is needed. Schedule it daily from the application, and set
+the windows in code:
+
+```ts
+await pruneJobRuns({ completedDays: 30, failedDays: 90, jobTypes: { TickJob: 7 } });
+```
+
+`completedDays` covers completed and cancelled runs. `jobTypes` overrides that
+window for noisy job types such as every-minute schedules; failed runs always
+use `failedDays`. Deleted run IDs stop resolving from anything that stored them.
 
 ## Troubleshooting
 

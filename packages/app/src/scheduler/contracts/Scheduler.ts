@@ -27,9 +27,11 @@ export interface DailyScheduleFrequency {
 	time: string;
 }
 
-/** Runs once for each evaluated UTC minute, including catch-up after downtime. */
+/** Runs on each evaluated UTC minute divisible by interval (default 1), including catch-up after downtime. */
 export interface MinuteScheduleFrequency {
 	type: 'minute';
+	/** Minutes between runs; divides 60 so runs land on the same clock minutes every hour. */
+	interval?: number;
 }
 
 /** Supported calendar frequencies; durable claims remain scoped to UTC minutes. */

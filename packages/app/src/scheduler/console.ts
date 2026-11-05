@@ -47,7 +47,7 @@ export async function runSchedulerCommand(options: scheduler.SchedulerConsoleOpt
 			await runWithApp(options, app => {
 				for (const definition of app.scheduler.definitions()) {
 					console.log(
-						`${definition.name}\t${definition.kind}\t${definition.frequency.type === 'minute' ? 'every minute' : definition.frequency.type === 'hourly' ? 'hourly (UTC)' : `daily at ${definition.frequency.time}`}\t${definition.timezone}${definition.jobName ? `\t${definition.jobName}` : ''}`,
+						`${definition.name}\t${definition.kind}\t${definition.frequency.type === 'minute' ? (definition.frequency.interval ? `every ${definition.frequency.interval} minutes` : 'every minute') : definition.frequency.type === 'hourly' ? 'hourly (UTC)' : `daily at ${definition.frequency.time}`}\t${definition.timezone}${definition.jobName ? `\t${definition.jobName}` : ''}`,
 					);
 				}
 			});

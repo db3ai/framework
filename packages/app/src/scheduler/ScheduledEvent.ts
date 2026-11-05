@@ -38,6 +38,20 @@ export abstract class ScheduledEvent {
 		return this;
 	}
 
+	/**
+	 * Schedules one occurrence every N minutes, on UTC minutes divisible by N.
+	 *
+	 * @param minutes - Interval that divides 60, e.g. 5, 15 or 30.
+	 * @returns This scheduled event.
+	 */
+	everyMinutes(minutes: number): this {
+		if (!Number.isInteger(minutes) || minutes < 1 || minutes > 30 || 60 % minutes !== 0) {
+			throw new Error('everyMinutes() needs an interval that divides 60, from 1 to 30.');
+		}
+		this.configuredFrequency = minutes === 1 ? { type: 'minute' } : { type: 'minute', interval: minutes };
+		return this;
+	}
+
 	/** Schedules one occurrence at minute zero of each UTC hour, independent of timezone. */
 	hourly(): this {
 		this.configuredFrequency = { type: 'hourly' };
@@ -89,7 +103,7 @@ export abstract class ScheduledEvent {
 	isDue(instant: Date): boolean {
 		const frequency = this.frequency();
 
-		if (frequency.type === 'minute') return Number.isFinite(instant.getTime());
+		if (frequency.type === 'minute') return Number.isFinite(instant.getTime()) && instant.getUTCMinutes() % (frequency.interval ?? 1) === 0;
 		if (frequency.type === 'hourly') return Number.isFinite(instant.getTime()) && instant.getUTCMinutes() === 0;
 
 		return dailyScheduleIsDue(

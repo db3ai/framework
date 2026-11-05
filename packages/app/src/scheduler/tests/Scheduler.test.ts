@@ -150,6 +150,17 @@ describe('Scheduler definitions', () => {
 		scheduler.close();
 	});
 
+	it('runs every N minutes on UTC minutes divisible by N', () => {
+		const scheduler = definitionScheduler();
+		const event = scheduler.job(DefinitionJob).everyMinutes(15).timezone('Asia/Kolkata');
+		expect(scheduler.definitions()[0].frequency).toEqual({ type: 'minute', interval: 15 });
+		for (const time of ['2026-03-29T00:00:00Z', '2026-03-29T00:15:00Z', '2026-03-29T23:45:00Z']) expect(event.isDue(new Date(time))).toBe(true);
+		for (const time of ['2026-03-29T00:05:00Z', '2026-03-29T00:14:00Z', 'invalid']) expect(event.isDue(new Date(time))).toBe(false);
+		expect(event.everyMinutes(1).definition().frequency).toEqual({ type: 'minute' });
+		for (const minutes of [0, 7, 45, 60, 2.5]) expect(() => event.everyMinutes(minutes)).toThrow('divides 60');
+		scheduler.close();
+	});
+
 	it('owns schedule groups, rejects duplicate declarations atomically and cleans up idempotently', () => {
 		const scheduler = definitionScheduler();
 		scheduler.job(DefinitionJob).name('host.daily').daily();

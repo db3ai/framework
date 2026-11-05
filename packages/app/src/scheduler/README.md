@@ -28,7 +28,8 @@ A `QueueableJob` class uses its durable job name as the schedule name, so
 stable name because function identity is not durable. Names must be unique
 within one application schedule.
 
-Use `everyMinute()` for bounded background collection, or `daily()` and
+Use `everyMinute()` or `everyMinutes(n)` (n divides 60, runs on UTC minutes
+divisible by n) for bounded background collection, `hourly()`, or `daily()` and
 `dailyAt('HH:mm')` for daily work. Minute schedules are independent of timezone;
 daily times use UTC unless `.timezone(...)` selects an IANA timezone. The worker covers every elapsed UTC minute in order. Applications
 can provide durable progress to preserve that coverage across downtime.

@@ -19,3 +19,4 @@ export * from './RunnableJob';
 export * from './JobRunAttempt';
 export * from './JobRunEvent';
 export * from './JobRunStoppedError';
+export * from './pruneJobRuns';
