@@ -61,6 +61,13 @@ jobs:
           tags: |
             ghcr.io/db3ai/node-browser:${{ needs.versions.outputs.node }}-playwright-${{ matrix.playwright }}
             ghcr.io/db3ai/node-browser:24-playwright-${{ matrix.playwright }}
+          # GitHub shows the description and documentation link on the package page; for a
+          # multi-arch image they must be on the index, so they are annotations too.
           labels: |
             org.opencontainers.image.source=https://github.com/db3ai/framework
-            org.opencontainers.image.description=Node with Playwright Chromium for db3 apps, ARM and Intel
+            org.opencontainers.image.description=Node 24 with Playwright Chromium for db3 apps, ARM and Intel
+            org.opencontainers.image.documentation=https://github.com/db3ai/framework/tree/main/deploy/images/node-browser#readme
+          annotations: |
+            index:org.opencontainers.image.source=https://github.com/db3ai/framework
+            index:org.opencontainers.image.description=Node 24 with Playwright Chromium for db3 apps, ARM and Intel. See https://github.com/db3ai/framework/tree/main/deploy/images/node-browser
+            index:org.opencontainers.image.documentation=https://github.com/db3ai/framework/tree/main/deploy/images/node-browser#readme
