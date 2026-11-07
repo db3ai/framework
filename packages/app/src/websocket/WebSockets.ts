@@ -70,7 +70,18 @@ export class WebSockets {
 			if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`Invalid WebSocket limit: ${key}.`);
 			limits[key] = value;
 		}
+		const maxPublicConnections = options.maxPublicConnections ?? Math.max(1, Math.floor(limits.maxConnections / 4));
+		const maxPublicConnectionsPerSource = options.maxPublicConnectionsPerSource ?? Math.min(16, maxPublicConnections);
+		if (!Number.isSafeInteger(maxPublicConnections) || maxPublicConnections < 1 || maxPublicConnections > limits.maxConnections || (limits.maxConnections > 1 && maxPublicConnections === limits.maxConnections)) {
+			throw new Error('Invalid public WebSocket connection limit.');
+		}
+		if (!Number.isSafeInteger(maxPublicConnectionsPerSource) || maxPublicConnectionsPerSource < 1 || maxPublicConnectionsPerSource > maxPublicConnections) {
+			throw new Error('Invalid per-source public WebSocket connection limit.');
+		}
 		const connections = this.#connections;
+		const publicSources = new Map<string, number>();
+		let publicConnections = 0;
+		let pendingUpgrades = 0;
 		const sockets = new WebSocketServer({ noServer: true, maxPayload: limits.maxPayloadBytes, perMessageDeflate: false });
 		/** Contains reporting failures and keeps credentials out of transport diagnostics. */
 		const report = (error: unknown): void => { try { options.onError?.(error); } catch { /* Reporting cannot break cleanup. */ } };
@@ -86,19 +97,54 @@ export class WebSockets {
 			}
 			// Token endpoints carry no ambient browser credential, so non-browser clients may omit Origin.
 			const origin = request.headers.origin;
-			if (closing || (origin === undefined ? endpoint.auth !== 'token' : !origins.has(origin)) || connections.size >= limits.maxConnections) {
+			const publicEndpoint = endpoint.auth === 'public';
+			const source = request.socket.remoteAddress ?? 'unknown';
+			if (closing || (origin === undefined ? endpoint.auth !== 'token' : !origins.has(origin))
+				|| connections.size + pendingUpgrades >= limits.maxConnections
+				|| (publicEndpoint && (publicConnections >= maxPublicConnections || (publicSources.get(source) ?? 0) >= maxPublicConnectionsPerSource))) {
 				stream.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
 				return;
 			}
-			sockets.handleUpgrade(request, stream, head, ws => {
-				const connection = new WebSocketConnection(ws, request, this.app, endpoint, limits, report, () => {
-					for (const listener of this.#presenceListeners.get(pathname) ?? []) {
-						try { void Promise.resolve(this.app.requestContext.run(listener)).catch(report); } catch (error) { report(error); }
-					}
-				}, options.resolveToken);
-				connections.set(connection, pathname);
-				void connection.finished().then(() => connections.delete(connection));
-			});
+			pendingUpgrades++;
+			if (publicEndpoint) {
+				publicConnections++;
+				publicSources.set(source, (publicSources.get(source) ?? 0) + 1);
+			}
+			let pending = true;
+			let publicSlot = publicEndpoint;
+			/** Releases one reserved handshake slot exactly once. */
+			const releasePending = (): void => { if (pending) { pending = false; pendingUpgrades--; } };
+			/** Returns public capacity when an upgrade fails or a connection ends. */
+			const releasePublic = (): void => {
+				if (!publicSlot) return;
+				publicSlot = false;
+				publicConnections--;
+				const remaining = (publicSources.get(source) ?? 1) - 1;
+				if (remaining) publicSources.set(source, remaining);
+				else publicSources.delete(source);
+			};
+			/** Releases reservations for a transport closed before upgrade completion. */
+			const abandoned = (): void => { releasePending(); releasePublic(); };
+			stream.once('close', abandoned);
+			try {
+				sockets.handleUpgrade(request, stream, head, ws => {
+					stream.off('close', abandoned);
+					releasePending();
+					if (stream.destroyed) { releasePublic(); ws.terminate(); return; }
+					const connection = new WebSocketConnection(ws, request, this.app, endpoint, limits, report, () => {
+						for (const listener of this.#presenceListeners.get(pathname) ?? []) {
+							try { void Promise.resolve(this.app.requestContext.run(listener)).catch(report); } catch (error) { report(error); }
+						}
+					}, options.resolveToken);
+					connections.set(connection, pathname);
+					void connection.finished().then(() => { connections.delete(connection); releasePublic(); }, error => { connections.delete(connection); releasePublic(); report(error); });
+				});
+			} catch (error) {
+				stream.off('close', abandoned);
+				abandoned();
+				report(error);
+				stream.destroy();
+			}
 		};
 		server.on('upgrade', upgrade);
 		this.#close = () => closing ??= (async () => {
@@ -111,6 +157,7 @@ export class WebSockets {
 				clearTimeout(timer);
 				for (const connection of current) connection.ws.terminate();
 				connections.clear();
+				publicSources.clear();
 				this.#presenceListeners.clear();
 				this.channels.clear();
 				server.off('upgrade', upgrade);

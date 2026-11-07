@@ -11,7 +11,7 @@
 		"build": "npm run check && vite build --configLoader runner",
 		"start": "tsx server/index.ts",
 		"check": "node --import tsx scripts/prepareApps.mjs && vue-tsc --noEmit",
-		"test": "vitest run --maxWorkers=1 --configLoader runner",
+		"test": "vitest run --configLoader runner",
 		"db3": "db3",
 		"repl": "db3 repl",
 		"agents": "db3 agents:list --json",

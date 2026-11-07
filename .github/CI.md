@@ -14,6 +14,11 @@ Keep the complete interface, coverage, packed consumer, and release policy
 checks. App tests run with four workers, and concurrency cancellation stops
 superseded runs for the same pull request or branch.
 
+On a larger isolated test host, run Starter with two workers using
+`npm test --workspace db3-starter -- --maxWorkers=2`. App Vitest accepts
+`--shard=N/M` for independent hosts. Keep each host's SQL and Redis services
+local to its test workers; Redis cancellation tests depend on low latency.
+
 Do not register the shared private-project worker with this public repository.
 Workflow conditions and runner labels do not isolate a machine from malicious
 pull request changes. See

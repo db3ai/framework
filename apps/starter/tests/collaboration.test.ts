@@ -58,9 +58,14 @@ async function ready(client: Awaited<ReturnType<typeof connect>>) { await expect
 it('shares public chat, cursors and presence, removes departed tabs, and restores committed drawings after API replacement', async () => {
 	const alice = await connect(); const bob = await connect();
 	await Promise.all([ready(alice), ready(bob)]);
-	await expect.poll(() => alice.frames.filter(frame => frame.type === 'presence').at(-1)?.participants.length).toBe(2);
-	expect(alice.frames.filter(frame => frame.type === 'presence').at(-1).participants.every((member: any) => member.userId === null)).toBe(true);
+	const aliceId = alice.frames.find(frame => frame.type === 'history-start').id;
+	const bobId = bob.frames.find(frame => frame.type === 'history-start').id;
+	await expect.poll(() => bob.frames.filter(frame => frame.type === 'presence').at(-1)?.participants.length).toBe(2);
+	await expect.poll(() => alice.frames.some(frame => frame.type === 'presence-upsert' && frame.participant.id === bobId)).toBe(true);
+	expect(alice.frames.filter(frame => frame.type === 'presence')).toHaveLength(1);
+	expect(bob.frames.filter(frame => frame.type === 'presence').at(-1).participants.every((member: any) => member.userId === null)).toBe(true);
 	alice.send({ type: 'profile', name: 'Painter', color: '#ff0000' });
+	await expect.poll(() => bob.frames.some(frame => frame.type === 'presence-upsert' && frame.participant.name === 'Painter')).toBe(true);
 	alice.send({ type: 'chat', text: 'Hello room' });
 	alice.send({ type: 'cursor', point: { x: 0.4, y: 0.2 } });
 	alice.send({ type: 'stroke', color: '#ff0000', points: [{ x: 0.1, y: 0.2 }, { x: 0.5, y: 0.7 }] });
@@ -69,7 +74,8 @@ it('shares public chat, cursors and presence, removes departed tabs, and restore
 	expect(bob.frames.find(frame => frame.type === 'cursor').point).toEqual({ x: 0.4, y: 0.2 });
 	alice.ws.close();
 	await expect.poll(() => bob.frames.some(frame => frame.type === 'left' && frame.name === 'Painter')).toBe(true);
-	await expect.poll(() => bob.frames.filter(frame => frame.type === 'presence').at(-1)?.participants.length).toBe(1);
+	await expect.poll(() => bob.frames.some(frame => frame.type === 'presence-remove' && frame.id === aliceId)).toBe(true);
+	expect(bob.frames.filter(frame => frame.type === 'presence')).toHaveLength(1);
 	await server.close();
 	server = await createServer(application, config);
 	address = (await server.listen({ host: config.host, port: 0 })).replace('http:', 'ws:');

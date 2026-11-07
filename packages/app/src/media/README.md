@@ -28,7 +28,8 @@ defaults such as `default_disk` and `path_prefix`.
 visible in a browser.
 
 `media_items` stores browser-visible rows: root folders, directories, and file
-placements. A `file` item points to a `media_files` row.
+placements. A `file` item points to a `media_files` row in the same library;
+`attachFile()` rejects a foreign-library file before creating target folders.
 
 ## Scoped Libraries
 

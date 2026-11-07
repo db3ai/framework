@@ -101,6 +101,19 @@ describe('MediaManager', () => {
 		expect(app.storage.path(file.path || '')).toBe(join(root, `scopes/hidden-file/media/${file.id}/private-export.txt`));
 	});
 
+	it('refuses to attach a managed file into another library before creating target folders', async () => {
+		const { app } = await createMediaTestApp('cross_library_attachment');
+		const source = await app.media.libraryFor({ scopeType: 'test.scope', scopeId: 'source', name: 'Source' });
+		const target = await app.media.libraryFor({ scopeType: 'test.scope', scopeId: 'target', name: 'Target' });
+		const file = await app.media.storeFile({ library: source, name: 'private.txt', mimeType: 'text/plain', contents: 'secret' });
+		for (const input of [file, file.id!]) {
+			await expect(app.media.attachFile({ library: target, file: input, folderPath: '/Private' })).rejects.toThrow('does not belong');
+		}
+		expect(await MediaItem.where({ library: target }).count()).toBe(0);
+		const attached = await app.media.attachFile({ library: source, file });
+		expect(attached.file?.id).toBe(file.id);
+	});
+
 	it('stores visible files under folders while preserving file lookup by ULID', async () => {
 		const { app } = await createMediaTestApp('visible_file');
 		const library = await app.media.libraryFor({
