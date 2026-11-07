@@ -718,13 +718,13 @@ function currentOrNextReset(
  * @returns Once the bucket row exists.
  */
 async function ensureBucket(input: { provider: AIProvider; endpoint: AiRateLimitEndpoint; limitKey: string; bucketKey: string }): Promise<void> {
-	const existing = await AiRateLimitBucket.where('bucketKey', input.bucketKey).toKnex().first();
-	if (existing) return;
+	// The root connection autocommits: a row created inside a caller's transaction would stay invisible,
+	// and the admission transaction's locked read would wait on it until the caller gave up.
+	const connection = app().db.knex;
+	const column = AiRateLimitBucket.getFields().bucketKey!.column;
+	if (await connection(AiRateLimitBucket.table).where(column, input.bucketKey).first('id')) return;
 	const bucket = new AiRateLimitBucket({ bucketKey: input.bucketKey, provider: input.provider, endpoint: input.endpoint, limitKey: input.limitKey });
-	await ActiveRecord.getDb()(AiRateLimitBucket.table)
-		.insert(await bucket.getDataForDb({ isInsert: true }))
-		.onConflict(AiRateLimitBucket.getFields().bucketKey!.column)
-		.ignore();
+	await connection(AiRateLimitBucket.table).insert(await bucket.getDataForDb({ isInsert: true })).onConflict(column).ignore();
 }
 
 /**

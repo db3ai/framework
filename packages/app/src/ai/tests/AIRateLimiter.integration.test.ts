@@ -174,6 +174,18 @@ describe('AIRateLimiter real MariaDB release contention', () => {
 		}
 	});
 
+	it('creates a missing bucket outside a caller transaction', async () => {
+		const transaction = await database.db.transaction();
+		try {
+			const lease = await ActiveRecord.withDb(transaction, () => acquireLease());
+			expect(lease.bucket?.id).toBeTruthy();
+			// Committed on its own: visible to other connections while the caller's transaction is open.
+			expect(await observer(AiRateLimitBucket.table).where('id', lease.bucket?.id).first()).toBeTruthy();
+		} finally {
+			await transaction.rollback();
+		}
+	}, 15000);
+
 	it('keeps failed release state retryable and emits only safe diagnostics', async () => {
 		const lease = await acquireLease();
 		const { blocker, timeout } = await holdRow(AiRateLimitReservation.table, String(lease.reservation?.id));
