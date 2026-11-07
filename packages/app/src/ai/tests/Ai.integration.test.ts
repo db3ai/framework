@@ -279,7 +279,7 @@ describe('AI inside an application', () => {
 
 	it('settles an image audit attempt when capacity defers before provider execution', async () => {
 		const limiter = new AIRateLimiter();
-		const model = 'gpt-image-2.5-flare-capacity-test';
+		const model = 'gpt-image-2-capacity-test';
 		const leases = [];
 		try {
 			for (let index = 0; index < 5; index++) leases.push(await limiter.acquire({ endpoint: 'images', model, operation: 'images.generate', estimatedTokens: 0 }));

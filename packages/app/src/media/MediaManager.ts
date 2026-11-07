@@ -339,6 +339,9 @@ export class MediaManager {
 	async attachFile(input: MediaAttachFileInput): Promise<MediaItem> {
 		const library = await this.#resolveLibrary(input.library);
 		const file = await this.#resolveFile(input.file);
+		if (!library.id || file.library.id !== library.id) {
+			throw new Error('Media file does not belong to the target library.');
+		}
 		const root = await this.rootFor(library);
 		const parent = await this.ensureFolder({
 			library,

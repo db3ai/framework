@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readConfig } from '../server/config';
 
 beforeEach(() => {
-	for (const name of ['APP_ADMIN_EMAIL', 'APPS_MANAGE_ONLINE', 'NODE_ENV', 'APP_ORIGIN', 'APP_NAME', 'PORT', 'HOST', 'GOOGLE_AUTH_CLIENT_ID', 'OPENAI_API_KEY', 'OPENAI_MODEL']) vi.stubEnv(name, undefined);
+	for (const name of ['APP_ADMIN_EMAIL', 'APP_ADMIN_USER_ID', 'APPS_MANAGE_ONLINE', 'TRUSTED_PROXIES', 'NODE_ENV', 'APP_ORIGIN', 'APP_NAME', 'PORT', 'HOST', 'GOOGLE_AUTH_CLIENT_ID', 'OPENAI_API_KEY', 'OPENAI_MODEL']) vi.stubEnv(name, undefined);
 });
 
 afterEach(() => {
@@ -11,12 +11,12 @@ afterEach(() => {
 
 describe('Starter server configuration', () => {
 	it('uses deterministic local defaults without provider credentials', () => {
-		expect(readConfig()).toEqual({ name: 'My DB3 app', origin: 'http://localhost:5173', production: false, appsAdminEmail: undefined, appsManageOnline: true, port: 3001, host: '127.0.0.1', auth: { googleClientId: '' }, ai: { apiKey: '', model: 'gpt-4.1-mini' } });
+		expect(readConfig()).toEqual({ name: 'My DB3 app', origin: 'http://localhost:5173', production: false, appsAdminEmail: undefined, appsAdminUserId: undefined, appsManageOnline: false, trustedProxies: [], port: 3001, host: '127.0.0.1', auth: { googleClientId: '' }, ai: { apiKey: '', model: 'gpt-4.1-mini' } });
 	});
 
 	it('reads explicitly configured server settings and trims the provider key', () => {
 		for (const [name, value] of Object.entries({ NODE_ENV: 'production', APP_ORIGIN: 'https://example.com', APP_NAME: 'Example', PORT: '4000', HOST: '0.0.0.0', GOOGLE_AUTH_CLIENT_ID: 'test-client', OPENAI_API_KEY: ' test-key ', OPENAI_MODEL: 'test-model' })) vi.stubEnv(name, value);
-		expect(readConfig()).toEqual({ name: 'Example', origin: 'https://example.com', production: true, appsAdminEmail: undefined, appsManageOnline: false, port: 4000, host: '0.0.0.0', auth: { googleClientId: 'test-client' }, ai: { apiKey: 'test-key', model: 'test-model' } });
+		expect(readConfig()).toEqual({ name: 'Example', origin: 'https://example.com', production: true, appsAdminEmail: undefined, appsAdminUserId: undefined, appsManageOnline: false, trustedProxies: [], port: 4000, host: '0.0.0.0', auth: { googleClientId: 'test-client' }, ai: { apiKey: 'test-key', model: 'test-model' } });
 	});
 
 	it('rejects insecure production origins while allowing local HTTP development', () => {
@@ -44,12 +44,20 @@ describe('Starter server configuration', () => {
 });
 
 
-it('normalizes the administrator identity and requires explicit production online-management opt-in', () => {
+it('requires an out-of-band administrator subject before online management can start', () => {
 	vi.stubEnv('APP_ADMIN_EMAIL', ' Admin@Example.test ');
+	vi.stubEnv('APP_ADMIN_USER_ID', '01ARZ3NDEKTSV4RRFFQ69G5FAV');
 	vi.stubEnv('APPS_MANAGE_ONLINE', 'false');
-	expect(readConfig()).toMatchObject({ appsAdminEmail: 'admin@example.test', appsManageOnline: false });
+	expect(readConfig()).toMatchObject({ appsAdminEmail: 'admin@example.test', appsAdminUserId: '01ARZ3NDEKTSV4RRFFQ69G5FAV', appsManageOnline: false });
 	vi.stubEnv('NODE_ENV', 'production');
 	vi.stubEnv('APP_ORIGIN', 'https://example.test');
 	vi.stubEnv('APPS_MANAGE_ONLINE', 'true');
 	expect(readConfig().appsManageOnline).toBe(true);
+	vi.stubEnv('APP_ADMIN_USER_ID', undefined);
+	expect(() => readConfig()).toThrow('requires APP_ADMIN_USER_ID');
+});
+
+it('accepts only explicitly configured proxy ranges', () => {
+	vi.stubEnv('TRUSTED_PROXIES', '127.0.0.1, ::1 ');
+	expect(readConfig().trustedProxies).toEqual(['127.0.0.1', '::1']);
 });

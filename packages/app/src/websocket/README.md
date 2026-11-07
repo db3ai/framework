@@ -102,6 +102,9 @@ Both `context.user` and `context.userId` are null, even when the browser has a
 session cookie. Omitted auth always requires authentication. Public endpoints
 still have origin, heartbeat, payload and connection limits; applications must
 add appropriate abuse controls before opening anonymous writes to the internet.
+Public endpoints use at most one quarter of the total socket capacity by default,
+with at most 16 sockets from one direct network peer. A reverse proxy appears as
+one peer to the Node listener, so enforce per-client concurrent limits at the edge.
 
 After authentication the server sends `{ "type": "ready" }`. Application frames
 in both directions are `{ "type": "message", "data": ... }`. The library hides
@@ -355,6 +358,10 @@ Defaults: 1000 sockets including pending authentication; 5-second authentication
 deadline; 64 KiB incoming/outgoing frames; 256 KiB outgoing buffer; 16 queued
 incoming actions; 32 concurrent outgoing sends awaiting access checks; 30-second heartbeat; 3-second shutdown deadline. Compression
 is disabled. Slow clients, flooding and oversized payloads are disconnected.
+`maxPublicConnections` and `maxPublicConnectionsPerSource` apply before upgrade;
+at least one slot remains reserved for private endpoints when the total cap is
+greater than one. The source limit uses the direct peer address, never an
+unvalidated forwarding header.
 The `maxPendingSends` limit applies before authentication/resource queries begin,
 so slow access checks cannot build an unlimited per-connection backlog. Overflow
 closes that connection with retryable code 1013; the browser reconnects and the app

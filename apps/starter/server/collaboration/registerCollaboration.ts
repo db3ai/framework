@@ -12,7 +12,7 @@ import { RoomController } from './RoomController';
 /** Composes public rooms, session-authenticated rooms, explicit grants and a private inbox channel. */
 export function registerCollaboration(server: FastifyInstance, application: App, config: StarterConfig) {
 	registerWebSockets(server, {
-		app: application, origins: [config.origin],
+		app: application, origins: [config.origin], maxPublicConnections: 64, maxPublicConnectionsPerSource: 16,
 		resolveToken: request => server.parseCookie(request.headers.cookie ?? '')[sessionCookie] ?? null,
 		endpoints: {
 			'/ws/rooms/lobby': new RoomController(application, 'lobby').endpoint(),

@@ -265,6 +265,35 @@ describe('authenticated WebSocket endpoints', () => {
 		expect(response.statusCode).toBe(403); response.resume(); request.destroy();
 	});
 
+	it('limits anonymous peers before upgrade while preserving private capacity', async () => {
+		await start({
+			maxConnections: 4,
+			maxPublicConnections: 3,
+			maxPublicConnectionsPerSource: 2,
+			endpoints: {
+				'/ws/me': userEndpoint(application),
+				'/ws/public': defineWebSocket({ auth: 'public' }),
+			},
+		});
+		const publicUrl = url.replace('/ws/me', '/ws/public');
+		for (let index = 0; index < 2; index++) {
+			const guest = await connect(null, publicUrl);
+			guest.ws.send(JSON.stringify({ type: 'connect' }));
+			await ready(guest);
+		}
+		const rejected = new WebSocket(publicUrl, { origin }); clients.push(rejected);
+		rejected.on('error', () => {});
+		const [request, response] = await once(rejected, 'unexpected-response');
+		expect(response.statusCode).toBe(403); response.resume(); request.destroy();
+		const privateClient = await connect();
+		await ready(privateClient);
+		clients[0]?.close(1000);
+		await expect.poll(() => clients[0]?.readyState).toBe(WebSocket.CLOSED);
+		const replacement = await connect(null, publicUrl);
+		replacement.ws.send(JSON.stringify({ type: 'connect' }));
+		await ready(replacement);
+	});
+
 	it('denies a retained server send after revocation', async () => {
 		let context: WebSocketContext | undefined;
 		await start({ endpoints: { '/ws/me': defineWebSocket({ open: value => { context = value; } }) } });

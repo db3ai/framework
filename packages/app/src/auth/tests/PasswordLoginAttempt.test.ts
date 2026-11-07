@@ -58,7 +58,7 @@ describe('PasswordLoginAttempt', () => {
 		}
 	});
 
-	it('populates legacy digest-only records and records activity while preserving suspension', async () => {
+	it('populates legacy digest-only records and expires old suspension on the next attempt', async () => {
 		const email = 'legacy-suspension@example.test';
 		const oldActivity = new Date('2000-01-01T00:00:00Z');
 		await ActiveRecord.withDb(database.db, async () => {
@@ -67,21 +67,22 @@ describe('PasswordLoginAttempt', () => {
 		// Seed historical timestamps below field automation to represent a legacy row.
 		await database.db(PasswordLoginAttempt.table).where('identity_hash', PasswordLoginAttempt.identityKey(email)).update({ created_at: oldActivity, updated_at: oldActivity });
 		expect((await attemptRow(email))?.identity).toBeNull();
-		await expect(signIn(` ${email.toUpperCase()} `, password)).rejects.toBeInstanceOf(PasswordSuspendedError);
+		expect(await signIn(` ${email.toUpperCase()} `, password)).toBeNull();
 		const row = await attemptRow(email);
 		expect(row?.identity).toBe(email);
-		expect(row?.failedAttempts).toBe(3);
-		expect(row?.suspendedAt).toEqual(oldActivity);
+		expect(row?.failedAttempts).toBe(1);
+		expect(row?.suspendedAt).toBeNull();
 		expect(row?.get('createdAt')).toEqual(oldActivity);
 		expect((row?.get('updatedAt') as Date).getTime()).toBeGreaterThan(oldActivity.getTime());
 	});
 
-	it('keeps suspension indefinitely and does not count further attempts', async () => {
+	it('expires a targeted suspension so a correct password can sign in again', async () => {
 		const owner = await account();
 		await suspend(owner.email);
 		await ActiveRecord.withDb(database.db, () => PasswordLoginAttempt.where('identityHash', PasswordLoginAttempt.identityKey(owner.email)).patch({ suspendedAt: new Date('2000-01-01T00:00:00Z') }));
-		await expect(signIn(owner.email, password)).rejects.toBeInstanceOf(PasswordSuspendedError);
-		expect((await attemptRow(owner.email))?.failedAttempts).toBe(3);
+		expect(await signIn(owner.email, password)).not.toBeNull();
+		expect((await attemptRow(owner.email))?.failedAttempts).toBe(0);
+		expect((await attemptRow(owner.email))?.suspendedAt).toBeNull();
 	});
 
 	it('does not verify an accent-equivalent SQL identity under a different attempt key', async () => {
@@ -187,5 +188,6 @@ describe('PasswordLoginAttempt', () => {
 		for (let index = 0; index < 4; index++) expect(await signIn(owner.email, 'wrong-password-123', auth)).toBeNull();
 		expect(await attemptRow(owner.email)).toBeNull();
 		expect(() => new Auth({ db: application.db, providers: { password: { driver: 'password', suspension: { maxFailedAttempts: 0 } } } })).toThrow(/maxFailedAttempts/);
+		expect(() => new Auth({ db: application.db, providers: { password: { driver: 'password', suspension: { durationMs: 0 } } } })).toThrow(/durationMs/);
 	});
 });

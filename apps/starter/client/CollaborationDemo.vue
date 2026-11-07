@@ -41,6 +41,8 @@ function connect() {
 			if (data.type === 'stroke') strokes.value.push(data.stroke);
 			if (data.type === 'chat') messages.value = [...messages.value, data.message].slice(-50);
 			if (data.type === 'presence') participants.value = data.participants;
+			if (data.type === 'presence-upsert') participants.value = [...participants.value.filter(member => member.id !== data.participant.id), data.participant];
+			if (data.type === 'presence-remove') participants.value = participants.value.filter(member => member.id !== data.id);
 			if (data.type === 'cursor') { const member = participants.value.find(member => member.id === data.id); if (member) member.cursor = data.point; }
 			if (data.type === 'joined' || data.type === 'left') events.value = [`${data.name} ${data.type === 'joined' ? 'joined' : 'left'} the room`, ...events.value].slice(0, 8);
 			if (data.type === 'error') error.value = data.message;

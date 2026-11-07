@@ -6,6 +6,7 @@ import { createApplication } from '../server/app';
 import { createServer } from '../server/http/createServer';
 import type { StarterConfig } from '../server/config';
 import { InAppRecord } from '@db3.ai/app/in-app';
+import { AuthToken, UserIdentity } from '@db3.ai/app/auth';
 
 delete process.env.DATABASE_URL;
 process.env.DB_CONNECTION = 'mariadb';
@@ -15,12 +16,13 @@ process.env.DB_USER = process.env.TEST_DB_USER || 'root';
 process.env.DB_PASSWORD = process.env.TEST_DB_PASSWORD || '';
 process.env.DB_DATABASE = 'db3_app_test';
 process.env.DB_TEST_DATABASE_PREFIX = 'db3_app_test';
-const config: StarterConfig = { name: 'Social tests', origin: 'http://localhost:5173', port: 3001, host: '127.0.0.1', production: false, appsAdminEmail: 'admin@example.test', appsManageOnline: true, auth: { googleClientId: '' }, ai: { apiKey: '', model: 'unused' } };
+let config: StarterConfig;
 let database: GeneratedTestDatabase;
 let application: ReturnType<typeof createApplication>;
 let server: Awaited<ReturnType<typeof createServer>>;
 
 beforeEach(async () => {
+	config = { name: 'Social tests', origin: 'http://localhost:5173', port: 3001, host: '127.0.0.1', production: false, appsManageOnline: false, auth: { googleClientId: '' }, ai: { apiKey: '', model: 'unused' } };
 	database = await createGeneratedTestDatabase('social');
 	application = createApplication(config, { db: database.db });
 	await application.db.migrations.migrate();
@@ -116,12 +118,26 @@ it('loads schedule.ts, queues an hourly review and deduplicates app-owned inbox 
 });
 
 
-it('installs from the Apps screen policy without restarting and prevents ordinary accounts from managing apps', { timeout: 30_000 }, async () => {
+it('permits only a provisioned verified administrator with a recent session to manage apps', { timeout: 30_000 }, async () => {
 	server = await createServer(application, config);
 	const admin = await register('admin@example.test');
 	const ordinary = await register('ordinary@example.test');
+	const administrator = await UserIdentity.where('email', 'admin@example.test').firstOrFail();
+	config.appsAdminUserId = administrator.id!;
+	config.appsManageOnline = true;
+	expect((await server.inject({ url: '/api/apps', headers: admin })).json().canManage).toBe(false);
+	for (const action of ['install', 'enable', 'disable', 'uninstall']) {
+		expect((await server.inject({ method: 'POST', url: `/api/app-management/social/${action}`, headers: admin })).statusCode).toBe(403);
+	}
+	await expect(createServer(application, config)).rejects.toThrow('provisioned, verified administrator');
+	administrator.markEmailVerified();
+	await administrator.save();
+	config.appsAdminEmail = 'admin@example.test';
+	await server.close();
+	server = await createServer(application, config);
 	expect((await server.inject({ url: '/api/apps', headers: admin })).json().canManage).toBe(true);
 	expect((await server.inject({ url: '/api/apps', headers: ordinary })).json().canManage).toBe(false);
+	expect((await server.inject({ method: 'POST', url: '/api/register', headers: { origin: config.origin }, payload: { name: 'Impostor', email: 'ADMIN@example.test', password: 'a-good-password-123' } })).statusCode).toBe(403);
 	expect((await server.inject({ method: 'POST', url: '/api/app-management/social/install', headers: ordinary })).statusCode).toBe(403);
 	expect(await database.db.schema.hasTable('social_opportunities')).toBe(false);
 	for (const action of ['install', 'disable', 'enable', 'uninstall', 'install']) {
@@ -134,4 +150,7 @@ it('installs from the Apps screen policy without restarting and prevents ordinar
 	}
 	expect((await server.inject({ method: 'POST', url: '/api/app-management/social/rollback', headers: admin })).statusCode).toBe(400);
 	expect((await server.inject({ method: 'POST', url: '/api/app-management/social/uninstall', headers: { ...admin, origin: 'https://other.test' } })).statusCode).toBe(403);
+	await application.db.knex(AuthToken.table).where('user_id', administrator.id).update({ created_at: new Date(Date.now() - 16 * 60 * 1000) });
+	expect((await server.inject({ url: '/api/apps', headers: admin })).json().canManage).toBe(false);
+	expect((await server.inject({ method: 'POST', url: '/api/app-management/social/uninstall', headers: admin })).statusCode).toBe(403);
 });
