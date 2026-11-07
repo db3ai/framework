@@ -87,6 +87,17 @@ jobs:
       - name: Test App with coverage and required MariaDB and Redis
         run: npm run test:coverage --workspace @db3.ai/app
 
+      - name: Verify Codacy coverage uploader
+        if: github.event_name == 'push' && !cancelled()
+        env:
+          CODACY_REPORTER_VERSION: 14.1.3
+          CODACY_REPORTER_TMP_FOLDER: ${{ runner.temp }}/codacy-reporter
+        run: |
+          curl --fail --location --silent --show-error https://coverage.codacy.com/get.sh -o "$RUNNER_TEMP/codacy-get.sh"
+          echo 'f7fbb3417019d0f73f50426c78cbcd59ed0d57d3c43b25096d0f600ce579cf69  '"$RUNNER_TEMP/codacy-get.sh" | sha256sum --check
+          bash "$RUNNER_TEMP/codacy-get.sh" download
+          echo '73a6c93fc5db509fd0423d6e545759c3f61d8360ee12054e32a9277daab6add0da6c6639248f6ed6c0042366440293ebc0b6144325aef52c5d3d4b230d65eb17  '"$RUNNER_TEMP/codacy-reporter/14.1.3/codacy-coverage-reporter" | sha512sum --check
+
       - name: Upload App coverage to Codacy
         if: github.event_name == 'push' && !cancelled()
         env:
@@ -94,7 +105,8 @@ jobs:
           CODACY_ORGANIZATION_PROVIDER: gh
           CODACY_USERNAME: db3ai
           CODACY_PROJECT_NAME: framework
-        run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report --commit-uuid "$GITHUB_SHA" --language TypeScript --prefix packages/app/ --coverage-reports packages/app/coverage/lcov.info
+        run: |
+          "$RUNNER_TEMP/codacy-reporter/14.1.3/codacy-coverage-reporter" report --commit-uuid "$GITHUB_SHA" --language TypeScript --prefix packages/app/ --coverage-reports packages/app/coverage/lcov.info
 
       - name: Build the runnable starter workspace
         run: npm run build --workspace db3-starter

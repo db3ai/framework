@@ -223,7 +223,8 @@ test('complete AI context contains every registered article and verified source'
 	// UTC timestamp contracts and timezone helper declarations add public API evidence.
 	// Dock adds three user guides with screenshot references and setup commands.
 	// Shared CLI queue and scheduler commands add option, alias and worker guidance; expand/contract migrations add rollback guidance and the safe-migrations guide.
-	assert.ok(contentBytes < 1_860_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.86 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	// Security guidance adds administrator provisioning, proxy trust, socket quotas and portable storage keys.
+	assert.ok(contentBytes < 1_865_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.865 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 

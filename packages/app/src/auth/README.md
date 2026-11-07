@@ -192,9 +192,10 @@ The digest remains the exact unique key independently of SQL text collation;
 it does not conceal the email. Legacy digest-only rows gain their readable
 identity on the next attempt without clearing their failure count or suspension.
 
-After 20 failures by default, password sign-in for that email requires recovery.
-There is no timed unlock and a correct password cannot clear suspension. Before
-suspension, successful verification resets consecutive failures. A completed,
+After 20 failures by default, password sign-in for that email is refused for
+15 minutes. A correct password cannot bypass an active refusal. Once it expires,
+the next attempt resets the counter and can sign in. Before suspension,
+successful verification resets consecutive failures. A completed,
 identity-matched password reset clears the state in the same transaction as the
 credential replacement and session revocation. Asking for a reset or submitting
 an invalid/expired reset link does not clear it. Google sign-in remains available.
@@ -202,17 +203,17 @@ an invalid/expired reset link does not clear it. Google sign-in remains availabl
 ```ts
 password: {
 	driver: 'password',
-	suspension: { maxFailedAttempts: 20 }, // or suspension: false
+	suspension: { maxFailedAttempts: 20, durationMs: 15 * 60 * 1000 }, // or suspension: false
 },
 ```
 
 Known and unknown identities receive the same `PasswordSuspendedError` and public
 message. Unknown identities also perform password-hash verification with the
 configured hasher (default-cost scrypt by default) before recording failure.
-No account ID, timestamp, automatic retry deadline or
+No account ID, timestamp, retry deadline or
 account-existence flag belongs in the response. An HTTP adapter can map this error
-to `429 too_many_attempts`, with no `Retry-After` because recovery is required.
-The public message is "Too many sign-in attempts. Use password recovery to continue."
+to `429 too_many_attempts`.
+The public message is "Too many sign-in attempts. Try again later or use password recovery."
 
 Only the error that first commits a suspension carries a `suspension` value:
 `{ attemptId, suspensionId }`. Later blocked requests carry `null`. These opaque
@@ -234,13 +235,13 @@ the threshold-reaching failure cannot authenticate or clear the suspension.
 
 Keep IP-based limits and explicit trusted-proxy configuration: suspension does not
 prevent password spraying across many identities or intentional denial of password
-sign-in for an email. Records are retained without automatic deletion so operators
+sign-in for an email during the bounded cooldown. Records are retained without automatic deletion so operators
 can inspect targeted emails and recent activity. This is current suspension state,
 not a per-attempt event history: successful verification resets the counter before
 suspension, and verified recovery clears suspension. Operational logs may supplement
 investigations but do not replace this transactional state. A later manual cleanup
-or retention job should exclude rows with `suspendedAt` set; deleting those rows
-would remove the reset requirement. An email in this table is not proof of an account.
+or retention job should exclude rows with an active `suspendedAt` value. An email
+in this table is not proof of an account.
 
 ## Google Provider
 

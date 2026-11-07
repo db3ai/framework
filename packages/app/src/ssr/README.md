@@ -14,8 +14,9 @@ Document substitution treats rendered values literally, including `$&` and
 marker-like text in application output. Body markup still must be trusted;
 literal insertion is not HTML sanitization.
 
-Head names use HTML attribute grammar; invalid/event attributes are omitted.
-Script bodies/URLs stay app-owned/trusted.
+Head attributes use an allowlist for each element; event attributes and unsafe
+URLs are omitted. Script source URLs must stay on the current origin, and script
+bodies must come from trusted application code.
 `npm test -w @db3.ai/app -- src/ssr/tests`.
 
 `@db3.ai/app/ssr` provides the transport-neutral boundary for rendering public

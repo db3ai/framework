@@ -283,7 +283,9 @@ when the provider expects path-style bucket URLs.
 Storage paths are always relative to the disk root. Absolute paths, null bytes,
 and parent-directory traversal are rejected before the driver touches the
 filesystem. File operations reject empty paths; `list('')` deliberately allows
-an empty path to list the disk root.
+an empty path to list the disk root. Every path segment also rejects Windows
+device names, alternate data streams, invalid characters, and trailing dots or
+spaces so the same key cannot alias a different file on another host.
 
 ## Runnable example and testing
 

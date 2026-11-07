@@ -11,9 +11,15 @@ its models, routes, migrations, optional shared contracts and browser component.
 DB3 discovers local folders and marked npm dependencies automatically. No per-app
 host registration, navigation or CSS edits are needed.
 
-Configure the database and set `APP_ADMIN_EMAIL` in `.env` to your administrator
-account. Run `npm run db:migrate` and `npm run dev`, sign in with that account,
-then open **Apps → Install**. Social appears in navigation immediately. Save a
+Configure the database, run `npm run db:migrate` and `npm run dev`, then create
+the administrator account while online app management is disabled. Verify
+ownership of its email independently. In `npm run repl`, load that account with
+`UserIdentity.where('email', 'admin@example.com').firstOrFail()`, call
+`markEmailVerified()` and `save()` only after verification, and record its `id`.
+Set `APP_ADMIN_USER_ID` to that ID, `APP_ADMIN_EMAIL` to the same address, and
+`APPS_MANAGE_ONLINE=true`; restart the server and sign in again. The address is
+then reserved from public password registration. Open **Apps → Install**.
+Social appears in navigation immediately. Save a
 discussion, mark it answered, reload, and explore its About sublink and definition.
 The menu comes from each enabled app's `navigation(context)` method. Social's
 saved-opportunity badge is private to the signed-in person and updates after
@@ -21,10 +27,12 @@ saves and status changes. The generic host also refreshes on window focus or
 **Refresh navigation**; no per-app host wiring is required.
 This example saves private bookmarks; it does not search or post to platforms.
 
-The configured administrator can install, disable, enable and uninstall through
-the Apps screen in this single-process Starter. Production requires explicit
-`APPS_MANAGE_ONLINE=true`; leave it disabled when workers or replicas use the
-apps. In that case stop every consumer and use the same actions through the CLI:
+Only the provisioned, verified account can install, disable, enable and
+uninstall through the Apps screen in this single-process Starter. A management
+session must be less than 15 minutes old; sign in again when it expires.
+Online management is disabled by default in every environment. Leave it disabled
+when workers or replicas use the apps. In that case stop every consumer and use
+the same actions through the CLI:
 
 ```sh
 npm run db3 -- apps:list
@@ -87,6 +95,10 @@ room-local presence and bounded persistence. `registerCollaboration.ts` mounts
 exact endpoints and extracts cookies on the server; HTTP route hooks do not run
 on upgrades. `client/CollaborationDemo.vue` owns the browser client and drawing UI.
 The Vite proxy forwards `/ws` upgrades; configure the production proxy likewise.
+The demo permits at most 64 public lobby sockets and 16 from one direct network
+peer, leaving capacity for private endpoints. A shared reverse proxy appears as
+one peer to the Node listener; apply per-client concurrent limits at the edge.
+Presence sends one bounded snapshot at join, then small member updates.
 
 The whiteboard saves complete gestures on pointer release (up to 200 points each,
 500 strokes per room). Cursors and tab-level presence are not persisted. Guest
@@ -409,12 +421,15 @@ evidence that a live provider was called.
 
 Build with `npm run build`, apply migrations in a release step, and run
 `NODE_ENV=production npm start` behind HTTPS. Set `APP_ORIGIN` to the exact HTTPS
-origin and configure `HOST`/`PORT` for your reverse proxy. Production uses secure,
+origin and configure `HOST`/`PORT` for your reverse proxy. Set `TRUSTED_PROXIES`
+to the exact IP or CIDR ranges of proxies directly connecting to the Node
+listener, so rate limits use validated client addresses. Leave it empty for
+direct connections. Production uses secure,
 HttpOnly, SameSite cookies; writes require the exact Origin header. It serves
 the built frontend and API from the same server.
 
-This first starter does not include password-reset screens, verified-email
-onboarding, organisations, billing, shared application spending limits,
+This first starter does not include password-reset screens, automatic
+verified-email onboarding, organisations, billing, shared application spending limits,
 or a production deployment recipe. Review registration abuse controls, CSP,
 backups, monitoring and secret management before public use. Do not describe the
 demo as a complete production SaaS.

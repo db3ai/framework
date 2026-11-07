@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { Serializer, type Serializable, type SerializedValue } from '../index';
 import { UserIdentity } from '../../auth';
 
@@ -28,5 +28,31 @@ describe('serializer input budgets', () => {
 		const payload = serializer.serialize(new BudgetedState(null));
 		const state = Array.from({ length: 257 }, (_, index) => ({ $platform: 'active-record', model: 'user', id: `user-${index}` }));
 		await expect(serializer.deserialize({ ...payload, state })).rejects.toThrow('model-reference budget');
+	});
+
+	it('limits concurrent distinct model lookups after validating the complete payload', async () => {
+		const serializer = new Serializer({ classes: { state: BudgetedState }, models: { user: UserIdentity } });
+		const payload = serializer.serialize(new BudgetedState(null));
+		const state = Array.from({ length: 24 }, (_, index) => ({ $platform: 'active-record', model: 'user', id: `user-${index}` }));
+		let active = 0;
+		let peak = 0;
+		const find = vi.spyOn(UserIdentity, 'findOrFail').mockImplementation(async () => {
+			active++;
+			peak = Math.max(peak, active);
+			try {
+				await new Promise(resolve => setTimeout(resolve, 5));
+				return Object.create(UserIdentity.prototype) as UserIdentity;
+			} finally {
+				active--;
+			}
+		});
+		try {
+			const restored = await serializer.deserialize<BudgetedState>({ ...payload, state });
+			expect((restored.state as UserIdentity[])).toHaveLength(24);
+			expect(find).toHaveBeenCalledTimes(24);
+			expect(peak).toBe(8);
+		} finally {
+			find.mockRestore();
+		}
 	});
 });

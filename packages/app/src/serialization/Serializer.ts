@@ -20,6 +20,7 @@ const MAX_STATE_DEPTH = 64;
 const MAX_STATE_NODES = 20_000;
 const MAX_STATE_CHARACTERS = 4_000_000;
 const MAX_STATE_MODEL_REFERENCES = 256;
+const MAX_CONCURRENT_MODEL_LOOKUPS = 8;
 
 interface TraversalContext {
 	readonly ancestors: Map<object, string>;
@@ -30,6 +31,8 @@ interface TraversalContext {
 
 interface RestoreContext {
 	readonly activeRecords: Map<string, Promise<ActiveRecord>>;
+	lookupSlots: number;
+	readonly lookupWaiters: Array<() => void>;
 }
 
 /**
@@ -134,6 +137,8 @@ export class Serializer implements serialization.SerializerService {
 
 		const state = await this.#restoreValue(envelope.state, '$.state', {
 			activeRecords: new Map(),
+			lookupSlots: 0,
+			lookupWaiters: [],
 		});
 
 		try {
@@ -529,7 +534,7 @@ export class Serializer implements serialization.SerializerService {
 		if (!restored) {
 			restored = Promise.resolve()
 				.then(async () => {
-					const record = await Model.findOrFail(reference.id);
+					const record = await this.#withLookupSlot(context, () => Model.findOrFail(reference.id));
 
 					if (Object.getPrototypeOf(record) !== Model.prototype) {
 						throw new TypeError('Model lookup returned a different runtime type.');
@@ -556,6 +561,27 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		return await restored;
+	}
+
+	/**
+	 * Bounds simultaneous database reads while handing released slots to queued references.
+	 * @param context - Restore operation that owns the lookup budget.
+	 * @param lookup - One distinct ActiveRecord lookup.
+	 * @returns The lookup result after a capacity slot is available.
+	 */
+	async #withLookupSlot<T>(context: RestoreContext, lookup: () => Promise<T>): Promise<T> {
+		if (context.lookupSlots < MAX_CONCURRENT_MODEL_LOOKUPS) {
+			context.lookupSlots++;
+		} else {
+			await new Promise<void>(resolve => context.lookupWaiters.push(resolve));
+		}
+		try {
+			return await lookup();
+		} finally {
+			const next = context.lookupWaiters.shift();
+			if (next) next();
+			else context.lookupSlots--;
+		}
 	}
 
 	/**

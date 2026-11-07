@@ -45,8 +45,6 @@ export class RoomController {
 	}
 	/** Publishes only to server-approved members of this room. */
 	#publish(data: unknown) { return this.#application.webSockets.channels.publish(`room:${this.#room}`, data); }
-	/** Broadcasts tab-level presence, excluding users from other rooms. */
-	async #presence() { await this.#publish({ type: 'presence', participants: [...this.#participants.values()] }); }
 	/** Loads bounded durable history before joining the live channel. */
 	async #open(context: WebSocketContext<any>) {
 		let record = await CollaborationRoom.where('name', this.#room).first();
@@ -59,7 +57,10 @@ export class RoomController {
 		context.signal.addEventListener('abort', () => {
 			this.#participants.delete(context.id);
 			this.#rates.delete(context.id);
-			void this.#serial(async () => { await this.#publish({ type: 'left', name: member.name }); await this.#presence(); }).catch(() => undefined);
+			void this.#serial(async () => {
+				await this.#publish({ type: 'left', name: member.name });
+				await this.#publish({ type: 'presence-remove', id: context.id });
+			}).catch(() => undefined);
 		}, { once: true });
 		await context.send({ type: 'history-start', id: context.id, messages: [] });
 		for (const message of contents.messages) await context.send({ type: 'chat', message });
@@ -67,8 +68,9 @@ export class RoomController {
 		await context.send({ type: 'history-end' });
 		if (context.signal.aborted) return;
 		this.#application.webSockets.channels.join(`room:${this.#room}`, context);
+		await context.send({ type: 'presence', participants: [...this.#participants.values()] });
 		await this.#publish({ type: 'joined', name: member.name });
-		await this.#presence();
+		await this.#publish({ type: 'presence-upsert', participant: { ...member } });
 	}
 	/** Validates rate, attributes identity server-side, and publishes only committed edits. */
 	async #message(context: WebSocketContext<any>, data: z.infer<typeof command>) {
@@ -78,7 +80,7 @@ export class RoomController {
 		const current = rate && Date.now() - rate.at < 1000 ? rate : { at: Date.now(), count: 0 };
 		this.#rates.set(context.id, current);
 		if (++current.count > 30) { context.close(); return; }
-		if (data.type === 'profile') { member.name = context.user?.name || data.name; member.color = data.color; await this.#presence(); return; }
+		if (data.type === 'profile') { member.name = context.user?.name || data.name; member.color = data.color; await this.#publish({ type: 'presence-upsert', participant: { ...member } }); return; }
 		if (data.type === 'cursor') { member.cursor = data.point; await this.#publish({ type: 'cursor', id: context.id, point: data.point }); return; }
 		const record = await CollaborationRoom.where('name', this.#room).firstOrFail();
 		const contents = record.contents;
