@@ -16,7 +16,7 @@ export function normalizeStoragePath(path: string): string {
 		throw new Error('Storage path cannot contain null bytes.');
 	}
 
-	const input = path.trim().replace(/\\/g, '/');
+	const input = path.replace(/\\/g, '/');
 
 	if (!input) {
 		throw new Error('Storage path cannot be empty.');
@@ -28,6 +28,12 @@ export function normalizeStoragePath(path: string): string {
 
 	if (/^[A-Za-z]:\//.test(input)) {
 		throw new Error(`Storage path "${path}" must be relative.`);
+	}
+	for (const segment of input.split('/')) {
+		if (segment === '.' || segment === '..') continue;
+		if (/[<>:"|?*\u0000-\u001f\u007f]/.test(segment) || /[. ]$/.test(segment) || /^(?:con|prn|aux|nul|conin\$|conout\$|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i.test(segment)) {
+			throw new Error(`Storage path "${path}" is not portable across supported filesystems.`);
+		}
 	}
 
 	const normalized = posix.normalize(input);
@@ -50,7 +56,7 @@ export function normalizeStorageDirectoryPath(path = ''): string {
 		throw new Error('Storage path must be a string.');
 	}
 
-	const input = path.trim().replace(/\\/g, '/');
+	const input = path.replace(/\\/g, '/');
 
 	if (input === '' || input === '.') return '';
 

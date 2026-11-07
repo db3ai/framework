@@ -16,13 +16,23 @@ import {
 import type * as serialization from './contracts';
 
 const OBJECT_PATH_KEY = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+const MAX_STATE_DEPTH = 64;
+const MAX_STATE_NODES = 20_000;
+const MAX_STATE_CHARACTERS = 4_000_000;
+const MAX_STATE_MODEL_REFERENCES = 256;
+const MAX_CONCURRENT_MODEL_LOOKUPS = 8;
 
 interface TraversalContext {
 	readonly ancestors: Map<object, string>;
+	nodes: number;
+	characters: number;
+	references: number;
 }
 
 interface RestoreContext {
 	readonly activeRecords: Map<string, Promise<ActiveRecord>>;
+	lookupSlots: number;
+	readonly lookupWaiters: Array<() => void>;
 }
 
 /**
@@ -97,6 +107,7 @@ export class Serializer implements serialization.SerializerService {
 				'$.state',
 				{
 					ancestors: new Map(),
+					nodes: 0, characters: 0, references: 0,
 				},
 				'serialize',
 			),
@@ -126,6 +137,8 @@ export class Serializer implements serialization.SerializerService {
 
 		const state = await this.#restoreValue(envelope.state, '$.state', {
 			activeRecords: new Map(),
+			lookupSlots: 0,
+			lookupWaiters: [],
 		});
 
 		try {
@@ -162,6 +175,11 @@ export class Serializer implements serialization.SerializerService {
 		context: TraversalContext,
 		operation: SerializationOperation,
 	): SerializedValue {
+		context.nodes += 1;
+		if (typeof value === 'string') context.characters += value.length;
+		if (context.ancestors.size >= MAX_STATE_DEPTH || context.nodes > MAX_STATE_NODES || context.characters > MAX_STATE_CHARACTERS) {
+			throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer depth, node or text budget.');
+		}
 		if (isSerializedPrimitive(value)) {
 			if (
 				typeof value === 'number'
@@ -190,10 +208,12 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		if (operation === 'serialize' && value instanceof ActiveRecord) {
+			if (++context.references > MAX_STATE_MODEL_REFERENCES) throw failure(operation, 'invalid_value', path, 'Constructor state exceeds the model-reference budget.');
 			return this.#serializeActiveRecord(value, path);
 		}
 
 		if (Array.isArray(value)) {
+			if (value.length > MAX_STATE_NODES - context.nodes) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer node budget.');
 			return this.#withAncestor(operation, value, path, context, () => {
 				return arrayValues(value, path, operation).map((item, index) => {
 					return this.#normalizeValue(
@@ -207,12 +227,16 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		const entries = plainObjectEntries(value, path, operation);
+		if (entries.length > MAX_STATE_NODES - context.nodes) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer node budget.');
+		context.characters += entries.reduce((total, [key]) => total + key.length, 0);
+		if (context.characters > MAX_STATE_CHARACTERS) throw failure(operation, operation === 'serialize' ? 'invalid_value' : 'invalid_payload', path, 'Constructor state exceeds the serializer text budget.');
 		const hasReferenceMarker = entries.some(([key]) => {
 			return key === SERIALIZED_REFERENCE_KEY;
 		});
 
 		if (hasReferenceMarker) {
 			if (operation === 'deserialize') {
+				if (++context.references > MAX_STATE_MODEL_REFERENCES) throw failure(operation, 'invalid_payload', path, 'Constructor state exceeds the model-reference budget.');
 				return this.#validateActiveRecordReference(entries, path);
 			}
 
@@ -372,6 +396,7 @@ export class Serializer implements serialization.SerializerService {
 				'$.state',
 				{
 					ancestors: new Map(),
+					nodes: 0, characters: 0, references: 0,
 				},
 				'deserialize',
 			),
@@ -509,7 +534,7 @@ export class Serializer implements serialization.SerializerService {
 		if (!restored) {
 			restored = Promise.resolve()
 				.then(async () => {
-					const record = await Model.findOrFail(reference.id);
+					const record = await this.#withLookupSlot(context, () => Model.findOrFail(reference.id));
 
 					if (Object.getPrototypeOf(record) !== Model.prototype) {
 						throw new TypeError('Model lookup returned a different runtime type.');
@@ -536,6 +561,27 @@ export class Serializer implements serialization.SerializerService {
 		}
 
 		return await restored;
+	}
+
+	/**
+	 * Bounds simultaneous database reads while handing released slots to queued references.
+	 * @param context - Restore operation that owns the lookup budget.
+	 * @param lookup - One distinct ActiveRecord lookup.
+	 * @returns The lookup result after a capacity slot is available.
+	 */
+	async #withLookupSlot<T>(context: RestoreContext, lookup: () => Promise<T>): Promise<T> {
+		if (context.lookupSlots < MAX_CONCURRENT_MODEL_LOOKUPS) {
+			context.lookupSlots++;
+		} else {
+			await new Promise<void>(resolve => context.lookupWaiters.push(resolve));
+		}
+		try {
+			return await lookup();
+		} finally {
+			const next = context.lookupWaiters.shift();
+			if (next) next();
+			else context.lookupSlots--;
+		}
 	}
 
 	/**

@@ -12,7 +12,7 @@ import type { App } from '@db3.ai/app';
 import { AppRouteError } from '@db3.ai/app/apps';
 import type { AppAction } from '@db3.ai/app/apps/contracts';
 import { registerAppRoutes } from '@db3.ai/app/apps/fastify';
-import { AuthIdentityExistsError, PasswordSuspendedError } from '@db3.ai/app/auth';
+import { AuthIdentityExistsError, PasswordSuspendedError, UserIdentity } from '@db3.ai/app/auth';
 import { AIRequestError, AIRateLimitDeferredError, AIConfigurationError, AIUsagePersistenceError } from '@db3.ai/app/ai';
 import type { StarterConfig } from '../config';
 import { Note } from '../models/Note';
@@ -27,14 +27,41 @@ const credentials = { type: 'object', additionalProperties: false, required: ['e
 const noteBody = { type: 'object', additionalProperties: false, required: ['title', 'body'], properties: { title: { type: 'string', minLength: 1, maxLength: 120, pattern: '\\S' }, body: { type: 'string', minLength: 1, maxLength: 20_000, pattern: '\\S' } } };
 const noteParams = { type: 'object', required: ['id'], properties: { id: { type: 'string', pattern: '^[0-9A-HJKMNP-TV-Z]{26}$' } } };
 const notePatch = { ...noteBody, required: [], minProperties: 1 };
+const APP_MANAGEMENT_SESSION_AGE_MS = 15 * 60 * 1000;
+
+/**
+ * Grants lifecycle authority only to the provisioned, verified account on a recent session.
+ * @param application - Request-scoped authentication owner.
+ * @param config - Server-only administrator policy.
+ * @param user - Authenticated identity from the current session.
+ * @returns Whether the current request can manage installed apps.
+ */
+function canManageApps(application: App, config: StarterConfig, user: UserIdentity): boolean {
+	const createdAt = application.auth.token?.createdAt?.getTime();
+	const age = createdAt === undefined ? Infinity : Date.now() - createdAt;
+	return Boolean(config.appsManageOnline
+		&& config.appsAdminUserId
+		&& user.id === config.appsAdminUserId
+		&& user.emailVerifiedAt
+		&& (!config.appsAdminEmail || user.email?.toLowerCase() === config.appsAdminEmail)
+		&& age >= 0
+		&& age <= APP_MANAGEMENT_SESSION_AGE_MS);
+}
 
 /**
  * Composes real Auth/ActiveRecord routes and the optional server-only AI client.
  * External HTTP may be replaced in tests; framework services are never mocked.
  */
 export async function createServer(application: App, config: StarterConfig) {
+	if (config.appsManageOnline) {
+		if (!config.appsAdminUserId) throw new Error('Online app management requires APP_ADMIN_USER_ID.');
+		const administrator = await UserIdentity.find(config.appsAdminUserId);
+		if (!administrator?.emailVerifiedAt || (config.appsAdminEmail && administrator.email?.toLowerCase() !== config.appsAdminEmail)) {
+			throw new Error('Online app management requires a provisioned, verified administrator.');
+		}
+	}
 	await application.apps.boot();
-	const server = Fastify({ loggerInstance: application.log.logger as FastifyBaseLogger, bodyLimit: 96 * 1024, ajv: { customOptions: { removeAdditional: false } } });
+	const server = Fastify({ loggerInstance: application.log.logger as FastifyBaseLogger, bodyLimit: 96 * 1024, trustProxy: config.trustedProxies?.length ? config.trustedProxies : false, ajv: { customOptions: { removeAdditional: false } } });
 	registerBrowserJsonFormatting(server);
 	registerHttpExchangeMonitor(server);
 	const ai = config.ai.apiKey ? application.ai : null;
@@ -74,6 +101,7 @@ export async function createServer(application: App, config: StarterConfig) {
 		schema: { body: { ...credentials, required: ['name', 'email', 'password'], properties: { ...credentials.properties, name: { type: 'string', minLength: 1, maxLength: 120, pattern: '\\S' } } } },
 	}, async (request, reply) => {
 		const input = { ...request.body, name: request.body.name.trim(), email: request.body.email.trim().toLowerCase() };
+		if (config.appsAdminEmail && input.email === config.appsAdminEmail) throw new HttpError(403, 'Registration is unavailable for this address.');
 		const issued = await application.auth.registerWithPassword(input, { expiresInMs: 7 * 24 * 60 * 60 * 1000 });
 		setSession(reply, issued.token, config.production);
 		return reply.code(201).send({ ok: true });
@@ -134,7 +162,7 @@ export async function createServer(application: App, config: StarterConfig) {
 	registerCollaboration(server, application, config);
 	server.get('/api/apps', async request => {
 		const user = await requireUser(application, request);
-		return { apps: await application.apps.describe(), canManage: Boolean(config.appsManageOnline && config.appsAdminEmail && user.email?.toLowerCase() === config.appsAdminEmail) };
+		return { apps: await application.apps.describe(), canManage: canManageApps(application, config, user) };
 	});
 	/** Collects viewer-specific contributions using the authenticated session, never a client-supplied identity. */
 	server.get('/api/app-navigation', async request => {
@@ -144,7 +172,7 @@ export async function createServer(application: App, config: StarterConfig) {
 	/** Keeps host-wide lifecycle actions behind the configured single-process administrator policy. */
 	server.post<{ Params: { id: string; action: string } }>('/api/app-management/:id/:action', async request => {
 		const user = await requireUser(application, request);
-		if (!config.appsManageOnline || !config.appsAdminEmail || user.email?.toLowerCase() !== config.appsAdminEmail) throw new HttpError(403, 'App management requires the configured administrator.');
+		if (!canManageApps(application, config, user)) throw new HttpError(403, 'App management requires the configured administrator and a recent sign-in.');
 		if (!['install', 'enable', 'disable', 'uninstall'].includes(request.params.action)) throw new HttpError(400, 'Unknown app action.');
 		return { apps: await application.apps.manage(request.params.action as AppAction, request.params.id) };
 	});

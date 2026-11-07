@@ -18,6 +18,10 @@ export interface WebSocketOptions {
 	resolveToken?(request: IncomingMessage): string | null | Promise<string | null>;
 	/** Maximum simultaneous sockets, including unauthenticated handshakes. Default 1000. */
 	maxConnections?: number;
+	/** Maximum public-endpoint sockets. Defaults to one quarter of maxConnections, reserving private capacity. */
+	maxPublicConnections?: number;
+	/** Maximum public-endpoint sockets from one direct network peer. Default 16. Apply edge limits behind a shared reverse proxy. */
+	maxPublicConnectionsPerSource?: number;
 	/** Incoming and outgoing JSON frame limit in bytes. Default 64 KiB. */
 	maxPayloadBytes?: number;
 	/** Maximum queued outgoing bytes per client. Default 256 KiB. */

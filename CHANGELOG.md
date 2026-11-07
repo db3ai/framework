@@ -5,6 +5,18 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-07
+
+- Require a provisioned, verified administrator and a recent sign-in for Starter
+	app management; restrict trusted proxy addresses and bound password suspensions.
+- Limit public WebSocket admission and send presence changes rather than full
+	presence lists.
+- Bound serializer state and model lookups, reject unsafe storage paths, document
+	head attributes, redirects and cross-library media attachments.
+- Verify the Codacy uploader and executable before CI makes credentials available.
+- Raise minimum versions for patched HTTP, schema and development-server dependencies
+	and refresh the release lockfile.
+
 ## [0.1.0] - 2026-10-11
 
 - Release Pure, App and Create together without the beta suffix on npm `latest`.

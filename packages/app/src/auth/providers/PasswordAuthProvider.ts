@@ -8,6 +8,7 @@ import { PasswordSuspendedError } from '../PasswordSuspendedError';
 import { PasswordLoginAttempt } from '../PasswordLoginAttempt';
 
 const DEFAULT_MAX_FAILED_ATTEMPTS = 20;
+const DEFAULT_SUSPENSION_DURATION_MS = 15 * 60 * 1000;
 /** Valid default-cost scrypt value used only for unknown-identity timing parity. */
 const DUMMY_PASSWORD_HASH = 'scrypt$1$16384$8$1$64$0123456789abcdef0123456789abcdef$' + '00'.repeat(64);
 
@@ -42,8 +43,8 @@ export class PasswordAuthProvider<TIdentity extends UserIdentity = UserIdentity>
 	 * Verifies credentials under the identity's durable attempt lock.
 	 *
 	 * Unknown identities receive the same failed-attempt accounting and password
-	 * hashing work as existing accounts. Suspension persists until verified
-	 * password recovery; a correct password cannot clear a suspended identity.
+	 * hashing work as existing accounts. A temporary refusal expires automatically
+	 * or is cleared early by verified password recovery.
 	 *
 	 * @param input - Submitted password credentials.
 	 * @returns Verified provider profile, or null for an invalid password.
@@ -59,7 +60,12 @@ export class PasswordAuthProvider<TIdentity extends UserIdentity = UserIdentity>
 		// Return the refusal from the transaction so the threshold update commits
 		// before the public error is thrown.
 		const result = await PasswordLoginAttempt.withIdentityLock(identity, async attempt => {
-			if (attempt.suspendedAt) return new PasswordSuspendedError();
+			if (attempt.suspendedAt) {
+				if (Date.now() - attempt.suspendedAt.getTime() < this.#suspension!.durationMs) return new PasswordSuspendedError();
+				attempt.failedAttempts = 0;
+				attempt.suspendedAt = null;
+				attempt.suspensionId = null;
+			}
 			const profile = await this.#verifyPassword(identity, input.password);
 			if (profile) {
 				attempt.failedAttempts = 0;
@@ -315,8 +321,12 @@ function profileFromProvider(provider: AuthProvider): auth.AuthProviderProfile {
 function resolveSuspension(options: auth.PasswordSuspensionOptions | false | undefined): Required<auth.PasswordSuspensionOptions> | null {
 	if (options === false) return null;
 	const maxFailedAttempts = options?.maxFailedAttempts ?? DEFAULT_MAX_FAILED_ATTEMPTS;
+	const durationMs = options?.durationMs ?? DEFAULT_SUSPENSION_DURATION_MS;
 	if (!Number.isSafeInteger(maxFailedAttempts) || maxFailedAttempts < 1 || maxFailedAttempts > 1_000_000) {
 		throw new Error('Password suspension maxFailedAttempts must be an integer between 1 and 1000000.');
 	}
-	return { maxFailedAttempts };
+	if (!Number.isSafeInteger(durationMs) || durationMs < 1000 || durationMs > 24 * 60 * 60 * 1000) {
+		throw new Error('Password suspension durationMs must be an integer between 1000 and 86400000.');
+	}
+	return { maxFailedAttempts, durationMs };
 }

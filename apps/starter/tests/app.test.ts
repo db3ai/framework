@@ -6,6 +6,7 @@ import { PasswordLoginAttempt, UserIdentity } from '@db3.ai/app/auth';
 import { createApplication } from '../server/app';
 import { createServer } from '../server/http/createServer';
 import type { StarterConfig } from '../server/config';
+import type { FastifyRequest } from 'fastify';
 
 // Explicit test-only connection. Never inherit the application DATABASE_URL.
 delete process.env.DATABASE_URL;
@@ -17,6 +18,9 @@ process.env.DB_PASSWORD = process.env.TEST_DB_PASSWORD || '';
 process.env.DB_DATABASE = 'db3_app_test';
 process.env.DB_TEST_DATABASE_PREFIX = 'db3_app_test';
 const config: StarterConfig = { name: 'Test app', origin: 'http://localhost:5173', port: 3001, host: '127.0.0.1', production: false, auth: { googleClientId: '' }, ai: { apiKey: '', model: 'test-model' } };
+
+/** Exposes the resolved client address for trusted-proxy integration assertions. */
+const clientAddress = (request: FastifyRequest) => ({ ip: request.ip });
 let database: GeneratedTestDatabase;
 let application: ReturnType<typeof createApplication>;
 let server: Awaited<ReturnType<typeof createServer>>;
@@ -48,6 +52,19 @@ afterEach(async () => {
 });
 
 describe('starter app', () => {
+	it('accepts forwarded client addresses only from explicitly trusted reverse proxies', async () => {
+		server.get('/test/client-ip', clientAddress);
+		const direct = await server.inject({ url: '/test/client-ip', remoteAddress: '198.51.100.9', headers: { 'x-forwarded-for': '203.0.113.8' } });
+		expect(direct.json().ip).toBe('198.51.100.9');
+		await server.close();
+		server = await createServer(application, { ...config, trustedProxies: ['127.0.0.1'] });
+		server.get('/test/client-ip', clientAddress);
+		const trusted = await server.inject({ url: '/test/client-ip', remoteAddress: '127.0.0.1', headers: { 'x-forwarded-for': '203.0.113.8' } });
+		const untrusted = await server.inject({ url: '/test/client-ip', remoteAddress: '198.51.100.9', headers: { 'x-forwarded-for': '203.0.113.8' } });
+		expect(trusted.json().ip).toBe('203.0.113.8');
+		expect(untrusted.json().ip).toBe('198.51.100.9');
+	});
+
 	it('maps known and unknown password suspension to the same response and permits verified recovery', async () => {
 		await register();
 		for (const email of ['ada@example.test', 'unknown@example.test']) {
