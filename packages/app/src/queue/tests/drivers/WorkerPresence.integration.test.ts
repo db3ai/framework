@@ -50,5 +50,18 @@ describe('database worker presence', () => {
 		expect(rows[0]).toMatchObject({ status: 'stopped', processed: 1, failed: 1, current_queue: null });
 		expect(rows[0].last_job_at).toBeGreaterThan(0);
 		expect(rows[0].heartbeat_at).toBeGreaterThanOrEqual(rows[0].started_at);
+		expect(rows[0]).toMatchObject({ busy: 0, slots: 1 });
+	});
+
+	it('records a pool of slots as one row with its slot count', async () => {
+		await generated.db('jobs_workers').delete();
+		const queue = new Queue(database, { driver: new DatabaseQueueDriver(database), queueMonitor: false });
+		const pool = new QueueWorker(queue, { queues: ['reports'], concurrency: 8, intervalMs: 100 });
+		pool.start();
+		for (let tries = 0; tries < 100 && !(await generated.db('jobs_workers').first()); tries++) await new Promise(resolve => setTimeout(resolve, 20));
+		await pool.stopAndDrain();
+		const rows = await generated.db('jobs_workers').select();
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ status: 'stopped', busy: 0, slots: 8 });
 	});
 });

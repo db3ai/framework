@@ -1,5 +1,5 @@
 import { waitForQueueDelay } from './waitForQueueDelay';
-import { QueueWorkerReporter } from './QueueWorkerReporter';
+import { QueueWorkerReporter, type QueueWorkerPresence } from './QueueWorkerReporter';
 import { unknownErrorMessage } from '@db3.ai/pure';
 
 import type { Queue } from './Queue';
@@ -19,7 +19,8 @@ const MIN_MAX_JOBS_PER_TICK = 1;
  * handler execution, retries, and failure recording back to Queue.
  */
 export class QueueWorker implements queue.QueueWorkerLifecycle {
-	readonly #presence: QueueWorkerReporter;
+	/** This worker's slot in its presence row; a pool's slots share one row. */
+	#presence: QueueWorkerPresence;
 	/** Independent slots preserve existing claim, lease, fairness and presence semantics. */
 	readonly #slots: QueueWorker[];
 	/** Shared by a started pool's slots so an idle pool checks for work once per interval, not once per slot. */
@@ -64,7 +65,9 @@ export class QueueWorker implements queue.QueueWorkerLifecycle {
 			+ (this.#excludeQueues.size ? ` excluding ${[...this.#excludeQueues].join(', ')}` : '');
 		this.intervalMs = normalizeWorkerIntervalMs(intervalMs);
 		this.maxJobsPerTick = normalizeMaxJobsPerTick(maxJobsPerTick);
-		this.#presence = new QueueWorkerReporter({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, snapshot => this.queueManager.reportWorker(snapshot), this.logger);
+		const reporter = new QueueWorkerReporter({ queues: this.#queues, excludeQueues: [...this.#excludeQueues] }, snapshot => this.queueManager.reportWorker(snapshot), this.logger);
+		if (this.#slots.length) for (const slot of this.#slots) slot.#presence = reporter.lane();
+		this.#presence = this.#slots.length ? { start() {}, update() {}, finished() {}, stop: async () => {} } : reporter.lane();
 	}
 
 	/**

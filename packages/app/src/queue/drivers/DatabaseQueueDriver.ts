@@ -14,6 +14,8 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 	#presenceMissingAt: number | null = null;
 	/** When stale presence rows were last pruned. */
 	#presencePrunedAt = 0;
+	/** Whether the installed table has the busy and slots columns; checked with the table. */
+	#presenceCounts = false;
 
 	/**
 	 * Creates a database-backed queue driver.
@@ -55,11 +57,13 @@ export class DatabaseQueueDriver implements queue.QueueDriver {
 			if (this.#presenceMissingAt !== null || this.#presencePrunedAt === 0) {
 				if (!(await this.db.knex.schema.hasTable(QueueWorkerRecord.table))) { this.#presenceMissingAt = now; return; }
 				this.#presenceMissingAt = null;
+				this.#presenceCounts = await this.db.knex.schema.hasColumn(QueueWorkerRecord.table, 'busy');
 			}
 			const seconds = (value: string | null) => value === null ? null : Math.floor(Date.parse(value) / 1000);
 			const row = {
 				id: snapshot.id, name: snapshot.name.slice(0, 255), hostname: snapshot.hostname.slice(0, 255), pid: snapshot.pid,
 				selection: JSON.stringify(snapshot.selection), status: snapshot.status, current_queue: snapshot.currentQueue, current_job_id: snapshot.currentJobId,
+				...(this.#presenceCounts ? { busy: snapshot.busy, slots: snapshot.slots } : {}),
 				processed: snapshot.processed, failed: snapshot.failed, started_at: seconds(snapshot.startedAt), heartbeat_at: seconds(snapshot.heartbeatAt), last_job_at: seconds(snapshot.lastJobAt),
 			};
 			const { id: _id, started_at: _started, ...changes } = row;

@@ -2,9 +2,27 @@ import { hostname } from 'node:os';
 import { ulid } from '@db3.ai/pure/ulid';
 import type { QueueWorkerSnapshot, QueueSelection, QueueLogger } from './contracts';
 
-/** Serializes small presence writes; a slow or unavailable sink cannot build an unbounded backlog or stop jobs. */
+/** Heartbeat interval; status changes are written at once, busy counts ride the next heartbeat. */
+const HEARTBEAT_MS = 30_000;
+
+type LaneState = { status: QueueWorkerSnapshot['status']; queue: string | null; jobId: string | null };
+
+/** One execution slot's view of its worker's presence. */
+export interface QueueWorkerPresence {
+	start(): void;
+	update(status: QueueWorkerSnapshot['status'], currentQueue?: string | null, currentJobId?: string | null): void;
+	finished(status: string): void;
+	stop(): Promise<void>;
+}
+
+/**
+ * Publishes one presence row for a worker and all of its slots, so a pool of 24 slots writes one
+ * heartbeat rather than 24. Writes are serialized; a slow or unavailable sink cannot build an
+ * unbounded backlog or stop jobs.
+ */
 export class QueueWorkerReporter {
 	#snapshot: QueueWorkerSnapshot;
+	readonly #lanes: LaneState[] = [];
 	#timer: ReturnType<typeof setInterval> | null = null;
 	#pending: Promise<void> | null = null;
 	#dirty = false;
@@ -12,37 +30,53 @@ export class QueueWorkerReporter {
 	/** Creates an identity unique to this worker, including multiple workers in the same process. */
 	constructor(selection: QueueSelection, private readonly publish: (snapshot: QueueWorkerSnapshot) => Promise<void>, private readonly logger?: QueueLogger) {
 		const now = new Date().toISOString();
-		this.#snapshot = { id: ulid(), name: process.env.QUEUE_WORKER_NAME || 'queue-worker', hostname: hostname(), pid: process.pid, selection, status: 'idle', currentQueue: null, currentJobId: null, processed: 0, failed: 0, lastJobAt: null, startedAt: now, heartbeatAt: now };
+		this.#snapshot = { id: ulid(), name: process.env.QUEUE_WORKER_NAME || 'queue-worker', hostname: hostname(), pid: process.pid, selection, status: 'stopped', currentQueue: null, currentJobId: null, busy: 0, slots: 0, processed: 0, failed: 0, lastJobAt: null, startedAt: now, heartbeatAt: now };
+	}
+
+	/** Adds an execution slot whose state is folded into this worker's single row. */
+	lane(): QueueWorkerPresence {
+		const state: LaneState = { status: 'stopped', queue: null, jobId: null };
+		this.#lanes.push(state);
+		this.#snapshot = { ...this.#snapshot, slots: this.#lanes.length };
+		return {
+			start: () => {
+				if (state.status === 'stopped') { state.status = 'idle'; state.queue = null; state.jobId = null; }
+				this.#start();
+				this.#refresh();
+			},
+			update: (status, currentQueue = null, currentJobId = null) => {
+				if (status === 'stopping') { currentQueue = state.queue; currentJobId = state.jobId; }
+				state.status = status; state.queue = currentQueue; state.jobId = currentJobId;
+				this.#refresh();
+			},
+			finished: status => {
+				this.#snapshot = { ...this.#snapshot, processed: this.#snapshot.processed + (status === 'succeeded' ? 1 : 0), failed: this.#snapshot.failed + (status === 'failed' ? 1 : 0), lastJobAt: new Date().toISOString() };
+			},
+			stop: async () => {
+				state.status = 'stopped'; state.queue = null; state.jobId = null;
+				if (this.#lanes.every(lane => lane.status === 'stopped') && this.#timer) { clearInterval(this.#timer); this.#timer = null; }
+				this.#refresh();
+				await this.flush();
+			},
+		};
 	}
 
 	/** Starts liveness updates, including while a long job is awaiting network work. */
-	start(): void {
+	#start(): void {
 		if (this.#timer) return;
-		this.#timer = setInterval(() => { void this.flush(); }, 10_000);
+		this.#timer = setInterval(() => { void this.flush(); }, HEARTBEAT_MS);
 		this.#timer.unref();
-		this.update('idle');
-		void this.flush();
 	}
 
-	/** Updates the latest state without queuing one database write per job or poll. */
-	update(status: QueueWorkerSnapshot['status'], currentQueue: string | null = null, currentJobId: string | null = null): void {
-		if (status === 'stopping') { currentQueue = this.#snapshot.currentQueue; currentJobId = this.#snapshot.currentJobId; }
-		if (this.#snapshot.status === status && this.#snapshot.currentQueue === currentQueue && this.#snapshot.currentJobId === currentJobId) return;
-		this.#snapshot = { ...this.#snapshot, status, currentQueue, currentJobId };
-		void this.flush();
-	}
-
-	/** Counts a finished job; the following idle or busy update publishes it. */
-	finished(status: string): void {
-		this.#snapshot = { ...this.#snapshot, processed: this.#snapshot.processed + (status === 'succeeded' ? 1 : 0), failed: this.#snapshot.failed + (status === 'failed' ? 1 : 0), lastJobAt: new Date().toISOString() };
-	}
-
-	/** Stops timers immediately and flushes a final state when the worker drains. */
-	async stop(): Promise<void> {
-		if (this.#timer) clearInterval(this.#timer);
-		this.#timer = null;
-		this.update('stopped');
-		await this.flush();
+	/** Folds slot states into the row; only a change of overall status is written before the next heartbeat. */
+	#refresh(): void {
+		const working = this.#lanes.filter(lane => lane.jobId !== null && lane.status !== 'stopped');
+		const status: QueueWorkerSnapshot['status'] = this.#lanes.every(lane => lane.status === 'stopped') ? 'stopped'
+			: this.#lanes.some(lane => lane.status === 'stopping') ? 'stopping'
+			: working.length ? 'busy' : 'idle';
+		const previous = this.#snapshot;
+		this.#snapshot = { ...previous, status, busy: working.length, currentQueue: working[0]?.queue ?? null, currentJobId: working[0]?.jobId ?? null };
+		if (status !== previous.status || (this.#lanes.length === 1 && this.#snapshot.currentJobId !== previous.currentJobId)) void this.flush();
 	}
 
 	/** Coalesces concurrent updates and isolates sink errors from claims and handlers. */

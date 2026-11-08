@@ -1872,6 +1872,14 @@
 			"comment": null,
 			"columns": [
 				{
+					"name": "busy",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Slots running a job at the latest report."
+				},
+				{
 					"name": "current_job_id",
 					"type": "varchar(255)",
 					"nullable": true,
@@ -1960,6 +1968,14 @@
 					"primary": false,
 					"unique": false,
 					"comment": "Queues the worker consumes and excludes."
+				},
+				{
+					"name": "slots",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Execution slots in this worker."
 				},
 				{
 					"name": "started_at",

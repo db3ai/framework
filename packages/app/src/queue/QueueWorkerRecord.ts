@@ -2,7 +2,7 @@ import { ActiveRecord, type FieldBuilder } from '../db';
 import type * as queue from './contracts';
 
 /**
- * Latest presence of one database-queue worker slot, upserted on every heartbeat so hosting tools
+ * Latest presence of one database-queue worker (a pool and all of its slots), upserted on every heartbeat so hosting tools
  * can show which queues each worker consumes, whether it is idle or busy, and what it has done.
  * Rows are written only when an app installs this model; stale rows are pruned by the driver.
  */
@@ -26,6 +26,8 @@ export class QueueWorkerRecord extends ActiveRecord {
 			status: field.string({ required: true, length: 16, maxLength: 16, comment: 'idle, busy, stopping or stopped.' }),
 			currentQueue: field.string({ column: 'current_queue', length: 255, maxLength: 255 }),
 			currentJobId: field.string({ column: 'current_job_id', length: 255, maxLength: 255 }),
+			busy: field.integer({ unsigned: true, min: 0, comment: 'Slots running a job at the latest report.' }),
+			slots: field.integer({ unsigned: true, min: 0, comment: 'Execution slots in this worker.' }),
 			processed: field.integer({ required: true, unsigned: true, min: 0, default: 0, comment: 'Jobs that succeeded since the worker started.' }),
 			failed: field.integer({ required: true, unsigned: true, min: 0, default: 0, comment: 'Jobs that failed for good since the worker started.' }),
 			startedAt: field.integer({ column: 'started_at', required: true, unsigned: true, min: 0, comment: 'Unix seconds.' }),
@@ -42,6 +44,8 @@ export class QueueWorkerRecord extends ActiveRecord {
 	declare status: queue.QueueWorkerSnapshot['status'] | null;
 	declare currentQueue: string | null;
 	declare currentJobId: string | null;
+	declare busy: number | null;
+	declare slots: number | null;
 	declare processed: number | null;
 	declare failed: number | null;
 	declare startedAt: number | null;
