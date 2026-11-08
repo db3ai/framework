@@ -41,6 +41,21 @@ async function waitForReservationLock(databaseName: string, outcome?: { done: bo
 }
 
 /**
+ * Waits until some statement is blocked on a lock in one table.
+ *
+ * @param table - Framework table in the disposable database.
+ */
+async function waitForLockWait(table: string): Promise<void> {
+	const deadline = Date.now() + 5000;
+	while (Date.now() < deadline) {
+		const [rows] = await database.db.raw('SELECT 1 FROM information_schema.INNODB_LOCK_WAITS AS waits JOIN information_schema.INNODB_LOCKS AS waiting ON waiting.lock_id = waits.requested_lock_id WHERE waiting.lock_table = ?', [`\`${database.databaseName}\`.\`${table}\``]) as [unknown[], unknown];
+		if (rows.length) return;
+		await delay(100);
+	}
+	throw new Error(`No statement entered a lock wait on ${table}.`);
+}
+
+/**
  * Holds one row while shortening only the free test session's lock wait.
  *
  * @param table - Framework table in this disposable database.
@@ -140,6 +155,37 @@ afterAll(async () => {
 });
 
 describe('AIRateLimiter real MariaDB release contention', () => {
+	it('creates a missing bucket without deadlocking a concurrent first caller', async () => {
+		// Another first caller has locked the missing bucket's gap and is about to insert the row.
+		const bucketKey = 'openai:embeddings:text-embedding-3-small';
+		const other = await observer.transaction();
+		try {
+			await other(AiRateLimitBucket.table).where('bucket_key', bucketKey).forUpdate().first();
+			const outcome = acquireLease().then(lease => ({ lease, error: null }), (error: unknown) => ({ lease: null, error }));
+			await waitForLockWait(AiRateLimitBucket.table);
+			const row = await new AiRateLimitBucket({ bucketKey, provider: 'openai', endpoint: embeddingsRateLimitEndpoint(), limitKey: 'text-embedding-3-small' }).getDataForDb({ isInsert: true });
+			await other(AiRateLimitBucket.table).insert(row);
+			await other.commit();
+			const { lease, error } = await outcome;
+			expect(error).toBeNull();
+			expect(lease?.bucket?.id).toBe(row.id);
+		} finally {
+			if (!other.isCompleted()) await other.rollback();
+		}
+	});
+
+	it('creates a missing bucket outside a caller transaction', async () => {
+		const transaction = await database.db.transaction();
+		try {
+			const lease = await ActiveRecord.withDb(transaction, () => acquireLease());
+			expect(lease.bucket?.id).toBeTruthy();
+			// Committed on its own: visible to other connections while the caller's transaction is open.
+			expect(await observer(AiRateLimitBucket.table).where('id', lease.bucket?.id).first()).toBeTruthy();
+		} finally {
+			await transaction.rollback();
+		}
+	}, 15000);
+
 	it('keeps failed release state retryable and emits only safe diagnostics', async () => {
 		const lease = await acquireLease();
 		const { blocker, timeout } = await holdRow(AiRateLimitReservation.table, String(lease.reservation?.id));

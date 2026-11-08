@@ -78,16 +78,14 @@ export class AIRateLimiter {
 			return emptyLease(input, bucketKey);
 		}
 
+		await ensureBucket({ provider, endpoint: input.endpoint, limitKey: input.model, bucketKey });
+
 		// Transaction invariant: Avoid concurrent admissions both observing the same remaining provider
 		// capacity, or committing bucket changes without the reservation they admit.
 		return await app().db.transaction(async database => {
 			const now = new Date();
-			const bucket = await this.findOrCreateBucket({
-				provider,
-				endpoint: input.endpoint,
-				limitKey: input.model,
-				bucketKey,
-			});
+			const bucket = await lockedBucket(bucketKey);
+			if (!bucket) throw new Error(`AI rate limit bucket "${bucketKey}" is missing.`);
 			const defaultRateLimit = providerDefaultRateLimit(provider, input.endpoint, input.model);
 
 			if (defaultRateLimit && applyDefaultRateLimitBucketState(bucket, defaultRateLimit, now)) {
@@ -292,38 +290,6 @@ export class AIRateLimiter {
 			}, 'AI rate-limit bookkeeping write failed.');
 		} catch {
 			// Logging transport failures must not replace a completed provider outcome.
-		}
-	}
-
-	/**
-	 * Finds or creates a bucket row in the current database scope.
-	 *
-	 * @param input - Stable bucket identity.
-	 * @returns Persisted bucket row.
-	 */
-	private async findOrCreateBucket(input: {
-		provider: AIProvider;
-		endpoint: AiRateLimitEndpoint;
-		limitKey: string;
-		bucketKey: string;
-	}): Promise<AiRateLimitBucket> {
-		const existing = await lockedBucket(input.bucketKey);
-
-		if (existing) return existing;
-
-		try {
-			return await new AiRateLimitBucket({
-				bucketKey: input.bucketKey,
-				provider: input.provider,
-				endpoint: input.endpoint,
-				limitKey: input.limitKey,
-			}).save();
-		} catch (error) {
-			const raced = await lockedBucket(input.bucketKey);
-
-			if (raced) return raced;
-
-			throw error;
 		}
 	}
 }
@@ -738,6 +704,27 @@ function currentOrNextReset(
 	if (resetAt && resetAt.getTime() > now.getTime()) return resetAt;
 
 	return new Date(now.getTime() + windowMs);
+}
+
+/**
+ * Creates a missing bucket row before any lock is taken.
+ *
+ * Under REPEATABLE READ a locking read of a missing row takes a gap lock, so
+ * concurrent first callers that each lock, miss and insert the same bucket
+ * deadlock. An idempotent insert outside the admission transaction means the
+ * locked read inside it always finds the row.
+ *
+ * @param input - Stable bucket identity.
+ * @returns Once the bucket row exists.
+ */
+async function ensureBucket(input: { provider: AIProvider; endpoint: AiRateLimitEndpoint; limitKey: string; bucketKey: string }): Promise<void> {
+	// The root connection autocommits: a row created inside a caller's transaction would stay invisible,
+	// and the admission transaction's locked read would wait on it until the caller gave up.
+	const connection = app().db.knex;
+	const column = AiRateLimitBucket.getFields().bucketKey!.column;
+	if (await connection(AiRateLimitBucket.table).where(column, input.bucketKey).first('id')) return;
+	const bucket = new AiRateLimitBucket({ bucketKey: input.bucketKey, provider: input.provider, endpoint: input.endpoint, limitKey: input.limitKey });
+	await connection(AiRateLimitBucket.table).insert(await bucket.getDataForDb({ isInsert: true })).onConflict(column).ignore();
 }
 
 /**

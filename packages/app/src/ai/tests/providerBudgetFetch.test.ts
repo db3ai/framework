@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { providerBudgetFetch } from '../providerBudgetFetch.js';
 import type { AIProviderBudgetInput, AIProviderBudgetResult } from '../contracts/AIProviderBudget.js';
 
@@ -12,6 +12,25 @@ describe('provider budget HTTP lifecycle', () => {
 		expect(response.status).toBe(200);
 		expect(JSON.parse(sent).max_output_tokens).toBe(400);
 		expect(events).toEqual(['reserve', 'provider', 'settle']);
+	});
+	/** Verifies the deadline abort and that a settled request cancels its long-lived timer. */
+	it('aborts at the run deadline and clears its timer once the request settles', async () => {
+		const timedOut = providerBudgetFetch((_url, init) => new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason))), 'https://provider.test/responses', { body: '{}' }, context, async () => ({ deadline: new Date(Date.now() + 20), async settle() {} }));
+		await expect(timedOut).rejects.toThrow('deadline passed');
+		const scheduled = vi.spyOn(globalThis, 'setTimeout');
+		const cleared = vi.spyOn(globalThis, 'clearTimeout');
+		let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+		try {
+			await providerBudgetFetch(async () => Response.json({}), 'https://provider.test/responses', { body: '{}' }, context, async () => ({ deadline: new Date(Date.now() + 86_400_000), async settle() {} }));
+			const index = scheduled.mock.calls.findIndex(([, delay]) => typeof delay === 'number' && delay > 80_000_000);
+			expect(index).toBeGreaterThanOrEqual(0);
+			deadlineTimer = scheduled.mock.results[index]!.value as ReturnType<typeof setTimeout>;
+			expect(cleared).toHaveBeenCalledWith(deadlineTimer);
+		} finally {
+			scheduled.mockRestore();
+			cleared.mockRestore();
+			if (deadlineTimer) clearTimeout(deadlineTimer);
+		}
 	});
 	it('observes split SSE terminal usage without consuming or changing provider bytes', async () => {
 		const body = 'data: {"type":"response.output_text.delta","delta":"hello"}\n\ndata: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":30,"output_tokens":4}}}\n\n';
