@@ -13,6 +13,14 @@ describe('provider budget HTTP lifecycle', () => {
 		expect(JSON.parse(sent).max_output_tokens).toBe(400);
 		expect(events).toEqual(['reserve', 'provider', 'settle']);
 	});
+	it('aborts at the run deadline and clears its timer once the request settles', async () => {
+		const timedOut = providerBudgetFetch((_url, init) => new Promise((_resolve, reject) => init!.signal!.addEventListener('abort', () => reject(init!.signal!.reason))), 'https://provider.test/responses', { body: '{}' }, context, async () => ({ deadline: new Date(Date.now() + 20), async settle() {} }));
+		await expect(timedOut).rejects.toThrow('deadline passed');
+		const timers = () => process.getActiveResourcesInfo().filter(type => type === 'Timeout').length;
+		const before = timers();
+		await providerBudgetFetch(async () => Response.json({}), 'https://provider.test/responses', { body: '{}' }, context, async () => ({ deadline: new Date(Date.now() + 86_400_000), async settle() {} }));
+		expect(timers()).toBe(before);
+	});
 	it('observes split SSE terminal usage without consuming or changing provider bytes', async () => {
 		const body = 'data: {"type":"response.output_text.delta","delta":"hello"}\n\ndata: {"type":"response.completed","response":{"status":"completed","usage":{"input_tokens":30,"output_tokens":4}}}\n\n';
 		const bytes = new TextEncoder().encode(body);

@@ -10,9 +10,15 @@ export async function providerBudgetFetch(transport: typeof fetch, url: Paramete
 	const request: unknown = JSON.parse(init.body);
 	if (!request || typeof request !== 'object' || Array.isArray(request)) throw new Error('Budgeted AI requests require an object body.');
 	const body = request as Record<string, unknown>;
-	const reservation = await reserve({ ...input, model: typeof body.model === 'string' ? body.model : input.model, endpoint: new URL(url instanceof Request ? url.url : String(url)).pathname, request: body });
-	if (!reservation) return transport(url, init);
-	const signals = [init.signal, reservation.signal].filter((signal): signal is AbortSignal => Boolean(signal));
+	const reserved = await reserve({ ...input, model: typeof body.model === 'string' ? body.model : input.model, endpoint: new URL(url instanceof Request ? url.url : String(url)).pathname, request: body });
+	if (!reserved) return transport(url, init);
+	// The run deadline can be a day or more away. Its timer is cleared at settlement: a pending timer keeps
+	// the calling job's async context, and so the whole job, in memory until it fires.
+	const deadline = reserved.deadline ? new AbortController() : null;
+	const timer = reserved.deadline ? setTimeout(() => deadline!.abort(new DOMException('The AI run deadline passed.', 'TimeoutError')), Math.max(1, Math.min(2_147_483_647, reserved.deadline.getTime() - Date.now()))) : null;
+	timer?.unref();
+	const reservation: AIProviderBudgetReservation = { ...reserved, settle: result => { if (timer) clearTimeout(timer); return reserved.settle(result); } };
+	const signals = [init.signal, deadline?.signal].filter((signal): signal is AbortSignal => Boolean(signal));
 	let response: Response;
 	const cancelled = signals.find(signal => signal.aborted);
 	if (cancelled) {

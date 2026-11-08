@@ -31,7 +31,7 @@ export interface AIProviderBudgetReservation {
 	/** Optional bounded replacement request, for example a reduced output-token ceiling. */
 	request?: Record<string, unknown>;
 	/** Run-wide deadline in addition to the normal per-request timeout and caller cancellation. */
-	signal?: AbortSignal;
+	deadline?: Date;
 	/** Records actual usage or releases a definitely unused hold; never bills an estimate as actual. */
 	settle(result: AIProviderBudgetResult): Promise<void>;
 }
