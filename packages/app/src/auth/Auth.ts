@@ -272,6 +272,35 @@ export class AuthIdentityExistsError extends Error {
 /**
  * Error thrown when code attempts to use a disabled auth provider.
  */
+/**
+ * Raised when a verified provider identity already signs in to a different account.
+ * It names that account so the app can offer to merge it with {@link Auth.mergeUsers}.
+ */
+export class AuthProviderLinkedError extends AuthIdentityExistsError {
+	/**
+	 * @param provider - Provider name, such as google.
+	 * @param providerUserId - Provider-owned account id that was verified.
+	 * @param userId - Primary key of the account the identity already signs in to.
+	 */
+	constructor(
+		public readonly provider: string,
+		public readonly providerUserId: string,
+		public readonly userId: string,
+	) {
+		super('provider', `${provider}:${providerUserId}`);
+		this.name = 'AuthProviderLinkedError';
+	}
+}
+
+/** Options for {@link Auth.mergeUsers}. */
+export interface MergeUsersOptions {
+	/**
+	 * Moves app-owned rows (memberships, history) from one account to the other inside
+	 * the merge transaction, before the merged account is deleted.
+	 */
+	moveData?: (transaction: Knex.Transaction, fromId: string, intoId: string) => Promise<void>;
+}
+
 export class AuthProviderNotConfiguredError extends Error {
 	/**
 	 * Creates a provider configuration error.
@@ -637,6 +666,40 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 
 		await provider.delete(this.db.knex);
 		return true;
+	}
+
+	/**
+	 * Merges one account into another, for a person who proved they control both
+	 * (for example with a fresh Google sign-in that {@link AuthProviderLinkedError} named).
+	 * The surviving account keeps its email, password and providers; sign-in providers it
+	 * lacks move across (never password, which is keyed by the merged account's email).
+	 * App data moves through `moveData`, then the merged account, its sessions, other
+	 * logins and recovery links are deleted.
+	 *
+	 * @param from - Account to merge and delete.
+	 * @param into - Account that remains.
+	 * @param options - App hook that moves app-owned rows.
+	 * @example
+	 * await app.auth.mergeUsers(other, current, { moveData: (trx, from, into) => trx('memberships').where('user_id', from).update({ user_id: into }) });
+	 */
+	async mergeUsers(from: TIdentity, into: TIdentity, options: MergeUsersOptions = {}): Promise<void> {
+		const fromId = this.userPrimaryKey(from);
+		const intoId = this.userPrimaryKey(into);
+		if (!fromId || !intoId || fromId === intoId) throw new Error('Merging needs two different saved accounts.');
+		// The app's moved rows, the moved sign-in and the account delete commit together, so a
+		// failure never leaves data on a deleted account or a login pointing nowhere.
+		await this.db.knex.transaction(async transaction => {
+			await options.moveData?.(transaction, fromId, intoId);
+			const kept = new Set((await this.ProviderModel.query(transaction).where('userId', intoId).all()).map(row => row.provider));
+			for (const provider of await this.ProviderModel.query(transaction).where('userId', fromId).all()) {
+				if (provider.provider === PASSWORD_AUTH_PROVIDER || kept.has(provider.provider)) await provider.delete(transaction);
+				else await this.ProviderModel.query(transaction).where(this.ProviderModel.primaryKey, provider.id).patch({ userId: intoId });
+			}
+			await this.TokenModel.query(transaction).where('userId', fromId).forceDelete();
+			await this.PasswordResetTokenModel.query(transaction).where('userId', fromId).forceDelete();
+			await this.IdentityModel.query(transaction).where(this.IdentityModel.primaryKey, fromId).forceDelete();
+		});
+		this.#forgetRevokedUser(fromId);
 	}
 
 	/**
@@ -1173,7 +1236,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		}
 
 		if (existing && existing.userId !== userId) {
-			throw new AuthIdentityExistsError('provider', `${profile.provider}:${profile.providerUserId}`);
+			throw new AuthProviderLinkedError(profile.provider, profile.providerUserId, String(existing.userId));
 		}
 
 		const providerRecord = existing ?? new this.ProviderModel({}, {

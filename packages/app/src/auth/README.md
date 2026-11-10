@@ -327,6 +327,27 @@ const provider = await app.auth.linkProvider(user, GOOGLE_AUTH_PROVIDER, {
 });
 ```
 
+When that identity already signs in to another account, `linkProvider` throws
+`AuthProviderLinkedError` naming that account's `userId`. The same fresh proof
+shows the person controls both, so the app can offer to merge them:
+
+```ts
+try {
+	await app.auth.linkProvider(user, GOOGLE_AUTH_PROVIDER, { credential });
+} catch (error) {
+	if (!(error instanceof AuthProviderLinkedError)) throw error;
+	const other = await User.find(error.userId);
+	await app.auth.mergeUsers(other, user, {
+		moveData: (trx, from, into) => trx('memberships').where('user_id', from).update({ user_id: into }),
+	});
+}
+```
+
+`mergeUsers` keeps the surviving account's email, password and providers, moves
+sign-in providers it lacks, runs `moveData` for app-owned rows, then deletes the
+merged account with its sessions, other logins and recovery links, all in one
+transaction.
+
 Remove a provider by row id or provider name:
 
 ```ts
