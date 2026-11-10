@@ -15,9 +15,10 @@ export const databaseCommands = [
 		options: [
 			{ name: 'retire', type: 'boolean', description: 'Record removed fields and tables as retired instead of dropping them.' },
 			{ name: 'drop-retired', type: 'boolean', description: 'Drop what earlier releases retired.' },
+			{ name: 'unique-indexes', type: 'boolean', description: 'Add reviewed unique indexes to columns that already hold rows.' },
 		],
 		/** Maps the CLI name and flags to the action's normal options object. */
-		handle: (parameters, { options }) => makeMigration({ name: parameters.name, retire: options.retire === true, dropRetired: options['drop-retired'] === true }),
+		handle: (parameters, { options }) => makeMigration({ name: parameters.name, retire: options.retire === true, dropRetired: options['drop-retired'] === true, addUniqueIndexes: options['unique-indexes'] === true }),
 		exitCode: result => result.blocked ? 1 : 0,
 	}),
 ];

@@ -706,6 +706,47 @@ describe('DatabaseMigrationManager generation', () => {
 		}
 	});
 
+	it('adds a reviewed unique index to existing rows only when asked, and refuses duplicates without changing anything', async () => {
+		const directory = await makeTemporaryDirectory();
+		const generatedDatabase = await createGeneratedTestDatabase('migration_unique');
+		const migrationTableName = 'test_unique_migrations';
+		const migrationsDirectory = join(directory, 'migrations');
+		const memberFields = (field: FieldBuilder, unique: boolean) => ({
+			id: field.ulid(),
+			organization: field.string({ required: true, length: 26, column: 'organization_id' }),
+			user: field.string({ required: true, length: 26, column: 'user_id', indexes: unique ? [{ name: 'migration_members_organization_user_unique', columns: ['organization_id', 'user_id'], unique: true }] : [] }),
+		});
+		const Member = ActiveRecord.define({ table: 'migration_members', fields: field => memberFields(field, false) });
+		const UniqueMember = ActiveRecord.define({ table: 'migration_members', fields: field => memberFields(field, true) });
+		const manager = (models: Array<typeof Member>) => new DatabaseMigrationManager({
+			db: generatedDatabase.db, models, dialect: mariaDbDialect, migrationsDirectory,
+			snapshotFile: join(directory, 'schema.snapshot.json'), migrationTableName, environment: 'test',
+			now: () => new Date(`2026-08-01T12:3${models[0] === Member ? 4 : 5}:56Z`),
+		});
+
+		try {
+			await manager([Member]).makeMigration({ name: 'members' });
+			await runGeneratedMigrations(generatedDatabase.databaseName, migrationsDirectory, migrationTableName);
+			const row = { organization_id: '01K23456789ABCDEFGHJKMNORG', user_id: '01K23456789ABCDEFGHJKMNUSR' };
+			await generatedDatabase.db('migration_members').insert([{ id: '01K23456789ABCDEFGHJKMN001', ...row }, { id: '01K23456789ABCDEFGHJKMN002', ...row }]);
+
+			expect(await manager([UniqueMember]).makeMigration()).toMatchObject({ generated: false, blocked: true });
+			const generated = await manager([UniqueMember]).makeMigration({ name: 'unique_members', addUniqueIndexes: true });
+			expect(generated).toMatchObject({ generated: true, blocked: false });
+			const source = await readFile(generated.file!, 'utf8');
+			expect(source).toContain('export const phase = "expand";');
+			expect(source).toContain('migration_members_organization_user_unique');
+
+			await expect(runGeneratedMigrations(generatedDatabase.databaseName, migrationsDirectory, migrationTableName)).rejects.toThrow();
+			expect(await generatedDatabase.db('migration_members')).toHaveLength(2);
+			await generatedDatabase.db('migration_members').where('id', '01K23456789ABCDEFGHJKMN002').delete();
+			await runGeneratedMigrations(generatedDatabase.databaseName, migrationsDirectory, migrationTableName);
+			await expect(generatedDatabase.db('migration_members').insert({ id: '01K23456789ABCDEFGHJKMN003', ...row })).rejects.toThrow(/Duplicate/);
+		} finally {
+			await generatedDatabase.destroy();
+		}
+	}, MIGRATION_TEST_TIMEOUT_MS);
+
 	it('applies required defaults, default removals, and ordinary indexes to existing data', async () => {
 		const directory = await makeTemporaryDirectory();
 		const generatedDatabase = await createGeneratedTestDatabase('migration_defaults');

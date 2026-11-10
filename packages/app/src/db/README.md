@@ -219,6 +219,13 @@ Removing a field takes two releases:
 
 `allowDestructive` still drops at once and is marked contract.
 
+A unique index on columns that already hold rows is refused by default, because
+existing duplicates would stop the deploy. After checking the data, run
+`db:make-migration --unique-indexes`. The migration is expand: the index is added
+in one ALTER that either succeeds or changes nothing, so duplicates stop the
+deploy at its migrate step and the running release stays up. Remove them, then
+deploy again.
+
 Generation is protected by a cross-process source lock and is refused in
 production. A blocked or unsupported model difference is reported for explicit
 review rather than being silently emitted. Generated migrations and the schema

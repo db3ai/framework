@@ -27,9 +27,10 @@ export const appsCommands = [
 		options: [
 			{ name: 'retire', type: 'boolean', description: 'Record removed fields and tables as retired instead of dropping them.' },
 			{ name: 'drop-retired', type: 'boolean', description: 'Drop what earlier releases retired.' },
+			{ name: 'unique-indexes', type: 'boolean', description: 'Add reviewed unique indexes to columns that already hold rows.' },
 		],
 		/** Delegates development source generation to the app-owned migration manager. */
-		handle: (parameters, { options }) => makeAppMigration(parameters.id!, parameters.name, { retire: options.retire === true, dropRetired: options['drop-retired'] === true }),
+		handle: (parameters, { options }) => makeAppMigration(parameters.id!, parameters.name, { retire: options.retire === true, dropRetired: options['drop-retired'] === true, addUniqueIndexes: options['unique-indexes'] === true }),
 	}),
 	...[
 		['install', installApp], ['enable', enableApp], ['disable', disableApp], ['uninstall', uninstallApp], ['rollback', rollbackApp],

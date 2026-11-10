@@ -113,6 +113,13 @@ export interface MakeMigrationOptions {
 
 	/** When true, generate the drops for schema retired by earlier migrations. */
 	dropRetired?: boolean;
+
+	/**
+	 * When true, add reviewed unique indexes to columns that already hold rows. The
+	 * single ALTER either succeeds or fails as a whole, so existing duplicates stop
+	 * the deploy at its migrate step with nothing changed; remove them first.
+	 */
+	addUniqueIndexes?: boolean;
 }
 
 /**

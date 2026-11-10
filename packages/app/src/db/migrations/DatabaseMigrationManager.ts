@@ -277,9 +277,12 @@ export class DatabaseMigrationManager {
 			return await this.#writeMigration(options, ...retirePlan(rawPlan, previous), desired);
 		}
 
-		const plan = options.allowDestructive
+		const destructive = options.allowDestructive
 			? promoteDestructiveSchemaChanges(rawPlan)
 			: rawPlan;
+		const plan = options.addUniqueIndexes
+			? promoteUniqueIndexes(destructive, desired)
+			: destructive;
 
 		if (plan.blockedChanges.length > 0) {
 			return {
@@ -945,4 +948,23 @@ function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoExcepti
 	return error instanceof Error
 		&& 'code' in error
 		&& (error as NodeJS.ErrnoException).code === code;
+}
+
+/**
+ * Turns reviewed unique indexes on existing columns into ordinary index additions.
+ *
+ * @param plan - Plan whose blocked changes may include unique indexes on existing columns.
+ * @param desired - Snapshot that defines each index being added.
+ * @returns Plan with those indexes as safe additions; other blocked changes remain.
+ */
+function promoteUniqueIndexes(plan: SchemaMigrationPlan, desired: SchemaSnapshot): SchemaMigrationPlan {
+	const promoted: SafeSchemaChange[] = [];
+	const blockedChanges = plan.blockedChanges.filter(change => {
+		if (change.operation !== 'add_index_to_existing_columns') return true;
+		const index = desired.tables.find(table => table.name === change.tableName)?.indexes.find(candidate => candidate.name === change.objectName);
+		if (!index?.unique) return true;
+		promoted.push({ kind: 'add_index', tableName: change.tableName, index, description: `Add unique index ${index.name} on ${change.tableName}.` });
+		return false;
+	});
+	return { ...plan, safeChanges: [...plan.safeChanges, ...promoted], blockedChanges };
 }
