@@ -42,7 +42,7 @@ describe('merging two accounts one person controls', () => {
 		await application.auth.linkProvider(other.user, 'google', { subject: 'g-2', email: other.user.email });
 		await application.auth.createPasswordResetToken(other.user);
 		let moved: string[] = [];
-		await application.auth.mergeUsers(other.user, current.user, { moveData: async (_transaction, from, into) => { moved = [from, into]; } });
+		await application.auth.mergeUsers(String(other.user.id), current.user, { moveData: async (_transaction, from, into) => { moved = [from, into]; } });
 		expect(moved).toEqual([String(other.user.id), String(current.user.id)]);
 		expect((await application.auth.providersFor(current.user)).map(row => row.provider).sort()).toEqual(['google', 'password']);
 		expect((await application.auth.issueTokenForProvider('google', { subject: 'g-2', email: other.user.email }))?.user.id).toBe(current.user.id);
@@ -56,7 +56,7 @@ describe('merging two accounts one person controls', () => {
 		const other = await account();
 		const current = await account();
 		await application.auth.linkProvider(other.user, 'google', { subject: 'g-3', email: other.user.email });
-		await expect(application.auth.mergeUsers(other.user, current.user, { moveData: async () => { throw new Error('app move failed'); } })).rejects.toThrow('app move failed');
+		await expect(application.auth.mergeUsers(String(other.user.id), current.user, { moveData: async () => { throw new Error('app move failed'); } })).rejects.toThrow('app move failed');
 		expect((await application.auth.providersFor(other.user)).map(row => row.provider).sort()).toEqual(['google', 'password']);
 		expect(await application.requestContext.run(() => application.auth.authenticateToken(other.token))).not.toBeNull();
 	});

@@ -336,8 +336,7 @@ try {
 	await app.auth.linkProvider(user, GOOGLE_AUTH_PROVIDER, { credential });
 } catch (error) {
 	if (!(error instanceof AuthProviderLinkedError)) throw error;
-	const other = await User.find(error.userId);
-	await app.auth.mergeUsers(other, user, {
+	await app.auth.mergeUsers(error.userId, user, {
 		moveData: (trx, from, into) => trx('memberships').where('user_id', from).update({ user_id: into }),
 	});
 }

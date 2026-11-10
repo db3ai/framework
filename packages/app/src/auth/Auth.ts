@@ -676,14 +676,13 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 	 * App data moves through `moveData`, then the merged account, its sessions, other
 	 * logins and recovery links are deleted.
 	 *
-	 * @param from - Account to merge and delete.
+	 * @param fromId - Primary key of the account to merge and delete, such as `AuthProviderLinkedError.userId`.
 	 * @param into - Account that remains.
 	 * @param options - App hook that moves app-owned rows.
 	 * @example
-	 * await app.auth.mergeUsers(other, current, { moveData: (trx, from, into) => trx('memberships').where('user_id', from).update({ user_id: into }) });
+	 * await app.auth.mergeUsers(error.userId, current, { moveData: (trx, from, into) => trx('memberships').where('user_id', from).update({ user_id: into }) });
 	 */
-	async mergeUsers(from: TIdentity, into: TIdentity, options: MergeUsersOptions = {}): Promise<void> {
-		const fromId = this.userPrimaryKey(from);
+	async mergeUsers(fromId: string, into: TIdentity, options: MergeUsersOptions = {}): Promise<void> {
 		const intoId = this.userPrimaryKey(into);
 		if (!fromId || !intoId || fromId === intoId) throw new Error('Merging needs two different saved accounts.');
 		// The app's moved rows, the moved sign-in and the account delete commit together, so a
