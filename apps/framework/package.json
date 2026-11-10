@@ -5,10 +5,11 @@
 	"type": "module",
 	"scripts": {
 		"dev": "npm run generate && node --import tsx index.ts",
-		"build": "npm run generate && npm run test && npm run type-check && npm run build:client && npm run build:ssr && npm run build:runtime",
+		"build": "npm run generate && npm run test && npm run type-check && npm run build:client && npm run build:ssr && npm run build:runtime && npm run build:site",
 		"build:client": "vite build --outDir dist/client --ssrManifest",
 		"build:ssr": "vite build --outDir dist/server --ssr client/entry-server.ts",
 		"build:runtime": "vite build --outDir dist/runtime --ssr index.ts && npm run test:runtime",
+		"build:site": "node scripts/export-site.mjs",
 		"test:runtime": "node --test tests/productionRuntime.test.mjs",
 		"start": "NODE_ENV=production node dist/runtime/index.js",
 		"preview": "npm run build && DOCS_PORT=8302 npm start",
