@@ -239,6 +239,38 @@ contract of an app missing from its `requires` or `optional`, or names a contrac
 file that does not exist. Add it to the project's `check` script so CI keeps the
 boundaries; `--json` prints the report with each app's contract and dependencies.
 
+### Services inside an app
+
+An app is a whole product inside your application, such as a CRM. A large app can
+split its lower-level pieces into services: one folder each under the app's
+`services/`, with a `contract.ts` whose default export is the interface the
+service implements.
+
+```text
+apps/cloud/
+	App.ts                      builds the services
+	services/
+		access/
+			contract.ts         the only file the rest of the app may import
+			Sessions.ts
+			models/Session.ts
+```
+
+`db3 apps:check` holds these boundaries too. Code outside a service may import
+only its `contract.ts`. The app's entry file, which builds the services, and
+files under a `tests` folder may import a service's other files. A service
+folder without a `contract.ts` fails the check.
+
+### The app map
+
+`db3 apps:map` writes the app map to `apps/README.md` (or the file you name):
+a Mermaid diagram of the apps, the services inside them and what each uses, each
+contract's calls with the first sentence of their documentation, and any imports
+that do not conform yet. It is generated from the manifests and contract files, so it cannot drift
+from the code. Commit it, and run `db3 apps:map --check` in the project's `check`
+script so a changed contract fails until the map is regenerated. People and AI
+agents can read that one file to see the system's boundaries before changing it.
+
 ## Lifecycle and administration
 
 The base service provides these overridable asynchronous hooks:

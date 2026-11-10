@@ -6,3 +6,4 @@ export { AppService } from './AppService';
 export { discoverApps } from './discoverApps';
 export { writeAppTypes } from './writeAppTypes';
 export { checkAppBoundaries, formatAppBoundaries, type AppBoundaryProblem, type AppBoundaryReport } from './checkAppBoundaries';
+export { describeAppMap, formatAppMap, type AppMapEntry, type AppMapCall, type AppMapService } from './describeAppMap';
