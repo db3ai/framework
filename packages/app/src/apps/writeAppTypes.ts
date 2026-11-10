@@ -2,11 +2,20 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
 import { discoverApps } from './discoverApps';
 
-/** Regenerates optional app().social types from discovery during development and builds, without loading server code. */
+/**
+ * Regenerates optional app().social types from discovery during development and builds, without
+ * loading server code. An app whose manifest names a `contract` is typed by that contract's default
+ * export, so callers see only what it promises; otherwise by its service class.
+ */
 export async function writeAppTypes(directory: string): Promise<void> {
 	const target = join(directory, '.db3/apps.d.ts');
+	const local = (file: string) => `./${relative(dirname(target), file).replaceAll('\\', '/').replace(/\.ts$/, '.js')}`;
 	const properties = discoverApps(directory).map(app => {
-		const specifier = app.packageName ?? `./${relative(dirname(target), app.entry).replaceAll('\\', '/').replace(/\.ts$/, '.js')}`;
+		if (app.contract) {
+			const contract = app.packageName ? `${app.packageName}/${relative(app.directory, app.contract).replaceAll('\\', '/').replace(/\.ts$/, '')}` : local(app.contract);
+			return `\t\treadonly ${app.manifest.id}?: import(${JSON.stringify(contract)}).default;`;
+		}
+		const specifier = app.packageName ?? local(app.entry);
 		return `\t\treadonly ${app.manifest.id}?: InstanceType<typeof import(${JSON.stringify(specifier)}).default>;`;
 	});
 	await mkdir(dirname(target), { recursive: true });

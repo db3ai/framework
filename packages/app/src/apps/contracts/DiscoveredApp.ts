@@ -6,6 +6,8 @@ export interface DiscoveredApp {
 	directory: string;
 	entry: string;
 	client?: string;
+	/** Absolute path of the manifest's `contract` file, when it declares one. */
+	contract?: string;
 	/** Direct npm dependency, absent for an in-project apps/{id} directory. */
 	packageName?: string;
 }

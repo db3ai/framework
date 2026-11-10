@@ -16,6 +16,12 @@ export interface AppManifest {
 	requires?: Readonly<Record<string, number>>;
 	/** Optional integrations; absent apps are allowed, incompatible installed apps are not. */
 	optional?: Readonly<Record<string, number>>;
+	/**
+	 * Relative path of the file that holds this app's public contract: the default-exported
+	 * interface its service implements, with the types and events it hands out. Other apps may
+	 * import this file and nothing else from this app; `db3 apps:check` enforces it.
+	 */
+	contract?: string;
 	/** Default destinations beneath /apps/{id}; a runtime navigation provider may replace these per viewer. */
 	navigation?: readonly AppMenuItem[];
 }

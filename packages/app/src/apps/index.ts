@@ -5,3 +5,4 @@ export { AppRouteError } from './AppRouteError';
 export { AppService } from './AppService';
 export { discoverApps } from './discoverApps';
 export { writeAppTypes } from './writeAppTypes';
+export { checkAppBoundaries, formatAppBoundaries, type AppBoundaryProblem, type AppBoundaryReport } from './checkAppBoundaries';

@@ -6,12 +6,21 @@ import { disableApp } from './disableApp';
 import { uninstallApp } from './uninstallApp';
 import { rollbackApp } from './rollbackApp';
 import { makeAppMigration } from './makeAppMigration';
+import { checkAppBoundaries, formatAppBoundaries } from '../checkAppBoundaries';
 
 export { listApps, installApp, enableApp, disableApp, uninstallApp, makeAppMigration, rollbackApp };
 
 /** CLI adapters for the same app-management operations used by programmatic and visual clients. */
 export const appsCommands = [
 	defineCommand({ name: 'apps:list', description: 'Inspect app definitions and installation state.', handle: listApps }),
+	defineCommand({
+		name: 'apps:check', description: 'Check that apps reach each other only through their contracts. Reads files; starts nothing.', needsApp: false,
+		options: [{ name: 'json', type: 'boolean', description: 'Print the report as JSON.' }],
+		/** Reads the project's apps and their imports. */
+		handle: (_parameters, { directory, options }) => ({ report: checkAppBoundaries(directory), json: options.json === true }),
+		formatResult: ({ report, json }) => json ? JSON.stringify(report, null, 2) : formatAppBoundaries(report),
+		exitCode: ({ report }) => report.problems.length ? 1 : 0,
+	}),
 	defineCommand({
 		name: 'apps:make-migration', description: 'Generate a local app migration without changing the database.',
 		parameters: [{ name: 'id', required: true }, { name: 'name', required: false }],

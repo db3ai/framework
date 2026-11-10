@@ -212,6 +212,33 @@ must be enabled first. Missing optional apps are allowed; installed incompatible
 contracts and cycles are rejected. Consume another app's public service, not its
 internal models. Startup runs in dependency order.
 
+### Contracts make the boundary visible
+
+Give an app that others use a `contract` in its manifest: the one file other apps
+may import from it.
+
+```json
+{ "name": "Machines", "version": "1.0.0", "apiVersion": 1, "contract": "contract.ts" }
+```
+
+```ts
+// apps/machines/contract.ts: what Machines promises, and nothing else
+export default interface Machines {
+	online(machine: string): Promise<boolean>;
+}
+```
+
+`App.ts` declares `implements Machines`, so the compiler keeps service and contract
+in step. Generated types then describe `app().machines` by the contract, not the
+class, so callers see only what it promises. Bump `apiVersion` when the contract
+changes incompatibly.
+
+`db3 apps:check` reads every local app's imports, without loading any code, and
+fails when an app imports another app's files other than its contract, imports a
+contract of an app missing from its `requires` or `optional`, or names a contract
+file that does not exist. Add it to the project's `check` script so CI keeps the
+boundaries; `--json` prints the report with each app's contract and dependencies.
+
 ## Lifecycle and administration
 
 The base service provides these overridable asynchronous hooks:

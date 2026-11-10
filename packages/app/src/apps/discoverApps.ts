@@ -43,7 +43,8 @@ function readApp(directory: string, id: string, packageName?: string, entries?: 
 	const entry = containedEntry(directory, entries?.entry ?? 'App.ts');
 	const clientPath = entries?.client ?? 'client/index.ts';
 	const client = containedEntry(directory, clientPath);
-	return { manifest: { ...manifest, id }, directory, entry, ...(existsSync(client) ? { client } : {}), ...(packageName ? { packageName } : {}) };
+	const contract = manifest.contract === undefined ? undefined : containedEntry(directory, manifest.contract);
+	return { manifest: { ...manifest, id }, directory, entry, ...(existsSync(client) ? { client } : {}), ...(contract ? { contract } : {}), ...(packageName ? { packageName } : {}) };
 }
 
 /** Rejects entry paths that escape the package or local app root. */
