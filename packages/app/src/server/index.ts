@@ -2,6 +2,7 @@ export * from './contracts';
 export { publicServerErrorMessage } from './publicServerErrorMessage';
 export { registerBrowserJsonFormatting } from './registerBrowserJsonFormatting';
 export { registerHttpErrorHandler } from './registerHttpErrorHandler';
+export { registerStaticSite, type StaticSiteOptions } from './registerStaticSite';
 export {
 	App,
 	type AppOptions,

@@ -6,11 +6,12 @@ import { createDocsServer } from '../dist/runtime/index.js';
 
 /**
  * Writes the built documentation website as static files, so a host serves `/framework` from
- * disk instead of running the docs server (db3.ai does). Every page, feed, Markdown copy,
- * image and asset is rendered once through the production server, and `routes.json` keeps
- * each response's status and headers (security policy, cache, canonical links) to replay.
+ * disk with `registerStaticSite` instead of running the docs server (db3.ai does). Every page,
+ * feed, Markdown copy, image and asset is rendered once through the production server.
  *
- * Output: dist/site, an installable package `@db3.ai/docs-site`.
+ * Output: dist/site, an installable package `@db3.ai/docs-site` whose `index.js` exports the
+ * files' `directory` and the `headers(file)` the docs server sends (security policy, caching):
+ * `registerStaticSite(server, { prefix: '/framework', ...docsSite })`.
  */
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = join(root, 'dist/site');
@@ -41,13 +42,28 @@ try {
 			queue.push(linked);
 		}
 	}
-	const notFound = await server.inject(missing);
-	routes['404'] = await save(missing, notFound);
-	const files = Object.values(routes).map(route => route.file);
+	routes['404'] = await save(missing, await server.inject(missing));
+	// One header set for every file (the docs server's security policy), and its caching per kind of file.
+	const page = routes['/framework'].headers;
+	const cache = { assets: routes[Object.keys(routes).find(path => path.startsWith('/framework/assets/'))]?.headers['cache-control'], images: routes[Object.keys(routes).find(path => path.startsWith('/framework/images/'))]?.headers['cache-control'], feeds: routes['/framework/llms.txt'].headers['cache-control'], pages: page['cache-control'] };
+	const security = Object.fromEntries(Object.entries(page).filter(([key]) => key !== 'content-type' && key !== 'cache-control'));
 	const fingerprint = createHash('sha256').update(JSON.stringify(routes)).digest('hex').slice(0, 16);
-	await writeFile(join(output, 'routes.json'), `${JSON.stringify({ origin, fingerprint, routes }, null, '\t')}\n`);
-	await writeFile(join(output, 'package.json'), `${JSON.stringify({ name: '@db3.ai/docs-site', version: '0.1.0', description: 'The db3.ai framework documentation website as static files.', license: 'MIT', type: 'module', files: ['routes.json', 'files'], exports: { './routes.json': './routes.json', './files/*': './files/*' } }, null, '\t')}\n`);
-	console.log(`Exported ${files.length} documentation files to dist/site (${fingerprint}).`);
+	await writeFile(join(output, 'index.js'), `import { fileURLToPath } from 'node:url';
+
+/** db3.ai framework documentation (${fingerprint}), rendered for ${origin}. Serve with registerStaticSite under /framework. */
+export const directory = fileURLToPath(new URL('./files', import.meta.url));
+const security = ${JSON.stringify(security)};
+const cache = ${JSON.stringify(cache)};
+
+/** The headers the documentation server sends for one file (path relative to directory). */
+export function headers(file) {
+	const kind = file.startsWith('assets/') ? 'assets' : file.startsWith('images/') ? 'images' : file.endsWith('.html') ? 'pages' : 'feeds';
+	return { ...security, ...(cache[kind] ? { 'cache-control': cache[kind] } : {}) };
+}
+`);
+	await writeFile(join(output, 'index.d.ts'), 'export declare const directory: string;\nexport declare function headers(file: string): Record<string, string>;\n');
+	await writeFile(join(output, 'package.json'), `${JSON.stringify({ name: '@db3.ai/docs-site', version: '0.1.0', description: 'The db3.ai framework documentation website as static files.', license: 'MIT', type: 'module', files: ['index.js', 'index.d.ts', 'files'], exports: { '.': { types: './index.d.ts', default: './index.js' } } }, null, '\t')}\n`);
+	console.log(`Exported ${Object.keys(routes).length} documentation files to dist/site (${fingerprint}).`);
 } finally {
 	await server.close();
 }
