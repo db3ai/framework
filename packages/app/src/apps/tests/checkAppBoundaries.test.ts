@@ -174,3 +174,15 @@ it('keeps services inside an app to each other\'s contracts, and maps them', asy
 	expect(text).toContain('3 places in the code do not conform yet:');
 	expect(text).not.toContain('crosses the boundary');
 });
+
+it('ignores commented-out imports, and does not take another file named contract for the contract', async () => {
+	const root = await project({
+		...machines,
+		'apps/machines/contract.vue': '<template />\n',
+		'apps/releases/manifest.json': { name: 'Releases', version: '1.0.0', requires: { machines: 1 } },
+		'apps/releases/App.ts': "// import { Machine } from '../machines/server/models/Machine';\n/*\n import x from '../machines/App';\n*/\nconst url = 'https://example.test'; import Panel from '../machines/contract.vue';\n",
+	});
+	expect(checkAppBoundaries(root).problems).toEqual([
+		{ app: 'releases', file: 'apps/releases/App.ts', line: 5, target: 'machines', message: 'Imports apps/machines/contract.vue; only "machines"\'s contract apps/machines/contract.ts may be imported.' },
+	]);
+});

@@ -62,14 +62,14 @@ export function checkAppBoundaries(directory: string): AppBoundaryReport {
 			if (!existsSync(join(service.directory, 'contract.ts'))) problems.push({ app: app.manifest.id, file: show(service.directory), line: 0, service: service.id, message: `Service "${service.id}" has no contract.ts.` });
 		}
 		for (const file of sourceFiles(app.directory)) {
-			const text = readFileSync(file, 'utf8');
+			const text = withoutComments(readFileSync(file, 'utf8'));
 			const privileged = file === app.entry || relative(app.directory, file).split(sep).includes('tests');
 			for (const match of text.matchAll(IMPORT)) {
 				const specifier = match[1] ?? match[2]!;
 				if (!specifier.startsWith('.')) continue;
 				const target = resolve(dirname(file), specifier);
 				const service = services.find(item => inside(item.directory, target) && !inside(item.directory, file));
-				if (service && !privileged && stem(target) !== join(service.directory, 'contract')) {
+				if (service && !privileged && !names(target, join(service.directory, 'contract.ts'))) {
 					problems.push({ app: app.manifest.id, file: show(file), line: text.slice(0, match.index).split('\n').length, service: service.id, message: `Imports ${show(target)}; only service "${service.id}"'s contract ${show(join(service.directory, 'contract.ts'))} may be imported.` });
 					continue;
 				}
@@ -79,7 +79,7 @@ export function checkAppBoundaries(directory: string): AppBoundaryReport {
 				const line = text.slice(0, match.index).split('\n').length;
 				const at = { app: app.manifest.id, file: show(file), line, target: id };
 				if (!owner.contract) problems.push({ ...at, message: `Imports ${show(target)} from "${id}", which has no contract. Give "${id}" a contract file in its manifest and import that.` });
-				else if (stem(target) !== stem(owner.contract)) problems.push({ ...at, message: `Imports ${show(target)}; only "${id}"'s contract ${show(owner.contract)} may be imported.` });
+				else if (!names(target, owner.contract)) problems.push({ ...at, message: `Imports ${show(target)}; only "${id}"'s contract ${show(owner.contract)} may be imported.` });
 				else if (!allowed.has(id)) problems.push({ ...at, message: `Imports "${id}"'s contract without declaring it: add "${id}" to requires or optional in its manifest.` });
 			}
 		}
@@ -113,7 +113,7 @@ export function appServices(directory: string): { id: string; directory: string 
 export function relativeImports(directory: string): { file: string; target: string }[] {
 	const found: { file: string; target: string }[] = [];
 	for (const file of sourceFiles(directory)) {
-		for (const match of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+		for (const match of withoutComments(readFileSync(file, 'utf8')).matchAll(IMPORT)) {
 			const specifier = match[1] ?? match[2]!;
 			if (specifier.startsWith('.')) found.push({ file, target: resolve(dirname(file), specifier) });
 		}
@@ -134,6 +134,21 @@ function* sourceFiles(directory: string): Generator<string> {
 /** Whether a path is a folder or inside it. */
 function inside(directory: string, path: string) {
 	return path === directory || path.startsWith(directory + sep);
+}
+
+/**
+ * Whether an import names a module file: the file as written, or without an extension, or with
+ * `.js` standing for its TypeScript source. `./contract.vue` does not name `contract.ts`.
+ */
+function names(target: string, file: string) {
+	if (target === file) return true;
+	const extension = extname(target);
+	return (extension === '' ? target : extension === '.js' ? stem(target) : null) === stem(file);
+}
+
+/** Source text with comments blanked, keeping every line and offset, so a commented-out import is not read as one. */
+function withoutComments(text: string) {
+	return text.replace(/\/\*[\s\S]*?\*\/|<!--[\s\S]*?-->|(?<![:'"`\\])\/\/[^\n]*/g, comment => comment.replace(/[^\n]/g, ' '));
 }
 
 /** A module path without its extension, so `./contract.js` names `contract.ts`. */
