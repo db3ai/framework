@@ -168,7 +168,7 @@ it('keeps services inside an app to each other\'s contracts, and maps them', asy
 		{ id: 'releases', contract: 'apps/cloud/services/releases/contract.ts', contractName: 'Releases', calls: [], uses: ['access'] },
 	]);
 	const text = formatAppMap([cloud!], report.problems);
-	expect(text).toContain('\tsubgraph cloud["Cloud<br/>no contract"]\n\t\tcloud__access(["access<br/>1 call"])');
+	expect(text).toContain('\tsubgraph cloud["Cloud · no contract"]\n\t\tcloud__access(["access<br/>1 call"])');
 	expect(text).toContain('\t\tcloud__builds --> cloud__access');
 	expect(text).toContain('### access (service in `cloud`)\n\n- Uses: no other service\n- Used by: `builds`, `releases`');
 	expect(text).toContain('3 places in the code do not conform yet:');

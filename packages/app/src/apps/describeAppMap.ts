@@ -92,9 +92,10 @@ export function formatAppMap(map: readonly AppMapEntry[], problems: readonly App
 	lines.push('```mermaid', 'flowchart LR');
 	const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`;
 	for (const app of map) {
-		const title = `${label(app.name)}<br/>${app.contract ? `contract v${app.apiVersion} · ${calls(app.calls.length)}` : 'no contract'}`;
-		if (!app.services.length) { lines.push(`\t${app.id}["${title}"]`); continue; }
-		lines.push(`\tsubgraph ${app.id}["${title}"]`);
+		const promise = app.contract ? `contract v${app.apiVersion} · ${calls(app.calls.length)}` : 'no contract';
+		if (!app.services.length) { lines.push(`\t${app.id}["${label(app.name)}<br/>${promise}"]`); continue; }
+		// A group's title is one line: Mermaid draws a second line over the boxes inside.
+		lines.push(`\tsubgraph ${app.id}["${label(app.name)} · ${promise}"]`);
 		for (const service of app.services) lines.push(`\t\t${app.id}__${service.id}(["${label(service.id)}<br/>${service.contract ? calls(service.calls.length) : 'no contract'}"])`);
 		for (const service of app.services) for (const other of service.uses) lines.push(`\t\t${app.id}__${service.id} --> ${app.id}__${other}`);
 		lines.push('\tend');
