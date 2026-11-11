@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import type { BillingCard, BillingChargeResult, BillingInvoiceLine, BillingProvider, BillingProviderEvent, BillingRiskContext } from '@db3.ai/app/billing';
+import { BillingWebhookSignatureError, type BillingCard, type BillingChargeResult, type BillingInvoiceLine, type BillingProvider, type BillingProviderEvent, type BillingRiskContext } from '@db3.ai/app/billing';
 
 /** The parts of the Stripe client this provider uses; a real `Stripe` instance satisfies it. */
 export type StripeBillingClient = Pick<Stripe, 'customers' | 'checkout' | 'billingPortal' | 'invoices' | 'invoiceItems' | 'invoicePayments' | 'paymentMethods' | 'setupIntents' | 'charges' | 'webhooks'>;
@@ -78,7 +78,12 @@ export class StripeBillingProvider implements BillingProvider {
 
 	async parseWebhook(rawBody: Buffer, signature: string): Promise<BillingProviderEvent> {
 		if (!this.#webhookSecret) throw new Error('STRIPE_WEBHOOK_SECRET is not set.');
-		const event = this.#stripe.webhooks.constructEvent(rawBody, signature, this.#webhookSecret);
+		let event: Stripe.Event;
+		try {
+			event = this.#stripe.webhooks.constructEvent(rawBody, signature, this.#webhookSecret);
+		} catch (error) {
+			throw new BillingWebhookSignatureError(error instanceof Error ? error.message : undefined);
+		}
 		const base = { eventId: event.id };
 		switch (event.type) {
 			case 'checkout.session.completed': {

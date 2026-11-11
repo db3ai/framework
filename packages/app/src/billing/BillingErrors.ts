@@ -13,3 +13,11 @@ export class BillingCreditsExhaustedError extends Error {
 		this.name = 'BillingCreditsExhaustedError';
 	}
 }
+
+/** A webhook's signature did not verify; answer 400 and do not retry. */
+export class BillingWebhookSignatureError extends Error {
+	constructor(message = 'The billing webhook signature did not verify.') {
+		super(message);
+		this.name = 'BillingWebhookSignatureError';
+	}
+}

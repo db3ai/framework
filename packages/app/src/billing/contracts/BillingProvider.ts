@@ -72,7 +72,7 @@ export interface BillingProvider {
 		risk: BillingRiskContext;
 	}): Promise<BillingChargeResult>;
 	/**
-	 * Verifies the signature and maps the payload; throws on a bad signature. May
+	 * Verifies the signature and maps the payload; throws `BillingWebhookSignatureError` on a bad signature. May
 	 * read from the provider to resolve ids (a charge's invoice, a saved card).
 	 */
 	parseWebhook(rawBody: Buffer, signature: string): Promise<BillingProviderEvent>;

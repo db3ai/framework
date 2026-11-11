@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { describe, expect, it } from 'vitest';
+import { BillingWebhookSignatureError } from '@db3.ai/app/billing';
 import { stripeBillingProvider, type StripeBillingClient } from '../index';
 
 const secret = 'whsec_test';
@@ -80,6 +81,6 @@ describe('stripeBillingProvider', () => {
 	it('rejects a bad signature', async () => {
 		const provider = stripeBillingProvider({ client: fakeStripe().client, webhookSecret: secret });
 		const [body] = signed({ id: 'evt_6', type: 'invoice.paid', data: { object: {} } });
-		await expect(provider.parseWebhook(body, 't=1,v1=bad')).rejects.toThrow();
+		await expect(provider.parseWebhook(body, 't=1,v1=bad')).rejects.toBeInstanceOf(BillingWebhookSignatureError);
 	});
 });
