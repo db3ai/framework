@@ -17,5 +17,13 @@
 	},
 	"dependencies": {
 		"stripe": "^22.6.2"
+	},
+	"files": [
+		"src",
+		"!src/tests",
+		"README.md"
+	],
+	"peerDependencies": {
+		"@db3.ai/app": "*"
 	}
 }
