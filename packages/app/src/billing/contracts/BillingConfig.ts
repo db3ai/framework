@@ -44,7 +44,7 @@ export interface BillingConfig {
 	readonly currency: string;
 	/** Days an account keeps running after a failed invoice before paid work stops. */
 	readonly graceDays: number;
-	/** Monthly spend limit in minor units for an account with no paid invoice yet. */
+	/** Monthly spend limit in minor units until an account's first invoice is paid; per-account overrides live in the database. */
 	readonly newAccountSpendLimit: number;
 	readonly prices: Readonly<Record<string, BillingPrice>>;
 	readonly credits: Readonly<Record<string, BillingCreditBucket>>;

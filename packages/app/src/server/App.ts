@@ -1,8 +1,10 @@
 import type { WebSocketServiceOptions } from '../websocket';
 import type { Knex } from 'knex';
+import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ai, type AIOptions } from '../ai';
+import { Billing, parseBillingConfig, type BillingConfig, type BillingProvider } from '../billing';
 import { Apps, type AppDefinitions, type AppServices, type InstalledApps } from '../apps';
 
 import {
@@ -84,6 +86,11 @@ export interface AppOptions<TApps extends AppDefinitions = {}> {
 	/** Serializable classes and ActiveRecord models registered with app().serializer. */
 	serializer?: SerializerOptions;
 	storage?: StorageOptions;
+	/**
+	 * Payment provider for app().billing, for example `stripeBillingProvider()`.
+	 * Prices and limits come from `db3/billing.json` unless `config` is given (tests).
+	 */
+	billing?: { provider?: BillingProvider; config?: BillingConfig; now?: () => Date };
 	/** The app's own flow blocks (code blocks) for `db3/flows`, usually from `server/flows/index.ts`. */
 	flows?: { blocks?: FlowBlockDefinition[] };
 }
@@ -164,6 +171,16 @@ export class App<TApps extends AppDefinitions = {}> {
 
 	get requestContext(): RequestContext {
 		return this.service('requestContext', () => new RequestContext());
+	}
+
+	/** Returns usage billing configured by `db3/billing.json` and the `billing` option. */
+	get billing(): Billing {
+		return this.service('billing', () => {
+			const options = this.options.billing ?? {};
+			const path = join(this.directory, 'db3', 'billing.json');
+			const config = options.config ?? parseBillingConfig(JSON.parse(readFileSync(path, 'utf8')));
+			return new Billing({ config, provider: options.provider, now: options.now });
+		});
 	}
 
 	/** Returns the application AI service with durable request and conversation history. */

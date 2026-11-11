@@ -16,8 +16,8 @@ export interface BillingAccountSummary {
 	readonly card: Pick<BillingCard, 'brand' | 'last4' | 'expMonth' | 'expYear'> | null;
 	/** Usage so far this month, in minor units, worked out the same way as the invoice. */
 	readonly monthToDate: number;
-	/** Monthly spend limit in minor units. */
-	readonly spendLimit: number;
+	/** Monthly spend limit in minor units; null once the account has paid an invoice and has no override. */
+	readonly spendLimit: number | null;
 	/** When paid work stops if the overdue invoice is still unpaid. */
 	readonly graceEndsAt: Date | null;
 	readonly credits: Readonly<Record<string, number>>;
@@ -27,8 +27,9 @@ export interface BillingAccountSummary {
 export interface BillingSpendCheck {
 	readonly allowed: boolean;
 	readonly reason?: 'no_card' | 'suspended' | 'spend_limit';
-	readonly monthToDate: number;
-	readonly spendLimit: number;
+	/** Projected month total including running resources to month end, plus the new monthly amount. */
+	readonly projected: number;
+	readonly spendLimit: number | null;
 }
 
 /**
