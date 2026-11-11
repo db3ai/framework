@@ -80,7 +80,8 @@ export class StripeBillingProvider implements BillingProvider {
 		if (!this.#webhookSecret) throw new Error('STRIPE_WEBHOOK_SECRET is not set.');
 		let event: Stripe.Event;
 		try {
-			event = this.#stripe.webhooks.constructEvent(rawBody, signature, this.#webhookSecret);
+			// Checking a signature needs only the webhook secret, not an API key.
+			event = (this.#client?.webhooks ?? Stripe.webhooks).constructEvent(rawBody, signature, this.#webhookSecret);
 		} catch (error) {
 			throw new BillingWebhookSignatureError(error instanceof Error ? error.message : undefined);
 		}
