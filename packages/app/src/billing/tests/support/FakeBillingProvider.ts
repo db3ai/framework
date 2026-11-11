@@ -13,7 +13,7 @@ export class FakeBillingProvider implements BillingProvider {
 	async chargeInvoice(input: any) { this.calls.push({ method: 'chargeInvoice', input }); return this.#charge(input.idempotencyKey, 'in'); }
 	async chargeOnce(input: any) { this.calls.push({ method: 'chargeOnce', input }); return this.#charge(input.idempotencyKey, 'pi'); }
 
-	parseWebhook(rawBody: Buffer, signature: string): BillingProviderEvent {
+	async parseWebhook(rawBody: Buffer, signature: string): Promise<BillingProviderEvent> {
 		if (signature !== 'ok') throw new Error('bad signature');
 		return JSON.parse(rawBody.toString('utf8'));
 	}

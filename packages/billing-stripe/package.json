@@ -1,0 +1,21 @@
+{
+	"name": "@db3.ai/billing-stripe",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"license": "MIT",
+	"description": "Stripe provider for @db3.ai/app/billing: saved cards, usage invoices, credit packs and webhooks.",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"check": "tsc -p tsconfig.json --noEmit",
+		"test": "node ../../scripts/verify.mjs test",
+		"test:raw": "vitest run",
+		"quality:types": "npm run check"
+	},
+	"dependencies": {
+		"stripe": "^22.6.2"
+	}
+}

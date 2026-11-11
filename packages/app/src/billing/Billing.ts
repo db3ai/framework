@@ -227,7 +227,7 @@ export class Billing implements BillingService {
 	}
 
 	async handleWebhook(rawBody: Buffer, signature: string): Promise<void> {
-		const event = this.#requireProvider('webhook').parseWebhook(rawBody, signature);
+		const event = await this.#requireProvider('webhook').parseWebhook(rawBody, signature);
 		let record = await BillingEventRecord.where('eventId', event.eventId).first();
 		if (record?.processedAt) return;
 		if (!record) {
