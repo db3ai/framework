@@ -132,7 +132,7 @@ it('maps apps, their dependencies and each contract\'s calls, and says when a sa
 	expect(crossing).toContain('1 place in the code does not conform yet:\n\n- `apps/releases/App.ts` (releases): Imports apps/machines/App.');
 
 	await writeFile(join(root, 'apps/NOTES.md'), '# My notes\n');
-	expect(writeAppMap(root, 'apps/NOTES.md')).toEqual({ current: false, message: 'apps/NOTES.md exists and is not a generated app map. Name another file: db3 apps:map <file>.' });
+	expect(writeAppMap(root, 'apps/NOTES.md')).toEqual({ current: false, message: 'apps/NOTES.md exists and is not a generated app map. Name another file after the command, such as db3 apps:map docs/apps.md.' });
 	expect(await readFile(join(root, 'apps/NOTES.md'), 'utf8')).toBe('# My notes\n');
 	expect(writeAppMap(root, 'apps/README.md', true)).toEqual({ current: false, message: 'apps/README.md is out of date. Run db3 apps:map and commit it.' });
 	expect(writeAppMap(root, 'apps/README.md')).toEqual({ current: true, message: 'Wrote apps/README.md.' });
