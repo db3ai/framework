@@ -41,6 +41,12 @@ export interface BillingService {
 	summary(ownerId: string): Promise<BillingAccountSummary>;
 	/** True when a card is saved and the account is active or still in grace. */
 	hasBilling(ownerId: string): Promise<boolean>;
+	/**
+	 * Resolves true as soon as `hasBilling(ownerId)` is true (a card.saved webhook
+	 * in this process wakes it at once), or with the final answer after `timeoutMs`.
+	 * Lets a CLI wait for card setup without polling.
+	 */
+	waitForBilling(ownerId: string, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<boolean>;
 	cardSetupUrl(input: { ownerId: string; name: string; email: string; returnUrl: string }): Promise<string>;
 	portalUrl(input: { ownerId: string; returnUrl: string }): Promise<string>;
 

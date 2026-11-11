@@ -52,6 +52,17 @@ describe('billing accounts and cards', () => {
 	});
 });
 
+describe('waiting for card setup', () => {
+	it('wakes as soon as the card is saved, and times out with false', async () => {
+		expect(await application.billing.waitForBilling('org_2', { timeoutMs: 20 })).toBe(false);
+		const waiting = application.billing.waitForBilling('org_1', { timeoutMs: 10_000 });
+		const started = Date.now();
+		await withCard('org_1');
+		expect(await waiting).toBe(true);
+		expect(Date.now() - started).toBeLessThan(5_000);
+	});
+});
+
 describe('spend limit', () => {
 	it('needs a card, and holds a new account to the new-account limit for the projected month', async () => {
 		expect(await application.billing.checkSpend('org_1', 2400)).toMatchObject({ allowed: false, reason: 'no_card' });

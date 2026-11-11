@@ -37,6 +37,7 @@ export class Billing implements BillingService {
 	readonly config: BillingConfig;
 	readonly #provider: BillingProvider | undefined;
 	readonly #now: () => Date;
+	readonly #waiters = new Map<string, Set<() => void>>();
 
 	constructor(options: BillingOptions) {
 		this.config = options.config;
@@ -66,6 +67,25 @@ export class Billing implements BillingService {
 		if (!account?.cardLast4) return false;
 		const status = this.#status(account);
 		return status === 'active' || status === 'past_due';
+	}
+
+	async waitForBilling(ownerId: string, options: { timeoutMs?: number; signal?: AbortSignal } = {}): Promise<boolean> {
+		if (await this.hasBilling(ownerId)) return true;
+		await new Promise<void>((resolve) => {
+			const waiters = this.#waiters.get(ownerId) ?? new Set();
+			this.#waiters.set(ownerId, waiters);
+			const done = () => {
+				clearTimeout(timer);
+				options.signal?.removeEventListener('abort', done);
+				waiters.delete(done);
+				if (waiters.size === 0) this.#waiters.delete(ownerId);
+				resolve();
+			};
+			const timer = setTimeout(done, options.timeoutMs ?? 60_000);
+			options.signal?.addEventListener('abort', done, { once: true });
+			waiters.add(done);
+		});
+		return this.hasBilling(ownerId);
 	}
 
 	async cardSetupUrl(input: { ownerId: string; name: string; email: string; returnUrl: string }): Promise<string> {
@@ -264,6 +284,7 @@ export class Billing implements BillingService {
 			});
 			if (account.status === 'none') account.status = 'active';
 			await account.save();
+			for (const wake of [...(this.#waiters.get(account.ownerId) ?? [])]) wake();
 			return;
 		}
 		if (event.type === 'card.removed') {
