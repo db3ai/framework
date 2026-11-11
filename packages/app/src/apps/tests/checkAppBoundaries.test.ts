@@ -2,8 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkAppBoundaries, describeAppMap, formatAppBoundaries, formatAppMap, writeAppTypes } from '@db3.ai/app/apps';
-import { writeAppMap } from '@db3.ai/app/apps/commands';
+import { checkAppBoundaries, formatAppBoundaries, writeAppTypes } from '@db3.ai/app/apps';
 
 const temporary: string[] = [];
 afterEach(async () => { for (const directory of temporary.splice(0)) await rm(directory, { recursive: true, force: true }); });
@@ -84,65 +83,7 @@ it('refuses a contract path that leaves the app folder', async () => {
 	expect(() => checkAppBoundaries(root)).toThrow('App entries must remain inside their app directory.');
 });
 
-it('maps apps, their dependencies and each contract\'s calls, and says when a saved map is stale', async () => {
-	const root = await project({
-		'apps/machines/manifest.json': { name: 'Machines', version: '1.0.0', apiVersion: 2, description: 'Computers that run apps.', contract: 'contract.ts' },
-		'apps/machines/contract.ts': [
-			"import type { Thing } from 'somewhere';",
-			'/** Not the contract. */',
-			'export interface Helper { skipped(): void }',
-			'/** What Machines promises. */',
-			'export default interface Machines {',
-			'\t/** Whether a machine answered lately. Second sentence. */',
-			'\tonline(machine: string): Promise<boolean>;',
-			'\t/**',
-			'\t * Sends one message | waits for the answer.',
-			'\t * @param message - What to send.',
-			'\t */',
-			'\tsend<T>(machine: string, message: { kind: string; data: Record<string, T> }, ...rest: Array<() => void>): Promise<Map<string, T>>',
-			'\treadonly version: number;',
-			'\twatch(listener: (event: { at: number }) => void, options?: { once: boolean }): () => void;',
-			'}',
-			'',
-		].join('\n'),
-		'apps/machines/App.ts': '',
-		'apps/releases/manifest.json': { name: 'Releases', version: '1.0.0', requires: { machines: 2 }, optional: { billing: 1 } },
-		'apps/releases/App.ts': '',
-	});
-	const map = describeAppMap(root);
-	expect(map).toEqual([
-		{ id: 'machines', name: 'Machines', description: 'Computers that run apps.', apiVersion: 2, requires: [], optional: [], usedBy: ['releases'], contract: 'apps/machines/contract.ts', contractName: 'Machines', calls: [
-			{ name: 'online', parameters: ['machine'], summary: 'Whether a machine answered lately.' },
-			{ name: 'send', parameters: ['machine', 'message', '...rest'], summary: 'Sends one message | waits for the answer.' },
-			{ name: 'watch', parameters: ['listener', 'options'], summary: '' },
-		], services: [] },
-		{ id: 'releases', name: 'Releases', description: '', apiVersion: 1, requires: ['machines'], optional: ['billing'], usedBy: [], contract: null, contractName: null, calls: [], services: [] },
-	]);
-	const text = formatAppMap(map);
-	expect(text).toContain('machines["Machines<br/>contract v2 · 3 calls"]');
-	expect(text).toContain('releases["Releases<br/>no contract"]');
-	expect(text).toContain('releases -->|requires| machines');
-	expect(text).toContain('releases -.->|optional| billing');
-	expect(text).toContain('| `send(machine, message, ...rest)` | Sends one message \\| waits for the answer. |');
-	expect(text).toContain('- Uses: `machines`, `billing` (optional)');
-	expect(text).toContain('- Used by: `releases`');
-	expect(text).toContain("All 2 apps keep to each other's contracts.");
-	const crossing = formatAppMap(map, [{ app: 'releases', file: 'apps/releases/App.ts', line: 4, target: 'machines', message: 'Imports apps/machines/App.' }]);
-	expect(crossing).toContain('releases -.->|crosses the boundary| machines');
-	expect(crossing).toContain('1 place in the code does not conform yet:\n\n- `apps/releases/App.ts` (releases): Imports apps/machines/App.');
-
-	await writeFile(join(root, 'apps/NOTES.md'), '# My notes\n');
-	expect(writeAppMap(root, 'apps/NOTES.md')).toEqual({ current: false, message: 'apps/NOTES.md exists and is not a generated app map. Name another file after the command, such as db3 apps:map docs/apps.md.' });
-	expect(await readFile(join(root, 'apps/NOTES.md'), 'utf8')).toBe('# My notes\n');
-	expect(writeAppMap(root, 'apps/README.md', true)).toEqual({ current: false, message: 'apps/README.md is out of date. Run db3 apps:map and commit it.' });
-	expect(writeAppMap(root, 'apps/README.md')).toEqual({ current: true, message: 'Wrote apps/README.md.' });
-	expect(await readFile(join(root, 'apps/README.md'), 'utf8')).toBe(text);
-	expect(writeAppMap(root, 'apps/README.md', true).current).toBe(true);
-	await writeFile(join(root, 'apps/machines/contract.ts'), 'export default interface Machines { online(machine: string): Promise<boolean> }\n');
-	expect(writeAppMap(root, 'apps/README.md', true).current).toBe(false);
-});
-
-it('keeps services inside an app to each other\'s contracts, and maps them', async () => {
+it('keeps services inside an app to each other\'s contracts', async () => {
 	const root = await project({
 		'apps/cloud/manifest.json': { name: 'Cloud', version: '1.0.0' },
 		'apps/cloud/App.ts': "import { Sessions } from './services/access/Sessions';\nimport { Builds } from './services/builds/Builds';\n",
@@ -161,18 +102,6 @@ it('keeps services inside an app to each other\'s contracts, and maps them', asy
 		{ file: 'apps/cloud/server/routes.ts', line: 2, service: 'access', message: 'Imports apps/cloud/services/access/models/Session; only service "access"\'s contract apps/cloud/services/access/contract.ts may be imported.' },
 		{ file: 'apps/cloud/services/builds/Builds.ts', line: 2, service: 'access', message: 'Imports apps/cloud/services/access/Sessions; only service "access"\'s contract apps/cloud/services/access/contract.ts may be imported.' },
 	]);
-	const [cloud] = describeAppMap(root);
-	expect(cloud!.services).toEqual([
-		{ id: 'access', contract: 'apps/cloud/services/access/contract.ts', contractName: 'Access', calls: [{ name: 'authenticate', parameters: ['token'], summary: 'Who a token acts as.' }], uses: [] },
-		{ id: 'builds', contract: null, contractName: null, calls: [], uses: ['access'] },
-		{ id: 'releases', contract: 'apps/cloud/services/releases/contract.ts', contractName: 'Releases', calls: [], uses: ['access'] },
-	]);
-	const text = formatAppMap([cloud!], report.problems);
-	expect(text).toContain('\tsubgraph cloud["Cloud · no contract"]\n\t\tcloud__access(["access<br/>1 call"])');
-	expect(text).toContain('\t\tcloud__builds --> cloud__access');
-	expect(text).toContain('### access (service in `cloud`)\n\n- Uses: no other service\n- Used by: `builds`, `releases`');
-	expect(text).toContain('3 places in the code do not conform yet:');
-	expect(text).not.toContain('crosses the boundary');
 });
 
 it('ignores commented-out imports, and does not take another file named contract for the contract', async () => {
@@ -185,4 +114,24 @@ it('ignores commented-out imports, and does not take another file named contract
 	expect(checkAppBoundaries(root).problems).toEqual([
 		{ app: 'releases', file: 'apps/releases/App.ts', line: 5, target: 'machines', message: 'Imports apps/machines/contract.vue; only "machines"\'s contract apps/machines/contract.ts may be imported.' },
 	]);
+});
+
+it('says when ARCHITECTURE.md was written for a different structure, and records it once accepted', async () => {
+	const root = await project({
+		...machines,
+		'apps/machines/services/tokens/contract.ts': 'export default interface Tokens {}\n',
+		'apps/releases/manifest.json': { name: 'Releases', version: '1.0.0', requires: { machines: 1 } },
+		'apps/releases/App.ts': '',
+		'ARCHITECTURE.md': '# System\n\n<!-- apps:structure\nmachines (contract)\nold\n-->\n\nText after.\n',
+	});
+	const report = checkAppBoundaries(root);
+	expect(report.problems).toEqual([]);
+	expect(formatAppBoundaries(report)).toBe([
+		'ARCHITECTURE.md was written for a different structure of apps and services:',
+		'  + machines/tokens', '  + releases uses machines', '  - old',
+		'Update its diagram and text to match the code, then run `db3 apps:check --accept` to record the new structure.',
+	].join('\n'));
+	expect(checkAppBoundaries(root, true).drift).toBeUndefined();
+	expect(await readFile(join(root, 'ARCHITECTURE.md'), 'utf8')).toBe('# System\n\n<!-- apps:structure\nmachines (contract)\nmachines/tokens\nreleases uses machines\n-->\n\nText after.\n');
+	expect(checkAppBoundaries(root).drift).toBeUndefined();
 });

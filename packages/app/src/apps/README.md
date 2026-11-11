@@ -261,15 +261,26 @@ only its `contract.ts`. The app's entry file, which builds the services, and
 files under a `tests` folder may import a service's other files. A service
 folder without a `contract.ts` fails the check.
 
-### The app map
+### Keeping ARCHITECTURE.md in step
 
-`db3 apps:map` writes the app map to `apps/README.md` (or the file you name):
-a Mermaid diagram of the apps, the services inside them and what each uses, each
-contract's calls with the first sentence of their documentation, and any imports
-that do not conform yet. It is generated from the manifests and contract files, so it cannot drift
-from the code. Commit it, and run `db3 apps:map --check` in the project's `check`
-script so a changed contract fails until the map is regenerated. People and AI
-agents can read that one file to see the system's boundaries before changing it.
+The folders are the structure: an app is `apps/<app>/`, a service is
+`apps/<app>/services/<service>/`, and each one's `contract.ts` is what others may
+use. A project that describes itself in a root `ARCHITECTURE.md`, for people and
+AI agents, keeps the structure it was written against in a comment at the end:
+
+```text
+<!-- apps:structure
+cloud (contract)
+cloud/access
+flows uses cloud
+-->
+```
+
+When an app, a service, a contract or a dependency is added or removed,
+`db3 apps:check` fails and lists what changed. Whoever made the change, person
+or agent, updates the document's diagram and text, then runs
+`db3 apps:check --accept` to record the new structure. A project without the
+file is not checked.
 
 ## Lifecycle and administration
 
