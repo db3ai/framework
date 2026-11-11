@@ -37,6 +37,7 @@
 		"./agent-instructions": "./agent-instructions.md",
 		"./auth": "./src/auth/index.ts",
 		"./auth/password-hash": "./src/auth/passwordHash.ts",
+		"./billing": "./src/billing/index.ts",
 		"./cache": "./src/cache/index.ts",
 		"./cli": "./src/cli/index.ts",
 		"./db": "./src/db/index.ts",
