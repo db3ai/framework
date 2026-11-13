@@ -45,11 +45,11 @@ export function registerStaticSite(server: FastifyInstance, options: StaticSiteO
 	const headersFor = typeof options.headers === 'function' ? options.headers : () => (options.headers as Record<string, string> | undefined) ?? {};
 	const notFound = options.notFound ?? '404.html';
 
-	/** Finds the file a relative URL path names, or null. */
+	/** Finds the file a relative URL path names, treating POSIX and Windows separators as component boundaries. */
 	async function find(path: string): Promise<string | null> {
 		let decoded: string;
 		try { decoded = decodeURIComponent(path); } catch { return null; }
-		if (decoded.includes('\0') || decoded.split('/').some(part => part.startsWith('.'))) return null;
+		if (decoded.includes('\0') || decoded.split(/[\\/]/).some(part => part.startsWith('.'))) return null;
 		const base = decoded.replace(/^\/+|\/+$/g, '');
 		const candidates = base ? (extname(base) ? [base] : [`${base}.html`, `${base}/index.html`]) : ['index.html'];
 		for (const candidate of candidates) {

@@ -24,7 +24,7 @@ describe('registerStaticSite', () => {
 		}
 		expect((await get('/framework/docs/apps')).headers).toMatchObject({ 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'x-frame-options': 'DENY' });
 		expect((await get('/framework/assets/app.js')).headers).toMatchObject({ 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'public, max-age=31536000, immutable' });
-		for (const url of ['/framework/nope', '/framework/.env', '/framework/docs/%25E0']) {
+		for (const url of ['/framework/nope', '/framework/.env', '/framework/assets%5c..%5c.env', '/framework/assets%5C.%2e%5C.env', '/framework/docs/%25E0']) {
 			const response = await get(url);
 			expect([response.statusCode, response.body]).toEqual([404, 'missing']);
 		}
