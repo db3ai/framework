@@ -13,7 +13,7 @@ export class AuthTwoFactor extends ActiveRecord {
 		return {
 			id: field.ulid(),
 			userId: field.string({ column: 'user_id', required: true, unique: true, maxLength: 255, length: 255 }),
-			secret: field.encryptedJson<{ key: string }>({ required: true, comment: 'Base32 TOTP key, encrypted.' }),
+			secret: field.encryptedJson<{ key: string }>({ required: true, comment: 'Base32 TOTP secret, encrypted.' }),
 			recoveryCodes: field.json<string[]>({ column: 'recovery_codes', comment: 'SHA-256 hashes of unused recovery codes.' }),
 			lastStep: field.integer({ column: 'last_step', unsigned: true, comment: 'Last accepted 30 s step, so a code works once.' }),
 			confirmedAt: field.timestamp({ column: 'confirmed_at' }),
