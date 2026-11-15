@@ -418,14 +418,17 @@ a token:
 
 ```ts
 const issued = await app.auth.issueTokenForProvider('password', credentials, {
-	name: 'Chrome on macOS',
 	ipAddress: request.ip,
 	userAgent: request.headers['user-agent'],
-	browser: 'Chrome',
-	operatingSystem: 'macOS',
-	device: 'Desktop',
 });
 ```
+
+From the user agent the framework fills `browser`, `operatingSystem` and `device`
+(`describeUserAgent()`), unless you pass your own. The issued token also says
+whether this is a **new device** for the account: `issued.newDevice` is true when
+the account has signed in before but never with this browser, system and kind of
+device (ended sessions count, and the first sign-in is never new). Send a "new
+sign-in" email on it; `issued.sessionId` is the session's id for linking to it.
 
 The framework stores the raw user agent for server-side diagnostics but hides it,
 along with the token hash, from model JSON. `AuthToken.toSessionData()` returns a

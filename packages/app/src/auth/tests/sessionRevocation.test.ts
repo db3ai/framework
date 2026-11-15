@@ -30,6 +30,20 @@ describe('account-wide session revocation', () => {
 		try { await application?.close(); } finally { await database?.destroy(); }
 	});
 
+	it('says when an account signs in from a browser and device it has never used', async () => {
+		const mac = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+		const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Mobile/15E148 Safari/604.1';
+		const first = await application.auth.registerWithPassword({ name: 'Devices', email: `devices-${++accountNumber}@example.test`, password }, { userAgent: mac });
+		expect(first.newDevice).toBe(false);
+		expect((await application.auth.createToken(first.user, { userAgent: mac })).newDevice).toBe(false);
+		const phone = await application.auth.createToken(first.user, { userAgent: iphone });
+		expect(phone.newDevice).toBe(true);
+		expect((await application.auth.tokensFor(first.user)).map(token => token.id)).toContain(phone.sessionId);
+		// Signing out does not make the device new again.
+		await application.auth.revokeAllTokens(first.user);
+		expect((await application.auth.createToken(first.user, { userAgent: iphone })).newDevice).toBe(false);
+	});
+
 	it('revokes all devices and cached authentication while preserving other accounts and future sign-ins', async () => {
 		const owner = await account();
 		const second = await application.auth.createToken(owner.user);

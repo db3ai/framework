@@ -85,6 +85,15 @@ export interface IssuedAuthToken<TIdentity extends UserIdentity = UserIdentity> 
 	 * Authenticated identity the token belongs to.
 	 */
 	user: TIdentity;
+
+	/**
+	 * True when the account has signed in before, but never from this browser, system and kind
+	 * of device. Hosts use it to email a "new sign-in" alert; an account's first session is false.
+	 */
+	newDevice: boolean;
+
+	/** The session's id, as account-management lists show it. */
+	sessionId: string;
 }
 
 /**
@@ -940,15 +949,21 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			: options.expiresAt;
 		// Sessions list as "Safari on iPhone"; callers may pass their own names instead.
 		const described = describeUserAgent(options.userAgent);
+		const browser = options.browser ?? described.browser;
+		const operatingSystem = options.operatingSystem ?? described.operatingSystem;
+		const device = options.device ?? described.device;
+		// Every earlier session counts, ended ones too, so signing out and back in is not "new".
+		const earlier = await this.TokenModel.query(this.db.knex).where('userId', userId).all() as AuthToken[];
+		const newDevice = earlier.length > 0 && !earlier.some(token => token.browser === browser && token.operatingSystem === operatingSystem && token.device === device);
 		const tokenRecord = new this.TokenModel({
 			userId,
 			tokenHash: this.TokenModel.hashToken(token),
 			name: options.name,
 			ipAddress: options.ipAddress,
 			userAgent: options.userAgent,
-			browser: options.browser ?? described.browser,
-			operatingSystem: options.operatingSystem ?? described.operatingSystem,
-			device: options.device ?? described.device,
+			browser,
+			operatingSystem,
+			device,
 			expiresAt,
 		}, {
 			db: this.db.knex,
@@ -961,6 +976,8 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			token,
 			expiresAt,
 			user,
+			newDevice,
+			sessionId: String(tokenRecord.id),
 		};
 	}
 
