@@ -119,7 +119,10 @@ export class Billing implements BillingService {
 		const spendLimit = account ? this.#spendLimit(account) : this.config.newAccountSpendLimit;
 		const now = this.#now();
 		const monthToDate = account ? await this.#total(account, { start: monthStart(now), end: now }) : 0;
-		const projected = (account ? await this.#total(account, { start: monthStart(now), end: nextMonth(now) }) : 0) + monthly;
+		const month = account ? await this.#total(account, { start: monthStart(now), end: nextMonth(now) }) : 0;
+		// The platform fee only appears once a month has charges, so the first resource brings it in.
+		const fee = month === 0 && monthly > 0 ? this.config.platformFee?.amount ?? 0 : 0;
+		const projected = month + monthly + fee;
 		const result = { monthToDate, projected, spendLimit };
 		if (account?.complimentary) return this.#status(account) === 'suspended' ? { allowed: false, reason: 'suspended', ...result } : { allowed: true, ...result, spendLimit: null };
 		if (!account?.cardLast4) return { allowed: false, reason: 'no_card', ...result };
@@ -270,7 +273,8 @@ export class Billing implements BillingService {
 				charge = BillingCharge.create({ accountId: account.id, kind: 'invoice', idempotencyKey: key, state: 'pending', amount, currency: this.config.currency, periodStart: period.start, lines });
 				await charge.save();
 			}
-			if (account.complimentary) {
+			// A charge already sent to the provider stays tracked there; only unsent ones are settled at $0.
+			if (account.complimentary && !charge.providerId) {
 				await this.#chargeResult(charge, complimentary(charge));
 				invoiced++;
 				continue;

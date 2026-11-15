@@ -135,9 +135,30 @@ describe('complimentary accounts', () => {
 		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: false });
 		expect(await application.billing.checkSpend('org_1', 672)).toMatchObject({ allowed: false, reason: 'no_card' });
 	});
+
+	it('leaves an invoice already sent to the provider tracked there when the account turns complimentary', async () => {
+		await withCard('org_1');
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-10-01T00:00:00Z') });
+		const october = { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-11-01T00:00:00Z') };
+		provider.nextStatus = 'pending';
+		await application.billing.invoicePeriod(october);
+		const sent = (await BillingCharge.where('kind', 'invoice').firstOrFail()).providerId;
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: true });
+		provider.nextStatus = 'paid';
+		await application.billing.invoicePeriod(october);
+		expect(await BillingCharge.where('kind', 'invoice').firstOrFail()).toMatchObject({ providerId: sent, state: 'paid' });
+	});
 });
 
 describe('invoice preview and history', () => {
+	it('counts the platform fee the first resource of a month brings in against the spend limit', async () => {
+		application = new App({ db: database.db, billing: { provider, config: parseBillingConfig({ ...billingConfigJson, platformFee: { amount: 500, label: 'Platform fee' } }), now: () => now } });
+		await withCard('org_1');
+		expect(await application.billing.checkSpend('org_1', 4800)).toMatchObject({ allowed: false, reason: 'spend_limit', projected: 5300 });
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-11-01T00:00:00Z') });
+		expect((await application.billing.checkSpend('org_1', 100)).projected).toBe(672 + 500 + 100);
+	});
+
 	it('shows this month so far, then the charged invoice in the history', async () => {
 		await withCard('org_1');
 		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-11-01T00:00:00Z') });
