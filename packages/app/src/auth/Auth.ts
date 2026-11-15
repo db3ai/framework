@@ -1,6 +1,7 @@
 import { ActiveRecord, type Database } from '../db';
 import type { Knex } from 'knex';
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { timingSafeEqual } from 'node:crypto';
 import type { Config } from '../config';
 import { AuthProvider, PASSWORD_AUTH_PROVIDER } from './AuthProvider';
 import { AuthToken, type AuthTokenUsage, type CreateAuthTokenOptions } from './AuthToken';
@@ -1064,10 +1065,12 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			row.lastStep = step;
 			return;
 		}
-		const hash = hashRecoveryCode(code);
+		// Every stored hash is compared in constant time, so timing says nothing about which matched.
+		const given = Buffer.from(hashRecoveryCode(code), 'hex');
 		const codes = row.recoveryCodes ?? [];
-		if (!codes.includes(hash)) throw new TwoFactorCodeError();
-		row.recoveryCodes = codes.filter(stored => stored !== hash);
+		const matches = codes.map(stored => { const bytes = Buffer.from(stored, 'hex'); return bytes.length === given.length && timingSafeEqual(bytes, given); });
+		if (!matches.includes(true)) throw new TwoFactorCodeError();
+		row.recoveryCodes = codes.filter((_, index) => !matches[index]);
 		await row.save();
 	}
 
