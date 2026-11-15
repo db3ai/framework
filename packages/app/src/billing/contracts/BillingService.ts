@@ -46,6 +46,14 @@ export interface BillingInvoiceSummary {
 	readonly createdAt: Date;
 }
 
+/** Credits one source spent from one bucket. */
+export interface BillingCreditUsage {
+	readonly bucket: string;
+	/** What the spend named, such as an app id (`studio`); null when it named none. */
+	readonly source: string | null;
+	readonly credits: number;
+}
+
 /** This month so far, worked out exactly as the invoice will be. */
 export interface BillingInvoicePreview {
 	readonly period: BillingPeriod;
@@ -103,7 +111,12 @@ export interface BillingService {
 	 * Throws `BillingCreditsExhaustedError` when the balance is too low; when auto
 	 * top-up is on, a top-up is started first and the error says so.
 	 */
-	spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string }): Promise<{ balance: number }>;
+	spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string }): Promise<{ balance: number }>;
+	/**
+	 * Credits spent since a moment (default: the start of this month), per bucket and per
+	 * `source` the spends named, most first. Spends without a source come back as `null`.
+	 */
+	creditUsage(ownerId: string, options?: { since?: Date }): Promise<BillingCreditUsage[]>;
 	/** Charges the saved card for a pack; credits arrive when the charge is paid. */
 	buyCredits(input: { ownerId: string; bucket: string; pack: string; ipAddress?: string }): Promise<{ status: 'paid' | 'pending' | 'failed'; payUrl?: string }>;
 	setAutoTopUp(input: { ownerId: string; bucket: string; pack: string | null }): Promise<void>;

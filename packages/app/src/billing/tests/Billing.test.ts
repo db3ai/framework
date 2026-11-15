@@ -185,6 +185,22 @@ describe('prepaid credits', () => {
 		expect(error).toMatchObject({ balance: 400, topUpStarted: false });
 	});
 
+	it('totals this month\'s spends by the app that made them', async () => {
+		await withCard('org_1');
+		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 300, key: 'studio-1', source: 'studio' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 200, key: 'studio-2', source: 'studio' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 100, key: 'tests-1', source: 'test_engineer' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 50, key: 'other-1' });
+		expect(await application.billing.creditUsage('org_1')).toEqual([
+			{ bucket: 'ai', source: 'studio', credits: 500 },
+			{ bucket: 'ai', source: 'test_engineer', credits: 100 },
+			{ bucket: 'ai', source: null, credits: 50 },
+		]);
+		expect(await application.billing.creditUsage('org_1', { since: new Date(Date.now() + 60_000) })).toEqual([]);
+		expect(await application.billing.creditUsage('org_2')).toEqual([]);
+	});
+
 	it('tops up automatically when the balance falls below the threshold', async () => {
 		await withCard('org_1');
 		await application.billing.setAutoTopUp({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });

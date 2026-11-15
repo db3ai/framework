@@ -3,6 +3,7 @@ import { ActiveRecord } from '../db';
 import type {
 	BillingAccountStatus,
 	BillingAccountSummary,
+	BillingCreditUsage,
 	BillingInvoicePreview,
 	BillingInvoiceSummary,
 	BillingConfig,
@@ -173,7 +174,7 @@ export class Billing implements BillingService {
 		return account ? this.#balance(account.id, bucket) : 0;
 	}
 
-	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string }): Promise<{ balance: number }> {
+	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string }): Promise<{ balance: number }> {
 		const config = this.#bucket(input.bucket);
 		if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Credit spend must be a whole number above 0.');
 		const account = await this.#account(input.ownerId);
@@ -183,7 +184,7 @@ export class Billing implements BillingService {
 			const balance = await this.#balance(account.id, input.bucket);
 			if (await BillingCreditEntry.where('key', `spend:${input.key}`).first()) return { spent: true, balance };
 			if (balance < input.amount) return { spent: false, balance };
-			await BillingCreditEntry.create({ accountId: account.id, bucket: input.bucket, amount: -input.amount, key: `spend:${input.key}` }).save();
+			await BillingCreditEntry.create({ accountId: account.id, bucket: input.bucket, amount: -input.amount, key: `spend:${input.key}`, source: input.source ?? null }).save();
 			return { spent: true, balance: balance - input.amount };
 		});
 		const pack = account.autoTopUp?.[input.bucket];
@@ -192,6 +193,19 @@ export class Billing implements BillingService {
 		if (pack && outcome.balance < below) topUpStarted = await this.#autoTopUp(account, input.bucket, pack);
 		if (!outcome.spent) throw new BillingCreditsExhaustedError(input.ownerId, input.bucket, outcome.balance, topUpStarted);
 		return { balance: outcome.balance };
+	}
+
+	async creditUsage(ownerId: string, options: { since?: Date } = {}): Promise<BillingCreditUsage[]> {
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (!account) return [];
+		const now = this.#now();
+		const since = options.since ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+		const rows = await BillingCreditEntry.getDb()(BillingCreditEntry.table)
+			.where('account_id', account.id).where('amount', '<', 0).where('key', 'like', 'spend:%').where('created_at', '>=', since)
+			.groupBy('bucket', 'source').select('bucket', 'source').sum({ spent: 'amount' }) as Array<{ bucket: string; source: string | null; spent: number | string }>;
+		return rows
+			.map(row => ({ bucket: String(row.bucket), source: row.source == null ? null : String(row.source), credits: -Number(row.spent) }))
+			.sort((a, b) => b.credits - a.credits);
 	}
 
 	async buyCredits(input: { ownerId: string; bucket: string; pack: string; ipAddress?: string }) {
