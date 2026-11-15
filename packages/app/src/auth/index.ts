@@ -1,6 +1,7 @@
 export * from './Auth';
 export * from './AuthProvider';
 export * from './AuthToken';
+export * from './describeUserAgent';
 export * from './contracts';
 export * from './PasswordSuspendedError';
 export * from './PasswordLoginAttempt';

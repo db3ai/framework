@@ -4,6 +4,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import type { Config } from '../config';
 import { AuthProvider, PASSWORD_AUTH_PROVIDER } from './AuthProvider';
 import { AuthToken, type AuthTokenUsage, type CreateAuthTokenOptions } from './AuthToken';
+import { describeUserAgent } from './describeUserAgent';
 import { PasswordResetToken } from './PasswordResetToken';
 import { defaultPasswordHash, type PasswordHash } from './passwordHash';
 import { UserIdentity, type UserIdentityModel } from './UserIdentity';
@@ -937,15 +938,17 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		const expiresAt = options.expiresAt === undefined
 			? this.defaultTokenExpiry(options.expiresInMs)
 			: options.expiresAt;
+		// Sessions list as "Safari on iPhone"; callers may pass their own names instead.
+		const described = describeUserAgent(options.userAgent);
 		const tokenRecord = new this.TokenModel({
 			userId,
 			tokenHash: this.TokenModel.hashToken(token),
 			name: options.name,
 			ipAddress: options.ipAddress,
 			userAgent: options.userAgent,
-			browser: options.browser,
-			operatingSystem: options.operatingSystem,
-			device: options.device,
+			browser: options.browser ?? described.browser,
+			operatingSystem: options.operatingSystem ?? described.operatingSystem,
+			device: options.device ?? described.device,
 			expiresAt,
 		}, {
 			db: this.db.knex,
