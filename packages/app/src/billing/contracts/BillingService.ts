@@ -21,6 +21,8 @@ export interface BillingAccountSummary {
 	/** When paid work stops if the overdue invoice is still unpaid. */
 	readonly graceEndsAt: Date | null;
 	readonly credits: Readonly<Record<string, number>>;
+	/** Everything is free: charges are still made, with their lines, and paid at once without the provider. */
+	readonly complimentary: boolean;
 }
 
 /** Answer to "may this owner start something that costs `monthly` more per month?". */
@@ -39,7 +41,7 @@ export interface BillingSpendCheck {
  */
 export interface BillingService {
 	summary(ownerId: string): Promise<BillingAccountSummary>;
-	/** True when a card is saved and the account is active or still in grace. */
+	/** True when the account is complimentary, or a card is saved and the account is active or still in grace. */
 	hasBilling(ownerId: string): Promise<boolean>;
 	/**
 	 * Resolves true as soon as `hasBilling(ownerId)` is true (a card.saved webhook
@@ -49,6 +51,13 @@ export interface BillingService {
 	waitForBilling(ownerId: string, options?: { timeoutMs?: number; signal?: AbortSignal }): Promise<boolean>;
 	cardSetupUrl(input: { ownerId: string; name: string; email: string; returnUrl: string }): Promise<string>;
 	portalUrl(input: { ownerId: string; returnUrl: string }): Promise<string>;
+
+	/**
+	 * Makes an owner's account complimentary, or ends that. A complimentary account needs no card and has
+	 * no spend limit; its invoices and credit packs are worked out and recorded as for anyone else, then
+	 * paid at once without the provider, like a 100% coupon. Use it for the operator's own organizations.
+	 */
+	setComplimentary(input: { ownerId: string; complimentary: boolean }): Promise<void>;
 
 	/** Before creating or resizing a resource: card, status and spend limit, counting `monthly` as a full month. */
 	checkSpend(ownerId: string, monthly: number): Promise<BillingSpendCheck>;

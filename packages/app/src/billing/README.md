@@ -61,6 +61,10 @@ await app().billing.handleWebhook(rawBody, signature);
   suspends at once and takes back any credits that charge granted.
 - `newAccountSpendLimit` applies until the first invoice is paid; set
   `BillingAccount.spendLimit` to override one account.
+- `setComplimentary({ ownerId, complimentary: true })` makes everything free for one owner, such
+  as the operator's own organization: no card or spend limit, and usage, invoices and credit packs
+  are worked out and recorded as for anyone else, then paid at once without the provider (provider
+  id `complimentary:<charge id>`), like a 100% coupon.
 - Provider calls never run inside a database transaction. Every write carries
   an idempotency key; webhooks are stored in `billing_events` before they are
   applied, and each provider event applies once.

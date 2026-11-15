@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from '@db3.ai/app';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
-import { BillingCreditsExhaustedError, billingModels, parseBillingConfig, type BillingProviderEvent } from '@db3.ai/app/billing';
+import { BillingCharge, BillingCreditsExhaustedError, billingModels, parseBillingConfig, type BillingProviderEvent } from '@db3.ai/app/billing';
 import { billingConfigJson } from './support/billingConfigJson';
 import { FakeBillingProvider } from './support/FakeBillingProvider';
 
@@ -111,6 +111,29 @@ describe('usage and the monthly invoice', () => {
 		expect(await application.billing.hasBilling('org_1')).toBe(false);
 		await webhook({ type: 'charge.paid', customerId, providerId: 'in_1', amount: 672 });
 		expect((await application.billing.summary('org_1')).status).toBe('active');
+	});
+});
+
+describe('complimentary accounts', () => {
+	it('needs no card or spend limit, and records invoices and credit packs as paid without the provider', async () => {
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: true });
+		expect(await application.billing.hasBilling('org_1')).toBe(true);
+		expect(await application.billing.checkSpend('org_1', 1_000_000)).toMatchObject({ allowed: true, spendLimit: null });
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-10-01T00:00:00Z') });
+		const october = { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-11-01T00:00:00Z') };
+		expect(await application.billing.invoicePeriod(october)).toEqual({ invoiced: 1, failed: 0 });
+		expect(await application.billing.invoicePeriod(october)).toEqual({ invoiced: 0, failed: 0 });
+		const invoice = await BillingCharge.where('kind', 'invoice').firstOrFail();
+		expect(invoice).toMatchObject({ state: 'paid', amount: 672 });
+		expect(invoice.providerId).toMatch(/^complimentary:/);
+		expect(invoice.lines).toMatchObject([{ price: 'server.small', resourceId: 'srv_1', amount: 672 }]);
+		expect(await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' })).toEqual({ status: 'paid' });
+		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(1000);
+		expect(provider.calls).toEqual([]);
+		expect((await application.billing.summary('org_1')).complimentary).toBe(true);
+
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: false });
+		expect(await application.billing.checkSpend('org_1', 672)).toMatchObject({ allowed: false, reason: 'no_card' });
 	});
 });
 

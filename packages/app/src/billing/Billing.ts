@@ -49,7 +49,7 @@ export class Billing implements BillingService {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
 		const credits: Record<string, number> = {};
 		for (const bucket of Object.keys(this.config.credits)) credits[bucket] = account ? await this.#balance(account.id, bucket) : 0;
-		if (!account) return { ownerId, status: 'none', card: null, monthToDate: 0, spendLimit: this.config.newAccountSpendLimit, graceEndsAt: null, credits };
+		if (!account) return { ownerId, status: 'none', card: null, monthToDate: 0, spendLimit: this.config.newAccountSpendLimit, graceEndsAt: null, credits, complimentary: false };
 		const now = this.#now();
 		return {
 			ownerId,
@@ -59,11 +59,13 @@ export class Billing implements BillingService {
 			spendLimit: this.#spendLimit(account),
 			graceEndsAt: this.#graceEndsAt(account),
 			credits,
+			complimentary: account.complimentary,
 		};
 	}
 
 	async hasBilling(ownerId: string): Promise<boolean> {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (account?.complimentary) return this.#status(account) !== 'suspended';
 		if (!account?.cardLast4) return false;
 		const status = this.#status(account);
 		return status === 'active' || status === 'past_due';
@@ -102,6 +104,14 @@ export class Billing implements BillingService {
 		return (await provider.portalUrl({ customerId: account.providerCustomerId, returnUrl: input.returnUrl })).url;
 	}
 
+	async setComplimentary(input: { ownerId: string; complimentary: boolean }): Promise<void> {
+		const account = await this.#account(input.ownerId);
+		if (account.complimentary === input.complimentary) return;
+		account.complimentary = input.complimentary;
+		await account.save();
+		for (const wake of [...(this.#waiters.get(account.ownerId) ?? [])]) wake();
+	}
+
 	async checkSpend(ownerId: string, monthly: number): Promise<BillingSpendCheck> {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
 		const spendLimit = account ? this.#spendLimit(account) : this.config.newAccountSpendLimit;
@@ -109,6 +119,7 @@ export class Billing implements BillingService {
 		const monthToDate = account ? await this.#total(account, { start: monthStart(now), end: now }) : 0;
 		const projected = (account ? await this.#total(account, { start: monthStart(now), end: nextMonth(now) }) : 0) + monthly;
 		const result = { monthToDate, projected, spendLimit };
+		if (account?.complimentary) return this.#status(account) === 'suspended' ? { allowed: false, reason: 'suspended', ...result } : { allowed: true, ...result, spendLimit: null };
 		if (!account?.cardLast4) return { allowed: false, reason: 'no_card', ...result };
 		if (this.#status(account) === 'suspended') return { allowed: false, reason: 'suspended', ...result };
 		if (spendLimit !== null && projected > spendLimit) return { allowed: false, reason: 'spend_limit', ...result };
@@ -182,15 +193,19 @@ export class Billing implements BillingService {
 		const pack = this.#bucket(input.bucket).packs[input.pack];
 		if (!pack) throw new Error(`Credit pack ${input.pack} is not in db3/billing.json credits.${input.bucket}.`);
 		const account = await BillingAccount.where('ownerId', input.ownerId).first();
-		if (!account?.cardLast4 || !account.providerCustomerId) throw new BillingNotSetUpError(input.ownerId);
+		if (!account?.complimentary && (!account?.cardLast4 || !account.providerCustomerId)) throw new BillingNotSetUpError(input.ownerId);
 		if (this.#status(account) === 'suspended') throw new BillingNotSetUpError(input.ownerId, `Billing is suspended for ${input.ownerId}.`);
 		const charge = BillingCharge.create({
 			accountId: account.id, kind: 'credits', idempotencyKey: `credits:${randomUUID()}`, state: 'pending',
 			amount: pack.amount, currency: this.config.currency, bucket: input.bucket, credits: pack.credits,
 		});
 		await charge.save();
+		if (account.complimentary) {
+			await this.#chargeResult(charge, complimentary(charge));
+			return { status: 'paid' as const };
+		}
 		const result = await this.#requireProvider(input.ownerId).chargeOnce({
-			customerId: account.providerCustomerId, currency: this.config.currency, amount: pack.amount,
+			customerId: account.providerCustomerId!, currency: this.config.currency, amount: pack.amount,
 			description: `${this.config.credits[input.bucket]!.label}: ${pack.credits}`, idempotencyKey: charge.idempotencyKey,
 			risk: { accountId: account.id, accountCreatedAt: account.createdAt, ipAddress: input.ipAddress },
 		});
@@ -228,6 +243,11 @@ export class Billing implements BillingService {
 				if (amount === 0) continue;
 				charge = BillingCharge.create({ accountId: account.id, kind: 'invoice', idempotencyKey: key, state: 'pending', amount, currency: this.config.currency, periodStart: period.start, lines });
 				await charge.save();
+			}
+			if (account.complimentary) {
+				await this.#chargeResult(charge, complimentary(charge));
+				invoiced++;
+				continue;
 			}
 			if (!account.providerCustomerId) {
 				await this.#chargeResult(charge, { providerId: `none:${charge.id}`, status: 'failed' }, 'no saved card');
@@ -443,6 +463,11 @@ export class Billing implements BillingService {
 		if (!this.#provider) throw new BillingNotSetUpError(ownerId, 'No billing provider is configured; pass billing.provider to App.');
 		return this.#provider;
 	}
+}
+
+/** A charge on a complimentary account: paid at once, with no provider object behind it. */
+function complimentary(charge: BillingCharge) {
+	return { providerId: `complimentary:${charge.id}`, status: 'paid' as const };
 }
 
 function monthStart(date: Date): Date {
