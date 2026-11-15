@@ -6,6 +6,9 @@ import { AuthProvider, PASSWORD_AUTH_PROVIDER } from './AuthProvider';
 import { AuthToken, type AuthTokenUsage, type CreateAuthTokenOptions } from './AuthToken';
 import { describeUserAgent } from './describeUserAgent';
 import { PasswordResetToken } from './PasswordResetToken';
+import { AuthTwoFactor } from './AuthTwoFactor';
+import { generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, matchTotp, totpUri } from './totp';
+import { app } from '../server/appContext';
 import { defaultPasswordHash, type PasswordHash } from './passwordHash';
 import { UserIdentity, type UserIdentityModel } from './UserIdentity';
 import type * as auth from './contracts';
@@ -250,6 +253,11 @@ export interface AuthOptions<TIdentity extends UserIdentity = UserIdentity> {
 	passwordResetTokenModel?: typeof PasswordResetToken;
 
 	/**
+	 * Authenticator-app second factor model.
+	 */
+	twoFactorModel?: typeof AuthTwoFactor;
+
+	/**
 	 * Default password reset token lifetime in milliseconds.
 	 */
 	passwordResetTokenLifetimeMs?: number;
@@ -336,6 +344,37 @@ export class AuthLastProviderError extends Error {
 	}
 }
 
+/**
+ * Thrown by `issueTokenForPassword` and `issueTokenForProvider` when the account has two-factor
+ * sign-in on. No session exists yet: the host asks for a code and passes it, with `challenge`,
+ * to {@link Auth.completeTwoFactor}. The challenge is sealed with the app key and lasts 5 minutes.
+ */
+export class TwoFactorRequiredError extends Error {
+	constructor(readonly challenge: string) {
+		super('Enter the code from your authenticator app.');
+		this.name = 'TwoFactorRequiredError';
+	}
+}
+
+/** Thrown when a two-factor code, recovery code or challenge is wrong or expired. */
+export class TwoFactorCodeError extends Error {
+	constructor(message = 'That code is not right. Try the newest code from your authenticator app.') {
+		super(message);
+		this.name = 'TwoFactorCodeError';
+	}
+}
+
+/** Where an account's two-factor sign-in stands. */
+export interface TwoFactorStatus {
+	enabled: boolean;
+	/** Unused recovery codes left. */
+	recoveryCodesLeft: number;
+}
+
+/** How long a sign-in waits for its second-factor code. */
+const TWO_FACTOR_CHALLENGE_MS = 5 * 60 * 1000;
+const TWO_FACTOR_CONTEXT = { additionalAuthenticatedData: 'auth:two-factor-challenge' };
+
 export const AUTH_USER_CONTEXT_KEY = 'auth.user';
 const AUTH_TOKEN_CONTEXT_KEY_PREFIX = 'auth.token';
 const AUTH_TOKEN_RECORD_CONTEXT_KEY = 'auth.token.record';
@@ -352,6 +391,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 	private readonly ProviderModel: typeof AuthProvider;
 	private readonly TokenModel: typeof AuthToken;
 	private readonly PasswordResetTokenModel: typeof PasswordResetToken;
+	private readonly TwoFactorModel: typeof AuthTwoFactor;
 	private readonly providerRegistry: Record<string, auth.AuthProviderDriver<unknown, TIdentity>>;
 	private readonly passwordHash: PasswordHash;
 	private readonly tokenLifetimeMs: number | null;
@@ -370,6 +410,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		this.ProviderModel = options.providerModel ?? AuthProvider;
 		this.TokenModel = options.tokenModel ?? AuthToken;
 		this.PasswordResetTokenModel = options.passwordResetTokenModel ?? PasswordResetToken;
+		this.TwoFactorModel = options.twoFactorModel ?? AuthTwoFactor;
 		this.passwordHash = options.passwordHash ?? defaultPasswordHash;
 		this.providerRegistry = resolveAuthProviders<TIdentity>(
 			options.providers ?? options.config?.get<auth.AuthProviderRegistry<TIdentity>>('auth.providers') ?? {
@@ -531,7 +572,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return null;
 		}
 
-		return this.createToken(user, options);
+		return this.issueAfterSecondFactor(user, options);
 	}
 
 	/**
@@ -553,7 +594,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			return null;
 		}
 
-		return this.createToken(user, options);
+		return this.issueAfterSecondFactor(user, options);
 	}
 
 	/**
@@ -706,6 +747,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			}
 			await this.TokenModel.query(transaction).where('userId', fromId).forceDelete();
 			await this.PasswordResetTokenModel.query(transaction).where('userId', fromId).forceDelete();
+			await this.TwoFactorModel.query(transaction).where('userId', fromId).delete();
 			await this.IdentityModel.query(transaction).where(this.IdentityModel.primaryKey, fromId).forceDelete();
 		});
 		this.#forgetRevokedUser(fromId);
@@ -924,6 +966,115 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			this.requestContext.set(key, (this.requestContext.get<number>(key) ?? 0) + 1);
 		}
 		if (this.user && this.userPrimaryKey(this.user) === userId) this.logout();
+	}
+
+	/** Whether the account signs in with a second factor, and how many recovery codes are left. */
+	async twoFactorStatus(user: TIdentity): Promise<TwoFactorStatus> {
+		const row = await this.confirmedTwoFactor(this.requireUserId(user));
+		return { enabled: !!row, recoveryCodesLeft: row?.recoveryCodes?.length ?? 0 };
+	}
+
+	/**
+	 * Starts authenticator-app setup: a new secret, and the otpauth:// address to show as a QR
+	 * code. Nothing changes at sign-in until {@link confirmTwoFactor} gets a code from the app.
+	 *
+	 * @param options.issuer - The app's name, as the authenticator lists it.
+	 */
+	async startTwoFactor(user: TIdentity, options: { issuer: string }): Promise<{ secret: string; uri: string }> {
+		const userId = this.requireUserId(user);
+		if (await this.confirmedTwoFactor(userId)) throw new Error('Two-factor sign-in is already on. Turn it off before setting it up again.');
+		await this.TwoFactorModel.query(this.db.knex).where('userId', userId).delete();
+		const secret = generateTotpSecret();
+		await new this.TwoFactorModel({ userId, secret }, { db: this.db.knex }).save();
+		return { secret, uri: totpUri(secret, { issuer: options.issuer, account: String(user.email ?? userId) }) };
+	}
+
+	/**
+	 * Finishes setup with a code from the authenticator app, turning two-factor sign-in on.
+	 * Returns ten recovery codes, shown once; only their hashes are kept.
+	 */
+	async confirmTwoFactor(user: TIdentity, code: string): Promise<string[]> {
+		const userId = this.requireUserId(user);
+		const row = await this.TwoFactorModel.query(this.db.knex).where('userId', userId).first() as AuthTwoFactor | null;
+		if (!row || row.confirmedAt) throw new TwoFactorCodeError('Start two-factor setup first.');
+		const step = matchTotp(row.secret!, code);
+		if (step === null) throw new TwoFactorCodeError();
+		const codes = generateRecoveryCodes();
+		row.recoveryCodes = codes.map(hashRecoveryCode);
+		row.lastStep = step;
+		row.confirmedAt = new Date();
+		await row.save();
+		return codes;
+	}
+
+	/** Turns two-factor sign-in off, which takes a current code or a recovery code. */
+	async disableTwoFactor(user: TIdentity, code: string): Promise<void> {
+		const row = await this.confirmedTwoFactor(this.requireUserId(user));
+		if (!row) return;
+		await this.useSecondFactor(row, code);
+		await row.delete();
+	}
+
+	/** Swaps the recovery codes for ten new ones, which takes a current code. */
+	async regenerateRecoveryCodes(user: TIdentity, code: string): Promise<string[]> {
+		const row = await this.confirmedTwoFactor(this.requireUserId(user));
+		if (!row) throw new TwoFactorCodeError('Two-factor sign-in is off.');
+		await this.useSecondFactor(row, code);
+		const codes = generateRecoveryCodes();
+		row.recoveryCodes = codes.map(hashRecoveryCode);
+		await row.save();
+		return codes;
+	}
+
+	/**
+	 * Finishes a sign-in that threw {@link TwoFactorRequiredError}: checks the code (or a recovery
+	 * code, which is then used up) and issues the session.
+	 */
+	async completeTwoFactor(challenge: string, code: string, options: AuthTokenOptions = {}): Promise<IssuedAuthToken<TIdentity>> {
+		let sealed: { userId: string; expiresAt: number };
+		try { sealed = app().security.decryptJson(challenge, TWO_FACTOR_CONTEXT); } catch { throw new TwoFactorCodeError('This sign-in has expired. Sign in again.'); }
+		if (sealed.expiresAt < Date.now()) throw new TwoFactorCodeError('This sign-in has expired. Sign in again.');
+		const row = await this.confirmedTwoFactor(sealed.userId);
+		const user = await this.IdentityModel.query(this.db.knex).where(this.IdentityModel.primaryKey, sealed.userId).first() as TIdentity | null;
+		if (!user) throw new TwoFactorCodeError('This sign-in has expired. Sign in again.');
+		if (row) await this.useSecondFactor(row, code);
+		return this.createToken(user, options);
+	}
+
+	/** Issues the session, or asks for the second factor first when the account has one. */
+	private async issueAfterSecondFactor(user: TIdentity, options: AuthTokenOptions): Promise<IssuedAuthToken<TIdentity>> {
+		const userId = this.requireUserId(user);
+		if (await this.confirmedTwoFactor(userId)) {
+			throw new TwoFactorRequiredError(app().security.encryptJson({ userId, expiresAt: Date.now() + TWO_FACTOR_CHALLENGE_MS }, TWO_FACTOR_CONTEXT));
+		}
+		return this.createToken(user, options);
+	}
+
+	private async confirmedTwoFactor(userId: string): Promise<AuthTwoFactor | null> {
+		return await this.TwoFactorModel.query(this.db.knex).where('userId', userId).whereNotNull('confirmedAt').first() as AuthTwoFactor | null;
+	}
+
+	/** Accepts a fresh authenticator code, or uses up one recovery code; refuses anything else. */
+	private async useSecondFactor(row: AuthTwoFactor, code: string): Promise<void> {
+		const step = matchTotp(row.secret!, code, { after: row.lastStep });
+		if (step !== null) {
+			// Only a newer step wins, so the same code racing in twice is accepted once.
+			const updated = await this.db.knex(this.TwoFactorModel.table).where('id', row.id).andWhere(query => query.whereNull('last_step').orWhere('last_step', '<', step)).update({ last_step: step });
+			if (!updated) throw new TwoFactorCodeError();
+			row.lastStep = step;
+			return;
+		}
+		const hash = hashRecoveryCode(code);
+		const codes = row.recoveryCodes ?? [];
+		if (!codes.includes(hash)) throw new TwoFactorCodeError();
+		row.recoveryCodes = codes.filter(stored => stored !== hash);
+		await row.save();
+	}
+
+	private requireUserId(user: TIdentity): string {
+		const userId = this.userPrimaryKey(user);
+		if (!userId) throw new Error('This needs a saved account.');
+		return userId;
 	}
 
 	/**

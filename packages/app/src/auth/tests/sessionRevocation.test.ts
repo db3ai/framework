@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, UserIdentity } from '@db3.ai/app/auth';
+import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor, UserIdentity } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { App } from '@db3.ai/app/server';
 
@@ -23,7 +23,7 @@ describe('account-wide session revocation', () => {
 	beforeAll(async () => {
 		database = await createGeneratedTestDatabase('auth_revocation');
 		application = new App({ db: database.db });
-		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor);
 	});
 
 	afterAll(async () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Auth, AuthProvider, AuthToken, PasswordLoginAttempt, PasswordSuspendedError, PasswordResetToken, UserIdentity, defaultPasswordHash } from '@db3.ai/app/auth';
+import { Auth, AuthProvider, AuthToken, PasswordLoginAttempt, PasswordSuspendedError, PasswordResetToken, AuthTwoFactor, UserIdentity, defaultPasswordHash } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { ActiveRecord } from '@db3.ai/app/db';
 import { App } from '@db3.ai/app/server';
@@ -39,7 +39,7 @@ describe('PasswordLoginAttempt', () => {
 	beforeAll(async () => {
 		database = await createGeneratedTestDatabase('password_attempts');
 		application = new App({ db: database.db, config: { auth: { providers: { password: { driver: 'password', suspension: { maxFailedAttempts } } } } } });
-		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor);
 	});
 	afterAll(async () => { try { await application?.close(); } finally { await database?.destroy(); } });
 

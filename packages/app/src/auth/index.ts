@@ -1,6 +1,7 @@
 export * from './Auth';
 export * from './AuthProvider';
 export * from './AuthToken';
+export * from './AuthTwoFactor';
 export * from './describeUserAgent';
 export * from './contracts';
 export * from './PasswordSuspendedError';
@@ -8,4 +9,5 @@ export * from './PasswordLoginAttempt';
 export * from './PasswordResetToken';
 export * from './passwordHash';
 export * from './providers';
+export * from './totp';
 export * from './UserIdentity';

@@ -225,7 +225,8 @@ test('complete AI context contains every registered article and verified source'
 	// Shared CLI queue and scheduler commands add option, alias and worker guidance; expand/contract migrations add rollback guidance and the safe-migrations guide.
 	// Security guidance adds administrator provisioning, proxy trust, socket quotas and portable storage keys.
 	// Billing invoice preview, history and complimentary accounts, and session device details, add public declarations.
-	assert.ok(contentBytes < 1_872_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.872 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	// Two-factor sign-in (TOTP + recovery codes) adds its model, helpers and guide section.
+	assert.ok(contentBytes < 1_876_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.876 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 
