@@ -9,8 +9,6 @@ let database: GeneratedTestDatabase;
 let application: App;
 let accountNumber = 0;
 
-/** Each test body; the app made last is current, so its security key seals secrets. */
-const within = <T>(task: () => Promise<T>) => task;
 
 /** A new account with two-factor sign-in on; returns its secret and recovery codes. */
 async function protectedAccount() {
@@ -63,7 +61,7 @@ describe('two-factor sign-in', () => {
 		try { await application?.close(); } finally { await database?.destroy(); }
 	});
 
-	it('does not apply until setup is confirmed with a code from the app', () => within(async () => {
+	it('does not apply until setup is confirmed with a code from the app', async () => {
 		const email = `two-factor-${++accountNumber}@example.test`;
 		const issued = await application.auth.registerWithPassword({ name: 'Setup', email, password });
 		const setup = await application.auth.startTwoFactor(issued.user, { issuer: 'db3 test' });
@@ -73,12 +71,12 @@ describe('two-factor sign-in', () => {
 		const codes = await application.auth.confirmTwoFactor(issued.user, totpCode(setup.secret, totpStep()));
 		expect(codes).toHaveLength(10);
 		expect(await application.auth.twoFactorStatus(issued.user)).toEqual({ enabled: true, recoveryCodesLeft: 10 });
-		const stored = await database.db.knex('auth_two_factor').where('user_id', issued.user.id).first();
+		const stored = await application.db.knex('auth_two_factor').where('user_id', issued.user.id).first();
 		expect(stored.secret).not.toContain(setup.secret);
 		expect(JSON.stringify(stored.recovery_codes)).not.toContain(codes[0]);
-	}));
+	});
 
-	it('asks for a code after the password, and the code works once', () => within(async () => {
+	it('asks for a code after the password, and the code works once', async () => {
 		const { email, secret } = await protectedAccount();
 		const challenge = await challengeFor(email);
 		await expect(application.auth.completeTwoFactor(challenge, '123456')).rejects.toBeInstanceOf(TwoFactorCodeError);
@@ -86,30 +84,30 @@ describe('two-factor sign-in', () => {
 		const issued = await application.auth.completeTwoFactor(challenge, code);
 		expect(await application.requestContext.run(() => application.auth.authenticateToken(issued.token))).not.toBeNull();
 		await expect(application.auth.completeTwoFactor(await challengeFor(email), code)).rejects.toBeInstanceOf(TwoFactorCodeError);
-	}));
+	});
 
-	it('takes each recovery code once instead of an authenticator code', () => within(async () => {
+	it('takes each recovery code once instead of an authenticator code', async () => {
 		const { email, user, codes } = await protectedAccount();
 		const recovery = codes[3]!.toUpperCase().replace('-', ' ');
 		await application.auth.completeTwoFactor(await challengeFor(email), recovery);
 		expect((await application.auth.twoFactorStatus(user)).recoveryCodesLeft).toBe(9);
 		await expect(application.auth.completeTwoFactor(await challengeFor(email), codes[3]!)).rejects.toBeInstanceOf(TwoFactorCodeError);
-	}));
+	});
 
-	it('refuses a challenge that was changed or has expired', () => within(async () => {
+	it('refuses a challenge that was changed or has expired', async () => {
 		const { email, secret } = await protectedAccount();
 		const challenge = await challengeFor(email);
 		await expect(application.auth.completeTwoFactor(`${challenge.slice(0, -2)}xx`, totpCode(secret, totpStep()))).rejects.toThrow('expired');
 		const expired = application.security.encryptJson({ userId: 'someone', expiresAt: Date.now() - 1 }, { additionalAuthenticatedData: 'auth:two-factor-challenge' });
 		await expect(application.auth.completeTwoFactor(expired, totpCode(secret, totpStep()))).rejects.toThrow('expired');
-	}));
+	});
 
-	it('turns off with a code, and new recovery codes replace the old ones', () => within(async () => {
+	it('turns off with a code, and new recovery codes replace the old ones', async () => {
 		const { email, user, secret, codes } = await protectedAccount();
 		const fresh = await application.auth.regenerateRecoveryCodes(user, totpCode(secret, totpStep()));
 		await expect(application.auth.disableTwoFactor(user, codes[0]!)).rejects.toBeInstanceOf(TwoFactorCodeError);
 		await application.auth.disableTwoFactor(user, fresh[0]!);
 		expect(await application.auth.twoFactorStatus(user)).toEqual({ enabled: false, recoveryCodesLeft: 0 });
 		expect(await application.auth.issueTokenForPassword({ email, password })).not.toBeNull();
-	}));
+	});
 });

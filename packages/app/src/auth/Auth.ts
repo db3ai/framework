@@ -985,7 +985,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		if (await this.confirmedTwoFactor(userId)) throw new Error('Two-factor sign-in is already on. Turn it off before setting it up again.');
 		await this.TwoFactorModel.query(this.db.knex).where('userId', userId).delete();
 		const secret = generateTotpSecret();
-		await new this.TwoFactorModel({ userId, secret }, { db: this.db.knex }).save();
+		await new this.TwoFactorModel({ userId, secret: { key: secret } }, { db: this.db.knex }).save();
 		return { secret, uri: totpUri(secret, { issuer: options.issuer, account: String(user.email ?? userId) }) };
 	}
 
@@ -997,7 +997,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 		const userId = this.requireUserId(user);
 		const row = await this.TwoFactorModel.query(this.db.knex).where('userId', userId).first() as AuthTwoFactor | null;
 		if (!row || row.confirmedAt) throw new TwoFactorCodeError('Start two-factor setup first.');
-		const step = matchTotp(row.secret!, code);
+		const step = matchTotp(row.secret!.key, code);
 		if (step === null) throw new TwoFactorCodeError();
 		const codes = generateRecoveryCodes();
 		row.recoveryCodes = codes.map(hashRecoveryCode);
@@ -1056,7 +1056,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 
 	/** Accepts a fresh authenticator code, or uses up one recovery code; refuses anything else. */
 	private async useSecondFactor(row: AuthTwoFactor, code: string): Promise<void> {
-		const step = matchTotp(row.secret!, code, { after: row.lastStep });
+		const step = matchTotp(row.secret!.key, code, { after: row.lastStep });
 		if (step !== null) {
 			// Only a newer step wins, so the same code racing in twice is accepted once.
 			const updated = await this.db.knex(this.TwoFactorModel.table).where('id', row.id).andWhere(query => query.whereNull('last_step').orWhere('last_step', '<', step)).update({ last_step: step });
