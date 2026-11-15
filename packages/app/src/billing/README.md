@@ -22,7 +22,11 @@ holds only provider secrets. The payment provider sits behind the
 }
 ```
 
-Amounts are minor units (cents).
+Amounts are minor units (cents). An optional `"platformFee": { "amount": 500, "label": "Platform fee" }`
+adds one flat line to every month that has other charges.
+
+`previewInvoice(ownerId)` shows this month so far exactly as it will be
+invoiced; `invoices(ownerId)` lists charges newest first.
 
 | Price per | Charged as |
 | --- | --- |

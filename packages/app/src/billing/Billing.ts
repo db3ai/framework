@@ -3,6 +3,8 @@ import { ActiveRecord } from '../db';
 import type {
 	BillingAccountStatus,
 	BillingAccountSummary,
+	BillingInvoicePreview,
+	BillingInvoiceSummary,
 	BillingConfig,
 	BillingPeriod,
 	BillingProvider,
@@ -221,6 +223,26 @@ export class Billing implements BillingService {
 		else next[input.bucket] = input.pack;
 		account.autoTopUp = next;
 		await account.save();
+	}
+
+	async previewInvoice(ownerId: string): Promise<BillingInvoicePreview> {
+		const now = this.#now();
+		const period = { start: monthStart(now), end: now };
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		const lines = account ? usageInvoiceLines(this.config, period, await this.#spans(account.id), await this.#uses(account.id)) : [];
+		return { period, lines, amount: lines.reduce((sum, line) => sum + line.amount, 0), currency: this.config.currency };
+	}
+
+	async invoices(ownerId: string, options: { limit?: number } = {}): Promise<BillingInvoiceSummary[]> {
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (!account) return [];
+		const charges = await BillingCharge.where('accountId', account.id).orderBy('createdAt', 'desc').orderBy('id', 'desc').limit(Math.min(options.limit ?? 24, 100)).all();
+		return charges.map(charge => ({
+			id: charge.id, kind: charge.kind, state: charge.state, amount: charge.amount, currency: charge.currency,
+			periodStart: charge.periodStart, lines: charge.lines ?? [], bucket: charge.bucket, credits: charge.credits,
+			payUrl: charge.state === 'paid' ? null : charge.payUrl, complimentary: Boolean(charge.providerId?.startsWith('complimentary:')),
+			paidAt: charge.paidAt, createdAt: charge.createdAt,
+		}));
 	}
 
 	async invoicePeriod(period: BillingPeriod): Promise<{ invoiced: number; failed: number }> {

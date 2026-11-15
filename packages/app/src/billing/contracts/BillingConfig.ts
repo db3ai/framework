@@ -47,5 +47,7 @@ export interface BillingConfig {
 	/** Monthly spend limit in minor units until an account's first invoice is paid; per-account overrides live in the database. */
 	readonly newAccountSpendLimit: number;
 	readonly prices: Readonly<Record<string, BillingPrice>>;
+	/** Flat line added once to every month that has other charges, for db3's own costs. Off when absent. */
+	readonly platformFee?: { readonly amount: number; readonly label: string };
 	readonly credits: Readonly<Record<string, BillingCreditBucket>>;
 }

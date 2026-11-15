@@ -1,5 +1,5 @@
 import type { BillingCard } from './BillingProvider';
-import type { BillingPeriod } from './BillingUsage';
+import type { BillingInvoiceLine, BillingPeriod } from './BillingUsage';
 
 /**
  * - `none`: no saved card yet.
@@ -23,6 +23,35 @@ export interface BillingAccountSummary {
 	readonly credits: Readonly<Record<string, number>>;
 	/** Everything is free: charges are still made, with their lines, and paid at once without the provider. */
 	readonly complimentary: boolean;
+}
+
+/** A charge as the owner sees it: a monthly invoice or a credit pack. Amounts are minor units. */
+export interface BillingInvoiceSummary {
+	readonly id: string;
+	readonly kind: 'invoice' | 'credits';
+	readonly state: 'pending' | 'paid' | 'failed' | 'refunded' | 'disputed';
+	readonly amount: number;
+	readonly currency: string;
+	/** First day of the month an invoice covers; null for credit packs. */
+	readonly periodStart: Date | null;
+	readonly lines: readonly BillingInvoiceLine[];
+	/** Credit packs: the bucket and credits granted. */
+	readonly bucket: string | null;
+	readonly credits: number | null;
+	/** Where the owner pays or confirms a charge that is not paid yet. */
+	readonly payUrl: string | null;
+	/** Paid at $0 because the account is complimentary. */
+	readonly complimentary: boolean;
+	readonly paidAt: Date | null;
+	readonly createdAt: Date;
+}
+
+/** This month so far, worked out exactly as the invoice will be. */
+export interface BillingInvoicePreview {
+	readonly period: BillingPeriod;
+	readonly lines: readonly BillingInvoiceLine[];
+	readonly amount: number;
+	readonly currency: string;
 }
 
 /** Answer to "may this owner start something that costs `monthly` more per month?". */
@@ -80,6 +109,10 @@ export interface BillingService {
 	setAutoTopUp(input: { ownerId: string; bucket: string; pack: string | null }): Promise<void>;
 
 	/** Charges one invoice per owner with usage in the period. Safe to run again. */
+	/** This month's usage so far as invoice lines. */
+	previewInvoice(ownerId: string): Promise<BillingInvoicePreview>;
+	/** The owner's charges, newest first. */
+	invoices(ownerId: string, options?: { limit?: number }): Promise<BillingInvoiceSummary[]>;
 	invoicePeriod(period: BillingPeriod): Promise<{ invoiced: number; failed: number }>;
 	/** Stores and applies one provider webhook. The same provider event applies once. */
 	handleWebhook(rawBody: Buffer, signature: string): Promise<void>;

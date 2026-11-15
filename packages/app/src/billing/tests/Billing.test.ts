@@ -137,6 +137,21 @@ describe('complimentary accounts', () => {
 	});
 });
 
+describe('invoice preview and history', () => {
+	it('shows this month so far, then the charged invoice in the history', async () => {
+		await withCard('org_1');
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-11-01T00:00:00Z') });
+		const preview = await application.billing.previewInvoice('org_1');
+		expect(preview).toMatchObject({ currency: 'usd', amount: 228, lines: [{ price: 'server.small', quantity: 228, unit: 'hour' }] });
+		expect(await application.billing.invoices('org_1')).toEqual([]);
+		now = new Date('2026-12-01T00:00:00Z');
+		await application.billing.invoicePeriod({ start: new Date('2026-11-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') });
+		const [invoice] = await application.billing.invoices('org_1');
+		expect(invoice).toMatchObject({ kind: 'invoice', state: 'paid', amount: 672, complimentary: false, payUrl: null, lines: [{ price: 'server.small', quantity: 672 }] });
+		expect(await application.billing.invoices('org_2')).toEqual([]);
+	});
+});
+
 describe('prepaid credits', () => {
 	it('grants a paid pack, spends once per key and refuses when empty', async () => {
 		await withCard('org_1');
