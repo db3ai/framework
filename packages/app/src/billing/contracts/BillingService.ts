@@ -107,6 +107,8 @@ export interface BillingService {
 	/** Charges the saved card for a pack; credits arrive when the charge is paid. */
 	buyCredits(input: { ownerId: string; bucket: string; pack: string; ipAddress?: string }): Promise<{ status: 'paid' | 'pending' | 'failed'; payUrl?: string }>;
 	setAutoTopUp(input: { ownerId: string; bucket: string; pack: string | null }): Promise<void>;
+	/** Credit bucket to the pack bought automatically when it runs low. */
+	autoTopUp(ownerId: string): Promise<Readonly<Record<string, string>>>;
 
 	/** Charges one invoice per owner with usage in the period. Safe to run again. */
 	/** This month's usage so far as invoice lines. */

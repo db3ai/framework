@@ -215,6 +215,10 @@ export class Billing implements BillingService {
 		return { status: result.status, ...(result.payUrl ? { payUrl: result.payUrl } : {}) };
 	}
 
+	async autoTopUp(ownerId: string): Promise<Readonly<Record<string, string>>> {
+		return (await BillingAccount.where('ownerId', ownerId).first())?.autoTopUp ?? {};
+	}
+
 	async setAutoTopUp(input: { ownerId: string; bucket: string; pack: string | null }): Promise<void> {
 		if (input.pack !== null && !this.#bucket(input.bucket).packs[input.pack]) throw new Error(`Credit pack ${input.pack} is not in db3/billing.json credits.${input.bucket}.`);
 		const account = await this.#account(input.ownerId);

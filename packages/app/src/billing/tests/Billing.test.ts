@@ -167,6 +167,7 @@ describe('prepaid credits', () => {
 	it('tops up automatically when the balance falls below the threshold', async () => {
 		await withCard('org_1');
 		await application.billing.setAutoTopUp({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		expect(await application.billing.autoTopUp('org_1')).toEqual({ ai: 'ai-10' });
 		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
 		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 950, key: 'run-1' });
 		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(1050);
