@@ -48,6 +48,10 @@ await app().billing.stopUsage({ ownerId: org.id, resourceId: server.id }); // de
 // AI work spends prepaid credits; running out stops only that work.
 await app().billing.spendCredits({ ownerId: org.id, bucket: 'ai', amount: 12, key: run.id, source: 'studio' });
 await app().billing.creditUsage(org.id); // this month, by bucket and source, for a Usage page
+// Work priced by its cost (credits.ai.fromCost: minorPerCredit + markup). overdraw records
+// work that already ran even past zero; the next pack pays the balance back.
+const credits = app().billing.creditsForCost('ai', run.costCents);
+await app().billing.spendCredits({ ownerId: org.id, bucket: 'ai', amount: credits, key: run.id, source: 'studio', overdraw: true });
 
 // Monthly, from the scheduler: charge last month. Safe to run again.
 await app().billing.invoicePeriod({ start: lastMonthStart, end: thisMonthStart });

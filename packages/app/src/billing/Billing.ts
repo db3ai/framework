@@ -174,7 +174,7 @@ export class Billing implements BillingService {
 		return account ? this.#balance(account.id, bucket) : 0;
 	}
 
-	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string }): Promise<{ balance: number }> {
+	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string; overdraw?: boolean }): Promise<{ balance: number }> {
 		const config = this.#bucket(input.bucket);
 		if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Credit spend must be a whole number above 0.');
 		const account = await this.#account(input.ownerId);
@@ -183,7 +183,7 @@ export class Billing implements BillingService {
 		const outcome = await this.#locked(account.id, async () => {
 			const balance = await this.#balance(account.id, input.bucket);
 			if (await BillingCreditEntry.where('key', `spend:${input.key}`).first()) return { spent: true, balance };
-			if (balance < input.amount) return { spent: false, balance };
+			if (balance < input.amount && !input.overdraw) return { spent: false, balance };
 			await BillingCreditEntry.create({ accountId: account.id, bucket: input.bucket, amount: -input.amount, key: `spend:${input.key}`, source: input.source ?? null }).save();
 			return { spent: true, balance: balance - input.amount };
 		});
@@ -193,6 +193,13 @@ export class Billing implements BillingService {
 		if (pack && outcome.balance < below) topUpStarted = await this.#autoTopUp(account, input.bucket, pack);
 		if (!outcome.spent) throw new BillingCreditsExhaustedError(input.ownerId, input.bucket, outcome.balance, topUpStarted);
 		return { balance: outcome.balance };
+	}
+
+	creditsForCost(bucket: string, cost: number): number {
+		const rate = this.#bucket(bucket).fromCost;
+		if (!rate) throw new Error(`db3/billing.json credits.${bucket} has no fromCost.`);
+		if (!Number.isFinite(cost) || cost < 0) throw new Error('Cost must be a number, 0 or more.');
+		return cost === 0 ? 0 : Math.max(1, Math.ceil(cost * (1 + rate.markup) / rate.minorPerCredit - 1e-9));
 	}
 
 	async creditUsage(ownerId: string, options: { since?: Date } = {}): Promise<BillingCreditUsage[]> {

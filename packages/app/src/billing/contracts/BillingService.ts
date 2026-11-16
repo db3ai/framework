@@ -108,10 +108,17 @@ export interface BillingService {
 	creditBalance(ownerId: string, bucket: string): Promise<number>;
 	/**
 	 * Spends credits for finished or reserved work. The same `key` spends once.
+	 * `overdraw` records work that already happened even past zero; the balance goes negative
+	 * and the next pack pays it back.
 	 * Throws `BillingCreditsExhaustedError` when the balance is too low; when auto
 	 * top-up is on, a top-up is started first and the error says so.
 	 */
-	spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string }): Promise<{ balance: number }>;
+	spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string; overdraw?: boolean }): Promise<{ balance: number }>;
+	/**
+	 * Credits for work that cost `cost` minor units (fractions allowed, such as 0.37 cents of AI
+	 * tokens), using the bucket's `fromCost`; rounds up, and any cost above 0 is at least 1 credit.
+	 */
+	creditsForCost(bucket: string, cost: number): number;
 	/**
 	 * Credits spent since a moment (default: the start of this month), per bucket and per
 	 * `source` the spends named, most first. Spends without a source come back as `null`.
