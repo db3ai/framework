@@ -1,5 +1,5 @@
 import { pathToFileURL } from 'node:url';
-import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, UserIdentity, PASSWORD_AUTH_PROVIDER } from '@db3.ai/app/auth';
+import { AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor, UserIdentity, PASSWORD_AUTH_PROVIDER } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { App } from '@db3.ai/app/server';
 
@@ -17,7 +17,7 @@ export async function runPasswordAuth() {
 	const application = new App({ db: database.db, config: { auth: { providers: { password: true } } } });
 	try {
 		// Lab-only schema setup. Use committed migrations in an application.
-		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor);
 		const credentials = { name: 'Ada', email: 'ada@example.test', password: 'example-only-password-123' };
 		const issued = await application.auth.registerWithPassword(credentials, { expiresInMs: 60 * 60 * 1000 });
 		const wrongPasswordRejected = await application.auth.issueTokenForProvider(PASSWORD_AUTH_PROVIDER, { ...credentials, password: 'wrong-password' }) === null;

@@ -1523,6 +1523,70 @@
 			"foreignKeys": []
 		},
 		{
+			"name": "auth_two_factor",
+			"comment": null,
+			"columns": [
+				{
+					"name": "confirmed_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "created_at",
+					"type": "timestamp",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "id",
+					"type": "char(26)",
+					"nullable": false,
+					"primary": true,
+					"unique": false,
+					"comment": null
+				},
+				{
+					"name": "last_step",
+					"type": "int unsigned",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Last accepted 30 s step, so a code works once."
+				},
+				{
+					"name": "recovery_codes",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "SHA-256 hashes of unused recovery codes."
+				},
+				{
+					"name": "secret",
+					"type": "longtext",
+					"nullable": false,
+					"primary": false,
+					"unique": false,
+					"comment": "Base32 TOTP secret, encrypted."
+				},
+				{
+					"name": "user_id",
+					"type": "varchar(255)",
+					"nullable": false,
+					"primary": false,
+					"unique": true,
+					"comment": null
+				}
+			],
+			"indexes": [],
+			"foreignKeys": []
+		},
+		{
 			"name": "collaboration_access",
 			"comment": null,
 			"columns": [

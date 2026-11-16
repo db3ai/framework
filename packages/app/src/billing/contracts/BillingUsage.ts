@@ -30,8 +30,8 @@ export interface BillingInvoiceLine {
 	readonly label: string;
 	/** Resource the line is for; absent for `use` lines, which group by price. */
 	readonly resourceId?: string;
-	/** Hours for `month`, days for `day`, total quantity for `use`. */
+	/** Hours for `month`, days for `day`, total quantity for `use`, 1 for the platform fee. */
 	readonly quantity: number;
-	readonly unit: 'hour' | 'day' | 'use';
+	readonly unit: 'hour' | 'day' | 'use' | 'month';
 	readonly amount: number;
 }

@@ -3,6 +3,9 @@ import type { BillingConfig, BillingInvoiceLine, BillingPeriod, BillingUsageSpan
 /** Hours in the monthly cap: 28 days, so a `month` price never charges more than its amount. */
 export const BILLING_MONTH_HOURS = 672;
 
+/** Price key of the platform fee line. */
+export const PLATFORM_FEE = 'platform-fee';
+
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
 
@@ -14,7 +17,8 @@ const DAY = 86_400_000;
  * - `day` prices: each UTC day a resource was on at any moment counts once.
  * - `use` prices: quantities summed per price, keyed uses counted once.
  *
- * Lines with zero amount are left out. Lines are sorted by price then resource.
+ * Lines with zero amount are left out. Lines are sorted by price then resource, and the
+ * platform fee, when configured, comes last on any period with other charges.
  */
 export function usageInvoiceLines(
 	config: BillingConfig,
@@ -64,9 +68,12 @@ export function usageInvoiceLines(
 		const price = priceFor(config, key);
 		lines.push({ price: key, label: price.label, quantity, unit: 'use', amount: quantity * price.amount });
 	}
-	return lines
+	const charged = lines
 		.filter((line) => line.amount > 0)
 		.sort((a, b) => a.price.localeCompare(b.price) || (a.resourceId ?? '').localeCompare(b.resourceId ?? ''));
+	const fee = config.platformFee;
+	if (fee && fee.amount > 0 && charged.length > 0) charged.push({ price: PLATFORM_FEE, label: fee.label, quantity: 1, unit: 'month', amount: fee.amount });
+	return charged;
 }
 
 function priceFor(config: BillingConfig, key: string) {

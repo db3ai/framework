@@ -19,6 +19,7 @@ export class BillingAccount extends ActiveRecord {
 			cardExpYear: field.integer({ column: 'card_exp_year', unsigned: true }),
 			cardFingerprint: field.string({ column: 'card_fingerprint', length: 255, maxLength: 255, index: true, hidden: true, comment: 'Same value for the same card across accounts.' }),
 			cardCountry: field.string({ column: 'card_country', length: 2, maxLength: 2 }),
+			complimentary: field.boolean({ required: true, default: false, comment: 'Everything is free: usage is recorded and invoiced as normal, and each charge is paid at once without the provider.' }),
 			spendLimit: field.integer({ column: 'spend_limit', unsigned: true, comment: 'Monthly limit override in minor units; null uses the config default.' }),
 			autoTopUp: field.json<Record<string, string>>({ column: 'auto_top_up', comment: 'Credit bucket to pack bought automatically when low.' }),
 			pastDueSince: field.timestamp({ column: 'past_due_since' }),
@@ -39,6 +40,7 @@ export class BillingAccount extends ActiveRecord {
 	declare cardExpYear: number | null;
 	declare cardFingerprint: string | null;
 	declare cardCountry: string | null;
+	declare complimentary: boolean;
 	declare spendLimit: number | null;
 	declare autoTopUp: Record<string, string> | null;
 	declare pastDueSince: Date | null;
