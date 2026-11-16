@@ -201,6 +201,18 @@ describe('prepaid credits', () => {
 		expect(await application.billing.creditUsage('org_2')).toEqual([]);
 	});
 
+	it('prices work by its cost plus the markup, and records finished work past zero', async () => {
+		expect(application.billing.creditsForCost('ai', 0)).toBe(0);
+		expect(application.billing.creditsForCost('ai', 0.01)).toBe(1);
+		expect(application.billing.creditsForCost('ai', 250)).toBe(300);
+		expect(application.billing.creditsForCost('ai', 2.5)).toBe(3);
+		await withCard('org_1');
+		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		await expect(application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 1500, key: 'big-run' })).rejects.toBeInstanceOf(BillingCreditsExhaustedError);
+		expect(await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 1500, key: 'big-run', overdraw: true })).toEqual({ balance: -500 });
+		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(-500);
+	});
+
 	it('tops up automatically when the balance falls below the threshold', async () => {
 		await withCard('org_1');
 		await application.billing.setAutoTopUp({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });

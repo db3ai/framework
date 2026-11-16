@@ -33,6 +33,11 @@ export interface BillingCreditBucket {
 	readonly packs: Readonly<Record<string, BillingCreditPack>>;
 	/** Default auto top-up: buy `pack` when the balance falls below `below` credits. */
 	readonly autoTopUp?: { readonly below: number; readonly pack: string };
+	/**
+	 * How work priced by its cost (such as AI tokens) turns into credits: each credit is worth
+	 * `minorPerCredit` minor units, and `markup` (0.2 = 20%) is added on top of the cost.
+	 */
+	readonly fromCost?: { readonly minorPerCredit: number; readonly markup: number };
 }
 
 /**

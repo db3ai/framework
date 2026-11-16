@@ -48,7 +48,14 @@ export function parseBillingConfig(input: unknown): BillingConfig {
 			if (!packs[pack]) throw new BillingConfigError(`${path}.autoTopUp.pack`, `names no pack in ${path}.packs`);
 			autoTopUp = { below: amount(top.below, `${path}.autoTopUp.below`), pack };
 		}
-		credits[key] = { label: string(bucket.label, `${path}.label`), packs, ...(autoTopUp ? { autoTopUp } : {}) };
+		let fromCost: BillingCreditBucket['fromCost'];
+		if (bucket.fromCost !== undefined) {
+			const cost = object(bucket.fromCost, `${path}.fromCost`);
+			const markup = cost.markup;
+			if (typeof markup !== 'number' || !Number.isFinite(markup) || markup < 0 || markup > 10) throw new BillingConfigError(`${path}.fromCost.markup`, 'must be a number from 0 to 10, such as 0.2 for 20%');
+			fromCost = { minorPerCredit: positive(cost.minorPerCredit, `${path}.fromCost.minorPerCredit`), markup };
+		}
+		credits[key] = { label: string(bucket.label, `${path}.label`), packs, ...(autoTopUp ? { autoTopUp } : {}), ...(fromCost ? { fromCost } : {}) };
 	}
 	let platformFee: BillingConfig['platformFee'];
 	if (root.platformFee !== undefined) {
