@@ -62,6 +62,11 @@ export function parseBillingConfig(input: unknown): BillingConfig {
 		const fee = object(root.platformFee, 'platformFee');
 		platformFee = { amount: amount(fee.amount, 'platformFee.amount'), label: string(fee.label, 'platformFee.label') };
 	}
+	let platformFee: BillingConfig['platformFee'];
+	if (root.platformFee !== undefined) {
+		const fee = object(root.platformFee, 'platformFee');
+		platformFee = { amount: amount(fee.amount, 'platformFee.amount'), label: string(fee.label, 'platformFee.label') };
+	}
 	return {
 		currency,
 		graceDays: amount(root.graceDays, 'graceDays'),
