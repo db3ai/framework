@@ -1118,6 +1118,7 @@ export class Auth<TIdentity extends UserIdentity = UserIdentity> {
 			browser,
 			operatingSystem,
 			device,
+			location: options.location,
 			expiresAt,
 		}, {
 			db: this.db.knex,

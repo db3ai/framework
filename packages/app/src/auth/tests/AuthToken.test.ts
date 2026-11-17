@@ -14,6 +14,7 @@ describe('AuthToken sessions', () => {
 			browser: 'Chrome',
 			operatingSystem: 'macOS',
 			device: 'Desktop',
+			location: 'Bristol, England, GB',
 			createdAt: new Date('2026-07-11T12:00:00.000Z'),
 			lastUsedAt: new Date('2026-07-11T12:30:00.000Z'),
 		});
@@ -25,6 +26,8 @@ describe('AuthToken sessions', () => {
 			browser: 'Chrome',
 			operatingSystem: 'macOS',
 			device: 'Desktop',
+			label: 'Chrome on macOS (macOS)',
+			location: 'Bristol, England, GB',
 			expiresAt: null,
 			lastUsedAt: '2026-07-11T12:30:00.000Z',
 			createdAt: '2026-07-11T12:00:00.000Z',
