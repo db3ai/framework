@@ -423,15 +423,21 @@ a token:
 const issued = await app.auth.issueTokenForProvider('password', credentials, {
 	ipAddress: request.ip,
 	userAgent: request.headers['user-agent'],
+	location: requestLocation(request.headers),
 });
 ```
 
 The user agent fills `browser`, `operatingSystem` and `device`.
+`requestLocation(headers)` reads Cloudflare's visitor-location headers
+(`cf-ipcity`, `cf-region`, `cf-ipcountry`) into "Bristol, England, GB", or null;
+no lookup service is called. `lastUsedAt` moves on each authenticated request.
 `issued.newDevice` is true for a known account on a never-seen device: send a
 sign-in alert. `issued.sessionId` names the session.
 
 The raw user agent and token hash stay out of model JSON;
-`AuthToken.toSessionData()` is the safe projection.
+`AuthToken.toSessionData()` is the safe projection. It includes `label`
+("Chrome (macOS)", from `sessionLabel`) and `location`. `@db3.ai/account`
+renders these as a ready-made **Where you're logged in** table.
 
 List and revoke active sessions through the authenticated account:
 

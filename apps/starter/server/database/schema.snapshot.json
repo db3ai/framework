@@ -1460,6 +1460,14 @@
 					"comment": null
 				},
 				{
+					"name": "location",
+					"type": "varchar(160)",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Where the sign-in came from, such as Bristol, England, GB."
+				},
+				{
 					"name": "name",
 					"type": "varchar(120)",
 					"nullable": true,

@@ -36,9 +36,10 @@ describe('account-wide session revocation', () => {
 		const first = await application.auth.registerWithPassword({ name: 'Devices', email: `devices-${++accountNumber}@example.test`, password }, { userAgent: mac });
 		expect(first.newDevice).toBe(false);
 		expect((await application.auth.createToken(first.user, { userAgent: mac })).newDevice).toBe(false);
-		const phone = await application.auth.createToken(first.user, { userAgent: iphone });
+		const phone = await application.auth.createToken(first.user, { userAgent: iphone, location: 'Cheltenham, England, GB' });
 		expect(phone.newDevice).toBe(true);
-		expect((await application.auth.tokensFor(first.user)).map(token => token.id)).toContain(phone.sessionId);
+		const listed = (await application.auth.tokensFor(first.user)).find(token => token.id === phone.sessionId)?.toSessionData();
+		expect(listed).toMatchObject({ label: 'Safari (iOS)', location: 'Cheltenham, England, GB' });
 		// Signing out does not make the device new again.
 		await application.auth.revokeAllTokens(first.user);
 		expect((await application.auth.createToken(first.user, { userAgent: iphone })).newDevice).toBe(false);
