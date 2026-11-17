@@ -14,7 +14,7 @@ defineProps<{ label: string; description?: string }>();
 				<p class="text-canvas-fg">{{ label }}</p>
 				<p v-if="description || $slots.description" class="mt-0.5 text-muted-fg"><slot name="description">{{ description }}</slot></p>
 			</div>
-			<div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2"><slot /></div>
+			<div class="flex min-w-0 max-w-full flex-wrap items-center justify-end gap-2 max-sm:w-full max-sm:justify-start"><slot /></div>
 		</div>
 		<div v-if="$slots.details" class="mt-4"><slot name="details" /></div>
 	</div>
