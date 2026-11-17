@@ -26,6 +26,12 @@ const result = await app().ai.generateTextWithResponse({
 saved request and conversation IDs. Direct generation tracks a conversation but
 does not replay its previous messages; use an agent for conversational memory.
 
+Agent model adapters retain finite numeric token details before the Agents SDK
+validates usage. Nested provider breakdowns such as `cache_write_tokens_details`
+remain in raw provider data; their scalar parent counts are preserved for pricing,
+without adding nested subtotals again. This applies to streamed and buffered model
+responses, including per-request usage and conversation serialization.
+
 ## Context measurements and provider compaction
 
 Agents can return the Responses SDK's `contextManagement` settings from

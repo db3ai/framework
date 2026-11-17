@@ -19,8 +19,8 @@ let storageRoot: string;
 const fetch = vi.fn<typeof globalThis.fetch>();
 
 /** Supplies deterministic Responses API SSE while exercising the real SDK and framework. */
-function streamResponse(output: unknown[], text = '', model = 'test-model', serviceTier?: string): Response {
-	const response = { id: `resp_${output.length}_${text.length}`, object: 'response', created_at: 1, model, service_tier: serviceTier, status: 'completed', output, usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
+function streamResponse(output: unknown[], text = '', model = 'test-model', serviceTier?: string, usage: Record<string, unknown> = { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } }): Response {
+	const response = { id: `resp_${output.length}_${text.length}`, object: 'response', created_at: 1, model, service_tier: serviceTier, status: 'completed', output, usage };
 	const events: Record<string, unknown>[] = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }];
 	for (const [index, item] of output.entries()) {
 		events.push({ type: 'response.output_item.added', output_index: index, item });
@@ -32,8 +32,8 @@ function streamResponse(output: unknown[], text = '', model = 'test-model', serv
 }
 
 /** Completes one real SDK model turn with a deterministic assistant message. */
-function textStream(text = 'Use the settings page.', model = 'test-model') {
-	return streamResponse([{ type: 'message', id: 'msg_test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }], text, model);
+function textStream(text = 'Use the settings page.', model = 'test-model', usage?: Record<string, unknown>) {
+	return streamResponse([{ type: 'message', id: 'msg_test', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text, annotations: [] }] }], text, model, undefined, usage);
 }
 
 beforeAll(async () => {
@@ -68,6 +68,28 @@ afterAll(async () => {
 });
 
 describe('AI inside an application', () => {
+	it('finishes a queued agent once with nested cache usage and accurate billing', async () => {
+		/** Uses a priced model to verify the SDK boundary retains billable counters. */
+		class CacheUsageAgent extends HelpAgent {
+			protected override readonly model = 'gpt-6-sol';
+		}
+		registerQueuedAgent('CacheUsageAgent', CacheUsageAgent);
+		const queued = await new CacheUsageAgent({ user: 'ada', guidePath: 'help.md' }).queue('Hello.', { queue: 'cache-usage' });
+		fetch.mockResolvedValueOnce(textStream('Done.', 'gpt-6-sol', {
+			input_tokens: 200, output_tokens: 30, total_tokens: 230,
+			input_tokens_details: { cached_tokens: 60, cache_write_tokens: 40, cache_write_tokens_details: { ttl_12h_tokens: 10, ttl_30m_tokens: 30 } },
+			output_tokens_details: { reasoning_tokens: 20 },
+		}));
+		expect((await application.queue.workNextJob('cache-usage'))?.status).toBe('succeeded');
+		expect(fetch).toHaveBeenCalledTimes(1);
+		expect(await AiRequest.findByPk(queued.aiRequestId!)).toMatchObject({ status: 'completed' });
+		expect(await AiRequest.where({ parentAiRequest: queued.aiRequestId! }).firstOrFail()).toMatchObject({ status: 'completed', inputTokens: 200, outputTokens: 30, cachedTokens: 60, cacheWriteTokens: 40, costUSD: 0.000612 });
+		expect(await AiRequest.runCostSummary(queued.aiRequestId!)).toMatchObject({ providerRequestCount: 1, unpricedRequestCount: 0, totalCostUSD: 0.000612 });
+		expect(await QueuedJob.query().count()).toBe(0);
+		expect(await FailedJob.query().count()).toBe(0);
+		expect(await AiRateLimitReservation.query().count()).toBe(0);
+	});
+
 	it('retains a failed admission audit when durable recording is disabled', async () => {
 		await database.db.raw("CREATE TRIGGER reject_agent_dispatch BEFORE INSERT ON jobs FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Synthetic dispatch failure'");
 		try {

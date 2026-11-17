@@ -1,5 +1,6 @@
 /// <reference path="./sdkNodeCompatibility.d.ts" preserve="true" />
 import { providerBudgetFetch } from './providerBudgetFetch.js';
+import { withAgentModelUsage } from './withAgentModelUsage.js';
 import type { AIProviderBudgetInput } from './contracts/AIProviderBudget.js';
 import { AgentConversations } from './AgentConversations';
 import type { GenerateEmbeddingOptions } from './contracts/AI';
@@ -1188,10 +1189,14 @@ export class Ai {
 	 */
 	createAgentProvider(attempt: AIProviderAttempt, initialLease: AIRateLimitLease | null = null, serviceTier: AIServiceTier = 'default'): ModelProvider {
 		assertAIServiceTier(attempt.provider, serviceTier);
-		return new OpenAIProvider({
+		const provider = new OpenAIProvider({
 			openAIClient: new OpenAI({ apiKey: attempt.apiKey, baseURL: attempt.baseUrl, fetch: this.agentFetcher(attempt, initialLease), timeout: this.inactivityTimeoutMs() + SDK_TIMEOUT_MARGIN_MS, maxRetries: 0 }),
 			useResponses: attempt.supportsResponsesApi,
 		});
+		return {
+			/** Normalizes provider usage before the SDK validates or accumulates it. */
+			async getModel(name) { return withAgentModelUsage(await provider.getModel(name)); },
+		};
 	}
 
 	/**
