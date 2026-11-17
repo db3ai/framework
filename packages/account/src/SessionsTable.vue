@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import SettingsSection from './SettingsSection.vue';
 import { orderSessions, sessionTime, type AccountSession } from './sessions';
 
 /**
@@ -13,12 +14,11 @@ const rows = computed(() => orderSessions(props.sessions));
 </script>
 
 <template>
-	<section class="text-sm" data-account-sessions>
-		<div class="flex flex-wrap items-center justify-between gap-3">
-			<h3 class="text-base font-semibold text-canvas-fg">Where you're logged in</h3>
+	<SettingsSection title="Where you're logged in" data-account-sessions>
+		<template #actions>
 			<button type="button" class="min-h-9 rounded-lg bg-muted px-3 font-medium text-canvas-fg hover:bg-muted/70 disabled:opacity-50" :disabled="busy" data-log-out-all @click="$emit('log-out-all')">Log out of all devices</button>
-		</div>
-		<table class="mt-4 w-full text-left">
+		</template>
+		<table class="w-full text-left">
 			<thead class="text-muted-fg">
 				<tr class="border-b border-border">
 					<th class="py-2 pr-4 font-normal">Device</th>
@@ -46,5 +46,5 @@ const rows = computed(() => orderSessions(props.sessions));
 				</tr>
 			</tbody>
 		</table>
-	</section>
+	</SettingsSection>
 </template>
