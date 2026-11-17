@@ -21,10 +21,10 @@ const rows = computed(() => orderSessions(props.sessions));
 		<table class="mt-4 w-full table-fixed text-left">
 			<thead class="text-muted-fg">
 				<tr class="border-b border-border">
-					<th class="py-2 pr-4 font-normal">Device</th>
+					<th class="w-[38%] py-2 pr-4 font-normal">Device</th>
 					<th class="hidden py-2 pr-4 font-normal md:table-cell">Location</th>
-					<th class="hidden py-2 pr-4 font-normal lg:table-cell">Signed in</th>
-					<th class="w-36 py-2 pr-4 font-normal">Last active</th>
+					<th class="hidden w-40 py-2 pr-4 font-normal lg:table-cell">Signed in</th>
+					<th class="w-40 py-2 pr-4 font-normal">Last active</th>
 					<th class="w-20 py-2"><span class="sr-only">Actions</span></th>
 				</tr>
 			</thead>
@@ -33,7 +33,7 @@ const rows = computed(() => orderSessions(props.sessions));
 					<td class="py-3 pr-4">
 						<span class="flex min-w-0 items-center gap-2">
 							<span class="truncate text-canvas-fg" :title="session.label">{{ session.label }}</span>
-							<span v-if="session.current" class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary" data-current>Current</span>
+							<span v-if="session.current" class="shrink-0 rounded-full bg-selection/10 px-2 py-0.5 text-xs font-medium text-selection" data-current>Current</span>
 						</span>
 						<span class="block truncate text-xs text-muted-fg md:hidden">{{ session.location ?? 'Unknown' }}</span>
 					</td>
