@@ -16,6 +16,27 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		cachedInputUSDPer1M: 0.10,
 		outputUSDPer1M: 1.60,
 	},
+	// GPT-6.2 Standard, 30-minute cache-write and long-context rates verified on 2026-11-20.
+	'gpt-6.2-astra': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		inputUSDPer1M: 8.00,
+		cachedInputUSDPer1M: 0.40,
+		outputUSDPer1M: 40.00,
+		cacheWriteInputMultiplier: 1.25,
+		longContextInputTokenThreshold: 272_000,
+		longContextInputMultiplier: 2,
+		longContextOutputMultiplier: 1.5,
+	},
+	'gpt-6.2-sol': {
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		inputUSDPer1M: 2.00,
+		cachedInputUSDPer1M: 0.10,
+		outputUSDPer1M: 10.00,
+		cacheWriteInputMultiplier: 1.25,
+		longContextInputTokenThreshold: 272_000,
+		longContextInputMultiplier: 2,
+		longContextOutputMultiplier: 1.5,
+	},
 	'gpt-6-astra': {
 		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
 		inputUSDPer1M: 10.00,
