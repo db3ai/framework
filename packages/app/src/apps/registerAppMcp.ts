@@ -65,13 +65,14 @@ export function registerAppMcp(server: FastifyInstance, apps: Apps<any>, options
 			if (typeof value !== 'string' || !value || value.length > 200 || value.includes('/')) return refused(`Give ${key} as an id.`);
 			params[key] = value;
 		}
+		// A declared body schema sees the agent's value as it is, as it would over HTTP.
 		const object = (value: unknown) => (value && typeof value === 'object' && !Array.isArray(value) ? value : {}) as Record<string, unknown>;
 		const actor = typeof input.reason === 'string' && tool.route.method !== 'GET' ? { ...caller.actor, reason: input.reason.slice(0, 500) } : caller.actor;
 		try {
 			const result = await apps.run(async () => {
 				const service = apps.get(tool.appId);
 				if (service === undefined) throw new AppRouteError(404, 'App is unavailable.');
-				return callAppRoute(tool.route, { service, actor, params, query: object(input.query), body: tool.route.method === 'GET' ? {} : object(input.body) });
+				return callAppRoute(tool.route, { service, actor, params, query: object(input.query), body: tool.route.method === 'GET' ? {} : tool.route.input?.body ? input.body : object(input.body) });
 			});
 			const text = JSON.stringify(result ?? null);
 			return { content: [{ type: 'text', text: text.length > maxText ? `${text.slice(0, maxText)}\n…cut at ${maxText} characters; narrow the query.` : text }] };

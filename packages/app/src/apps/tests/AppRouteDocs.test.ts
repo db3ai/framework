@@ -15,6 +15,7 @@ function notes(): AppDefinition<{ notes: Map<string, string> }> {
 			{ method: 'GET', path: '/teams/:team/notes', risk: 'read', summary: 'Lists the team\'s notes.', input: { query: z.object({ limit: z.coerce.number().int().min(1).max(50).default(10) }) }, handle: ({ service, params, query }) => ({ team: params.team, limit: query.limit, notes: [...service.notes].map(([id, text]) => ({ id, text })) }) },
 			{ method: 'POST', path: '/teams/:team/notes', risk: 'change', summary: 'Adds a note.', status: 201, input: { body: z.object({ text: z.string().min(1).max(200) }) }, handle: ({ service, body, actor }) => { service.notes.set(`n${service.notes.size + 1}`, (body as { text: string }).text); return { by: actor }; } },
 			{ method: 'DELETE', path: '/teams/:team/notes/:note', risk: 'destructive', summary: 'Deletes a note.', handle: ({ service, params }) => { if (!service.notes.delete(params.note!)) throw new AppRouteError(404, 'No such note.'); return {}; } },
+			{ method: 'POST', path: '/teams/:team/tags', risk: 'change', summary: 'Sets the team\'s tags.', input: { body: z.array(z.string()).max(5) }, handle: ({ body }) => ({ tags: body }) },
 			{ method: 'GET', path: '/', handle: () => ({ hello: true }) },
 		],
 	});
@@ -46,6 +47,8 @@ describe('route input', () => {
 			expect(empty.statusCode).toBe(400);
 			expect(empty.json().message).toMatch(/^body\.text: /);
 			expect((await server.inject({ method: 'POST', url: '/api/apps/notes/teams/t1/notes', payload: { text: 'Bake' } })).statusCode).toBe(201);
+			expect((await server.inject({ method: 'POST', url: '/api/apps/notes/teams/t1/notes', headers: { 'content-type': 'application/json' }, payload: 'null' })).statusCode).toBe(400);
+			expect((await server.inject({ method: 'POST', url: '/api/apps/notes/teams/t1/tags', payload: ['a', 'b'] })).json()).toEqual({ tags: ['a', 'b'] });
 		} finally { await server.close(); }
 	});
 });
@@ -54,7 +57,7 @@ describe('generated docs', () => {
 	it('list every route with its summary, risk, tool and input', () => {
 		const tools = appTools(application.apps.routes(), { fixed: ['team'] });
 		const spec = appOpenApi(application.apps.routes(), { info: { title: 'Notes API', version: '1' }, tools });
-		expect(Object.keys(spec.paths)).toEqual(['/api/apps/notes/teams/{team}/notes', '/api/apps/notes/teams/{team}/notes/{note}', '/api/apps/notes']);
+		expect(Object.keys(spec.paths)).toEqual(['/api/apps/notes/teams/{team}/notes', '/api/apps/notes/teams/{team}/notes/{note}', '/api/apps/notes/teams/{team}/tags', '/api/apps/notes']);
 		const list = spec.paths['/api/apps/notes/teams/{team}/notes'].get;
 		expect(list).toMatchObject({ summary: 'Lists the team\'s notes.', 'x-db3-risk': 'read', 'x-db3-tool': 'notes', tags: ['notes'] });
 		expect(list.parameters).toEqual([
@@ -77,7 +80,7 @@ describe('generated docs', () => {
 		const routes = application.apps.routes();
 		expect(appTools(routes, { fixed: ['team'] }).map(tool => tool.name)).toEqual(['notes']);
 		const tools = appTools(routes, { fixed: ['team'], risks: ['read', 'change', 'destructive'], include: entry => entry.route.method !== 'DELETE' });
-		expect(tools.map(tool => tool.name)).toEqual(['notes', 'post_notes']);
+		expect(tools.map(tool => tool.name)).toEqual(['notes', 'post_notes', 'post_tags']);
 		expect(tools[1]!.inputSchema.properties).toMatchObject({ body: { properties: { text: { type: 'string' } } }, reason: { type: 'string' } });
 		expect(appTools(routes, { risks: ['destructive'] })[0]).toMatchObject({ name: 'delete_teams_notes', params: ['team', 'note'], annotations: { destructiveHint: true, readOnlyHint: false } });
 		const clash = [{ appId: 'a', route: { method: 'GET', path: '/x', risk: 'read', summary: 'X.', handle: () => null } }, { appId: 'b', route: { method: 'GET', path: '/x', risk: 'read', summary: 'X.', handle: () => null } }] as const;
@@ -110,7 +113,7 @@ describe('the MCP server', () => {
 		expect((await rpc('initialize', { protocolVersion: '1999-01-01' })).json().result.protocolVersion).toBe('2025-06-18');
 		expect((await server.inject({ method: 'POST', url: '/mcp', headers: { authorization: 'Bearer key' }, payload: { jsonrpc: '2.0', method: 'notifications/initialized' } })).statusCode).toBe(202);
 		const { tools } = (await rpc('tools/list')).json().result;
-		expect(tools.map((tool: { name: string }) => tool.name)).toEqual(['notes', 'post_notes', 'delete_notes']);
+		expect(tools.map((tool: { name: string }) => tool.name)).toEqual(['notes', 'post_notes', 'delete_notes', 'post_tags']);
 		expect(tools[0]).toEqual({ name: 'notes', description: 'Lists the team\'s notes.', inputSchema: expect.any(Object), annotations: { title: 'notes', readOnlyHint: true, destructiveHint: false } });
 		expect((await rpc('ping')).json().result).toEqual({});
 		expect((await rpc('nothing')).json().error.code).toBe(-32601);
@@ -124,6 +127,7 @@ describe('the MCP server', () => {
 		expect(await call('delete_notes', {})).toMatchObject({ isError: true, content: [{ text: 'Give note as an id.' }] });
 		expect(await call('delete_notes', { note: '../x/y' })).toMatchObject({ isError: true });
 		expect(await call('nope')).toMatchObject({ isError: true });
+		expect(JSON.parse((await call('post_tags', { body: ['a'] })).content[0].text)).toEqual({ tags: ['a'] });
 	});
 
 	it('refuses unknown callers, web pages and streams', async () => {

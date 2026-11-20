@@ -2,10 +2,13 @@ import type { ZodType } from 'zod';
 import type { AppRoute, AppRouteContext } from './contracts';
 import { AppRouteError } from './AppRouteError';
 
-/** Parses one part of a request with the route's schema, refusing it with the first problem found. */
+/**
+ * Parses one part of a request with the route's schema, refusing it with the first problem found.
+ * The value is passed as it came, so the schema's own nullability, optionality and defaults decide.
+ */
 function parse(schema: ZodType | undefined, value: unknown, part: string) {
 	if (!schema) return value;
-	const parsed = schema.safeParse(value ?? {});
+	const parsed = schema.safeParse(value);
 	if (parsed.success) return parsed.data;
 	const issue = parsed.error.issues[0]!;
 	const where = [part, ...issue.path.map(String)].join('.');
