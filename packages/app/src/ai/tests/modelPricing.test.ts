@@ -149,6 +149,8 @@ describe('AI model pricing', () => {
 	});
 
 	it.each([
+		['gpt-6.2-astra', 0.002424],
+		['gpt-6.2-sol', 0.000606],
 		['gpt-6-astra', 0.00306],
 		['gpt-6-sol', 0.000612],
 		['gpt-6.1-sol', 0.000606],
@@ -164,6 +166,8 @@ describe('AI model pricing', () => {
 	});
 
 	it.each([
+		['gpt-6.2-astra', 272_001, 3.512016],
+		['gpt-6.2-sol', 272_001, 0.878004],
 		['gpt-6-astra', 272_000, 2.37],
 		['gpt-6-astra', 272_001, 4.49002],
 		['gpt-6-sol', 272_000, 0.474],
