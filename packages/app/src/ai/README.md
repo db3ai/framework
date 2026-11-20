@@ -26,39 +26,29 @@ const result = await app().ai.generateTextWithResponse({
 saved request and conversation IDs. Direct generation tracks a conversation but
 does not replay its previous messages; use an agent for conversational memory.
 
-Agent model adapters retain finite numeric token details before the Agents SDK
-validates usage. Nested provider breakdowns such as `cache_write_tokens_details`
-remain in raw provider data; their scalar parent counts are preserved for pricing,
-without adding nested subtotals again. This applies to streamed and buffered model
-responses, including per-request usage and conversation serialization.
+Before SDK validation, model adapters keep numeric token totals for both streamed
+and buffered responses. Nested details stay in raw provider data. Pricing keeps
+their scalar parent counts and avoids counting subtotals twice.
 
 ## Context measurements and provider compaction
 
-Agents can return the Responses SDK's `contextManagement` settings from
-`modelSettings()` to enable provider-managed compaction. These settings are sent
-only to direct OpenAI attempts. `contextWindowTokens(model)` defaults to `null`;
-an application may override it with a verified model capacity. No capacity is
-inferred from the model name or from cumulative billed usage.
+Return the Responses SDK's `contextManagement` from `modelSettings()` to enable
+compaction for direct OpenAI attempts. Override `contextWindowTokens(model)` with
+a verified capacity. It defaults to `null`.
 
-With durable streaming enabled, snapshots and `context.changed` events expose
-`context`: model, capacity, last measured input tokens, compaction status and
-count. Input usage is per completed model call. It becomes unknown during and
-immediately after compaction, since that response's usage describes its original
-input. The next model response supplies a fresh measurement.
+Durable snapshots and `context.changed` report the model, capacity, most recent
+call's input tokens, and compaction status and count. Input usage is unknown during
+and immediately after compaction until the next call reports its own usage.
 
-A successful run checkpoints input from its latest native compaction item along
-with provider finalization under the existing writer fence. The encrypted item
-is passed unchanged on continuation; it is not a human-readable summary. The
-watermark excludes queued followups, which remain eligible for subsequent turns.
-The full `AiMessage` transcript remains available. Checkpoints are private and
-are not part of any snapshot or live event, including admin views. A changed
-model replays ordinary saved history instead of reusing an incompatible checkpoint.
-Credit-settlement retries reuse finalized output without calling the model again.
+After success, the writer fence saves the encrypted compaction checkpoint with
+provider finalization. Continuation passes it back unchanged and keeps queued
+followups eligible. Checkpoints stay out of all snapshots and events. The full
+`AiMessage` transcript remains available and is used when the model changes.
+Settlement retries reuse finalized output without another model call.
 
-Compaction does not make arbitrarily oversized tool results safe: applications
-must bound those results before the next request. Context-limit errors retain a
-safe provider code in ordinary run projections so applications can offer recovery
-without exposing provider diagnostics or automatically replaying mutations.
+Bound tool results before the next request. On context-limit errors, run views
+retain a safe provider code so hosts can offer recovery without exposing
+diagnostics or replaying mutations.
 
 ## Agents and function calls
 
@@ -110,31 +100,23 @@ const run = await new HelpAgent({
 // { conversationId, aiRequestId, jobId, traceId }
 ```
 
-Admission saves the request, user message and conversation state before awaiting
-the ordinary queue dispatch API. Dispatch returns an opaque job ID after driver
-acceptance; AI does not inspect the queue driver. SQL and Redis are supported.
-A rejected dispatch retains the request as failed and clears its queued stream
-state. Saving records and publishing the job are not an atomic operation: a crash
-between them can leave an unqueued request. Commit any caller-owned SQL transaction
-before queuing through an external broker. A followup
-on an active conversation joins its FIFO queue; it does not interrupt the active
-provider call. Each turn loads fresh saved history when execution begins. Future
-queued messages are excluded from the current turn's provider input. The existing
-queue defers followers without spending attempts. Apps can refresh domain context
-in `beforeQueuedRun(root, conversation)`, after ownership is claimed but before
-instructions and credit allowance are evaluated. The hook must recognize same-root
-retries. It also restores product policy for settlement-only retries; skip domain
-activation when `root.response.providerFinalized` is true. Pin state-dependent
-product decisions on the root so a retry cannot change the original charge.
+Admission saves the request, user message and stream state before dispatch.
+The SQL or Redis driver returns an opaque job ID on acceptance. Rejection marks
+the request failed and clears queued state. A crash between saving and dispatch
+can leave an unqueued request. Commit caller transactions before external
+dispatch. There is no outbox or automatic recovery before dispatch.
 
-The browser client creates one submission UUID per intentional send and keeps it
-for `retrySend()` after an uncertain HTTP response. A key is scoped to actor, scope
-and agent; changed input with the same key returns 409. Scheduled jobs can omit it.
-A concurrent duplicate briefly waits for the original queue acknowledgement; if
-it remains unconfirmed, it returns 409 and can be retried with the same key. A
-failed submission with no receipt returns 409; an intentional new send needs a new
-key. Existing receipts are reused even after execution completes. An outbox and
-automatic recovery of requests interrupted before dispatch are not provided.
+Followups wait in FIFO order without consuming attempts or interrupting the
+provider. Each turn loads saved history and skips future messages.
+`beforeQueuedRun(root, conversation)` runs after ownership is claimed and before
+instructions and credit checks. Recognize same-root retries and pin decisions
+on the root. Skip domain activation when `root.response.providerFinalized` is true.
+
+Create one submission UUID per send and reuse it with `retrySend()` after an
+uncertain response. Keys are scoped to actor, scope and agent. Changed input,
+a failed submission without a receipt, or a concurrent duplicate whose receipt
+is still unavailable returns 409. An intentional new send needs a new key.
+Existing receipts work after completion. Scheduled jobs can omit the key.
 
 Workers emit live events without knowing whether anyone is watching. Text deltas
 coalesce in memory (100 ms by default) and never write SQL. Existing message/tool
