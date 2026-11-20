@@ -282,6 +282,72 @@ or agent, updates the document's diagram and text, then runs
 `db3 apps:check --accept` to record the new structure. A project without the
 file is not checked.
 
+## Describe routes once: checks, docs and AI tools
+
+A route can say what it does, how much it can change and what it accepts. The
+router checks the input before `handle` runs, and the same description becomes
+the app's API reference and the tools an AI agent can call, so people, scripts
+and agents use one API and its docs can't drift from it.
+
+```ts
+import { z } from 'zod';
+
+export const noteRoutes: AppRoute<App>[] = [
+	{
+		method: 'POST', path: '/teams/:team/notes', status: 201,
+		summary: 'Adds a note to the team.',
+		risk: 'change',
+		input: { body: z.object({ text: z.string().min(1).max(200) }) },
+		handle: ({ service, actor, params, body }) => service.add(actor.id, params.team!, body as { text: string }),
+	},
+];
+```
+
+- `summary` is one sentence: the route's line in the reference and its tool's description.
+- `risk` is `read`, `private` (people's data or secrets), `change`, `risky` (costs
+  money, interrupts a service, opens access) or `destructive`. `APP_ROUTE_RISKS`
+  says what each means.
+- `input` holds zod schemas for `params`, `query` and `body`. A request that does
+  not match is refused with 400 and `{ message }` naming the field, such as
+  `body.text: Too small`, and the handler receives the parsed values, with
+  defaults and coercions applied. Routes without `input` receive the raw request.
+
+The generators read the same table the router serves, `host.apps.routes()`:
+
+```ts
+import { appOpenApi, appReference, appTools } from '@db3.ai/app/apps';
+import { registerAppMcp } from '@db3.ai/app/apps/fastify';
+
+const tools = appTools(host.apps.routes(), { fixed: ['team'] });
+const spec = appOpenApi(host.apps.routes(), { info: { title: 'Notes API', version: '1' }, tools });
+server.get('/api/openapi.json', async () => spec);
+server.get('/api/reference.md', async (_request, reply) => reply.type('text/markdown').send(appReference(spec)));
+registerAppMcp(server, host.apps, {
+	serverInfo: { name: 'notes', title: 'Notes', version: '1' }, origin: config.origin, tools,
+	authorize: async request => ({ actor: { id: await userFromKey(request.headers.authorization) }, params: { team: await teamOfKey(request.headers.authorization) } }),
+});
+```
+
+- `appOpenApi` makes an OpenAPI 3.1 document: every route with its summary,
+  `x-db3-risk`, `x-db3-tool`, parameters and body schema.
+- `appReference` renders that document as Markdown tables, one per section, for
+  people and agents alike.
+- `appTools` offers described routes of the allowed risks, `read` by default, as
+  tools. A tool is named from its path's fixed words, and other methods start with
+  theirs: `GET /teams/:team/notes` is `notes` and the route above is `post_notes`.
+  Parameters in `fixed` come from the agent's sign-in instead of its arguments.
+  Read tools take `query`; others take `body` and `reason`, which reaches the route
+  as `actor.reason`.
+- `registerAppMcp` serves the tools as an MCP server (Streamable HTTP, stateless).
+  Each call runs the route through the same input checks as HTTP, for the actor
+  `authorize` returns. Refuse cookies there: an agent signs in with a key. Calls
+  from another site's pages (any other `Origin`) are refused. `AppRouteError`
+  messages come back as tool errors the agent can read. Tools are fixed when it is
+  registered; register it after the apps it serves have booted.
+
+To record who changed what, wrap the routes before the app returns them: the
+wrapper sees every HTTP and MCP call, with the actor the host passed.
+
 ## Lifecycle and administration
 
 The base service provides these overridable asynchronous hooks:
