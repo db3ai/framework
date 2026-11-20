@@ -45,7 +45,11 @@ export function registerStaticSite(server: FastifyInstance, options: StaticSiteO
 	const headersFor = typeof options.headers === 'function' ? options.headers : () => (options.headers as Record<string, string> | undefined) ?? {};
 	const notFound = options.notFound ?? '404.html';
 
-	/** Finds the file a relative URL path names, treating POSIX and Windows separators as component boundaries. */
+	/**
+	 * Resolves a relative URL to an existing site file, or null when invalid or missing.
+	 * Rejects dot-prefixed components across both path separators before filesystem access,
+	 * so percent-encoded Windows paths receive the same protection on every host.
+	 */
 	async function find(path: string): Promise<string | null> {
 		let decoded: string;
 		try { decoded = decodeURIComponent(path); } catch { return null; }

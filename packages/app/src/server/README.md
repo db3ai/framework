@@ -51,6 +51,9 @@ The public surface includes:
   `publicServerErrorMessage(...)` for other server-owned error renderers.
 - `registerBrowserJsonFormatting(...)` for servers with their own error handler;
   the shared error boundary installs it automatically.
+- `registerStaticSite(...)` for prefix-scoped static files with clean URLs and a
+  site-owned not-found page. After URL decoding, dot-prefixed components are
+  rejected across both `/` and `\` separators before filesystem access.
 
 Standalone HTTP hosts can import the formatting hook from
 `@db3.ai/app/server/browser-json`. This narrow entry point does not load `App`
