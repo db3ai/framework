@@ -119,7 +119,12 @@ export const appsApiArticle = createApiReference({
 		['navigation-result', 'Collected navigation and partial failures', 'dist/apps/contracts/AppNavigationResult.d.ts'],
 		['description', 'Visual catalog and client loader', 'dist/apps/contracts/AppDescription.d.ts'],
 		['routes', 'Transport-independent routes', 'dist/apps/contracts/AppRoute.d.ts'],
+		['risks', 'How much a route can change', 'dist/apps/contracts/AppRouteRisk.d.ts'],
 		['fastify', 'Host authorization adapter', 'dist/apps/registerAppRoutes.d.ts'],
+		['openapi', 'OpenAPI from routes', 'dist/apps/appOpenApi.d.ts'],
+		['reference', 'Readable API reference', 'dist/apps/appReference.d.ts'],
+		['tools', 'Routes as AI tools', 'dist/apps/appTools.d.ts'],
+		['mcp', 'MCP server for app routes', 'dist/apps/registerAppMcp.d.ts'],
 		['commands', 'Maintenance commands', 'dist/apps/commands/index.d.ts'],
 	],
 });

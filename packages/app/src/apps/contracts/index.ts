@@ -1,6 +1,7 @@
 export type { AppManifest, AppMenuItem } from './AppManifest';
 export type { AppDefinition, AppDefinitions, AppServices, AppStartContext } from './AppDefinition';
-export type { AppRoute, AppRouteContext } from './AppRoute';
+export type { AppRoute, AppRouteContext, AppRouteInput } from './AppRoute';
+export { APP_ROUTE_RISKS, type AppRouteRisk } from './AppRouteRisk';
 export type { AppDescription, AppInstallationState, AppClientDefinition } from './AppDescription';
 export type { DiscoveredApp } from './DiscoveredApp';
 export type { InstalledApps } from './InstalledApps';
