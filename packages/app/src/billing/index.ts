@@ -2,5 +2,5 @@ export * from './contracts';
 export { Billing, type BillingOptions } from './Billing';
 export { BillingCreditsExhaustedError, BillingNotSetUpError, BillingWebhookSignatureError } from './BillingErrors';
 export { BillingConfigError, parseBillingConfig } from './parseBillingConfig';
-export { BILLING_MONTH_HOURS, usageInvoiceLines } from './usageInvoiceLines';
+export { BILLING_MONTH_HOURS, PLATFORM_FEE, usageInvoiceLines } from './usageInvoiceLines';
 export * from './models';

@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Apps } from './Apps';
 import { AppRouteError } from './AppRouteError';
+import { callAppRoute } from './callAppRoute';
 
 /** Mounts dynamic app routes behind mandatory host authorization; newly installed apps become reachable immediately. */
 export function registerAppRoutes(server: FastifyInstance, apps: Apps<any>, authorize: (request: FastifyRequest, appId: string) => Promise<{ id: string }>): void {
@@ -20,7 +21,7 @@ export function registerAppRoutes(server: FastifyInstance, apps: Apps<any>, auth
 							if (!params) continue;
 							const actor = await authorize(request, appId);
 							if (!actor?.id) throw new AppRouteError(401, 'Please sign in.');
-							const result = await route.handle({ service, actor, body: request.body, params, query: request.query as Record<string, unknown> });
+							const result = await callAppRoute(route, { service, actor, body: request.body, params, query: request.query as Record<string, unknown> });
 							return reply.code(route.status ?? 200).send(result);
 						}
 						return reply.code(404).send({ message: 'App route not found.' });

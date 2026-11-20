@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Auth, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, UserIdentity } from '../index';
+import { Auth, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor, UserIdentity } from '../index';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '../../db/test/db';
 import { App } from '../../server';
 
@@ -10,7 +10,7 @@ describe('auth request input and isolated fallback scopes', () => {
 	beforeAll(async () => {
 		database = await createGeneratedTestDatabase('auth_security');
 		application = new App({ db: database.db });
-		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor);
 	});
 
 	afterAll(async () => {

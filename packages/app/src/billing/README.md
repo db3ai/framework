@@ -22,7 +22,9 @@ holds only provider secrets. The payment provider sits behind the
 }
 ```
 
-Amounts are minor units (cents).
+Amounts are in cents. Optional `platformFee` `{ amount, label }` adds one line to any charged month.
+
+`previewInvoice(ownerId)` is this month so far; `invoices(ownerId)` lists charges.
 
 | Price per | Charged as |
 | --- | --- |
@@ -44,7 +46,12 @@ await app().billing.startUsage({ ownerId: org.id, resourceId: server.id, price: 
 await app().billing.stopUsage({ ownerId: org.id, resourceId: server.id }); // destroy
 
 // AI work spends prepaid credits; running out stops only that work.
-await app().billing.spendCredits({ ownerId: org.id, bucket: 'ai', amount: 12, key: run.id });
+await app().billing.spendCredits({ ownerId: org.id, bucket: 'ai', amount: 12, key: run.id, source: 'studio' });
+await app().billing.creditUsage(org.id); // this month, by bucket and source, for a Usage page
+// Work priced by its cost (credits.ai.fromCost: minorPerCredit + markup). overdraw records
+// work that already ran even past zero; the next pack pays the balance back.
+const credits = app().billing.creditsForCost('ai', run.costCents);
+await app().billing.spendCredits({ ownerId: org.id, bucket: 'ai', amount: credits, key: run.id, source: 'studio', overdraw: true });
 
 // Monthly, from the scheduler: charge last month. Safe to run again.
 await app().billing.invoicePeriod({ start: lastMonthStart, end: thisMonthStart });
@@ -61,6 +68,8 @@ await app().billing.handleWebhook(rawBody, signature);
   suspends at once and takes back any credits that charge granted.
 - `newAccountSpendLimit` applies until the first invoice is paid; set
   `BillingAccount.spendLimit` to override one account.
+- `setComplimentary({ ownerId, complimentary: true })`: no card or limit; charges are recorded
+  as usual and paid at $0 without the provider, like a 100% coupon.
 - Provider calls never run inside a database transaction. Every write carries
   an idempotency key; webhooks are stored in `billing_events` before they are
   applied, and each provider event applies once.

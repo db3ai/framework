@@ -6,3 +6,7 @@ export { AppService } from './AppService';
 export { discoverApps } from './discoverApps';
 export { writeAppTypes } from './writeAppTypes';
 export { checkAppBoundaries, formatAppBoundaries, type AppBoundaryProblem, type AppBoundaryReport } from './checkAppBoundaries';
+export { callAppRoute } from './callAppRoute';
+export { appTools, appToolName, type AppTool, type AppToolOptions, type AppRouteEntry } from './appTools';
+export { appOpenApi, appRoutePath, type AppOpenApiOptions } from './appOpenApi';
+export { appReference } from './appReference';

@@ -13,6 +13,7 @@ export class BillingCreditEntry extends ActiveRecord {
 			bucket: field.string({ required: true, length: 120, maxLength: 120 }),
 			amount: field.integer({ required: true, comment: 'Credits; negative for spends and reversals.' }),
 			key: field.string({ required: true, length: 255, maxLength: 255, unique: true }),
+			source: field.string({ length: 120, maxLength: 120, comment: 'What spent the credits, such as an app id; null for purchases.' }),
 			createdAt: field.timestamp({ column: 'created_at', auto: 'create' }),
 		};
 	}
@@ -22,5 +23,6 @@ export class BillingCreditEntry extends ActiveRecord {
 	declare bucket: string;
 	declare amount: number;
 	declare key: string;
+	declare source: string | null;
 	declare createdAt: Date;
 }

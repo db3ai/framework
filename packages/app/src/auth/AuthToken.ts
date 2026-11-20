@@ -7,6 +7,7 @@ import {
 	ActiveRecord,
 	type FieldBuilder,
 } from '../db';
+import { sessionLabel } from './describeUserAgent';
 
 export interface CreateAuthTokenOptions {
 	/** Human-friendly session name displayed to the user. */
@@ -23,6 +24,8 @@ export interface CreateAuthTokenOptions {
 	operatingSystem?: string | null;
 	/** Parsed device label, such as iPhone or Desktop. */
 	device?: string | null;
+	/** Where the sign-in came from, such as "Bristol, England, GB". See requestLocation. */
+	location?: string | null;
 }
 
 /**
@@ -43,6 +46,10 @@ export interface AuthSessionData {
 	browser: string | null;
 	operatingSystem: string | null;
 	device: string | null;
+	/** What a person calls this session, such as "Chrome (macOS)". */
+	label: string;
+	/** Where it signed in from, or null when unknown. */
+	location: string | null;
 	expiresAt: string | null;
 	lastUsedAt: string | null;
 	createdAt: string | null;
@@ -122,6 +129,12 @@ export class AuthToken extends ActiveRecord {
 				comment: 'Parsed device model or category used for account session displays.',
 			}),
 
+			location: field.string({
+				maxLength: 160,
+				length: 160,
+				comment: 'Where the sign-in came from, such as Bristol, England, GB.',
+			}),
+
 			expiresAt: field.timestamp({
 				column: 'expires_at',
 			}),
@@ -151,6 +164,7 @@ export class AuthToken extends ActiveRecord {
 	declare browser: string | null;
 	declare operatingSystem: string | null;
 	declare device: string | null;
+	declare location: string | null;
 	declare expiresAt: Date | null;
 	declare lastUsedAt: Date | null;
 	declare revokedAt: Date | null;
@@ -231,6 +245,8 @@ export class AuthToken extends ActiveRecord {
 			browser: this.browser,
 			operatingSystem: this.operatingSystem,
 			device: this.device,
+			label: sessionLabel(this),
+			location: this.location,
 			expiresAt: this.expiresAt?.toISOString() ?? null,
 			lastUsedAt: this.lastUsedAt?.toISOString() ?? null,
 			createdAt: this.createdAt?.toISOString() ?? null,

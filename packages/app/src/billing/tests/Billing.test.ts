@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { App } from '@db3.ai/app';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
-import { BillingCreditsExhaustedError, billingModels, parseBillingConfig, type BillingProviderEvent } from '@db3.ai/app/billing';
+import { BillingCharge, BillingCreditsExhaustedError, billingModels, parseBillingConfig, type BillingProviderEvent } from '@db3.ai/app/billing';
 import { billingConfigJson } from './support/billingConfigJson';
 import { FakeBillingProvider } from './support/FakeBillingProvider';
 
@@ -114,6 +114,65 @@ describe('usage and the monthly invoice', () => {
 	});
 });
 
+describe('complimentary accounts', () => {
+	it('needs no card or spend limit, and records invoices and credit packs as paid without the provider', async () => {
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: true });
+		expect(await application.billing.hasBilling('org_1')).toBe(true);
+		expect(await application.billing.checkSpend('org_1', 1_000_000)).toMatchObject({ allowed: true, spendLimit: null });
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-10-01T00:00:00Z') });
+		const october = { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-11-01T00:00:00Z') };
+		expect(await application.billing.invoicePeriod(october)).toEqual({ invoiced: 1, failed: 0 });
+		expect(await application.billing.invoicePeriod(october)).toEqual({ invoiced: 0, failed: 0 });
+		const invoice = await BillingCharge.where('kind', 'invoice').firstOrFail();
+		expect(invoice).toMatchObject({ state: 'paid', amount: 672 });
+		expect(invoice.providerId).toMatch(/^complimentary:/);
+		expect(invoice.lines).toMatchObject([{ price: 'server.small', resourceId: 'srv_1', amount: 672 }]);
+		expect(await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' })).toEqual({ status: 'paid' });
+		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(1000);
+		expect(provider.calls).toEqual([]);
+		expect((await application.billing.summary('org_1')).complimentary).toBe(true);
+
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: false });
+		expect(await application.billing.checkSpend('org_1', 672)).toMatchObject({ allowed: false, reason: 'no_card' });
+	});
+
+	it('leaves an invoice already sent to the provider tracked there when the account turns complimentary', async () => {
+		await withCard('org_1');
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-10-01T00:00:00Z') });
+		const october = { start: new Date('2026-10-01T00:00:00Z'), end: new Date('2026-11-01T00:00:00Z') };
+		provider.nextStatus = 'pending';
+		await application.billing.invoicePeriod(october);
+		const sent = (await BillingCharge.where('kind', 'invoice').firstOrFail()).providerId;
+		await application.billing.setComplimentary({ ownerId: 'org_1', complimentary: true });
+		provider.nextStatus = 'paid';
+		await application.billing.invoicePeriod(october);
+		expect(await BillingCharge.where('kind', 'invoice').firstOrFail()).toMatchObject({ providerId: sent, state: 'paid' });
+	});
+});
+
+describe('invoice preview and history', () => {
+	it('counts the platform fee the first resource of a month brings in against the spend limit', async () => {
+		application = new App({ db: database.db, billing: { provider, config: parseBillingConfig({ ...billingConfigJson, platformFee: { amount: 500, label: 'Platform fee' } }), now: () => now } });
+		await withCard('org_1');
+		expect(await application.billing.checkSpend('org_1', 4800)).toMatchObject({ allowed: false, reason: 'spend_limit', projected: 5300 });
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-11-01T00:00:00Z') });
+		expect((await application.billing.checkSpend('org_1', 100)).projected).toBe(672 + 500 + 100);
+	});
+
+	it('shows this month so far, then the charged invoice in the history', async () => {
+		await withCard('org_1');
+		await application.billing.startUsage({ ownerId: 'org_1', resourceId: 'srv_1', price: 'server.small', at: new Date('2026-11-01T00:00:00Z') });
+		const preview = await application.billing.previewInvoice('org_1');
+		expect(preview).toMatchObject({ currency: 'usd', amount: 228, lines: [{ price: 'server.small', quantity: 228, unit: 'hour' }] });
+		expect(await application.billing.invoices('org_1')).toEqual([]);
+		now = new Date('2026-12-01T00:00:00Z');
+		await application.billing.invoicePeriod({ start: new Date('2026-11-01T00:00:00Z'), end: new Date('2026-12-01T00:00:00Z') });
+		const [invoice] = await application.billing.invoices('org_1');
+		expect(invoice).toMatchObject({ kind: 'invoice', state: 'paid', amount: 672, complimentary: false, payUrl: null, lines: [{ price: 'server.small', quantity: 672 }] });
+		expect(await application.billing.invoices('org_2')).toEqual([]);
+	});
+});
+
 describe('prepaid credits', () => {
 	it('grants a paid pack, spends once per key and refuses when empty', async () => {
 		await withCard('org_1');
@@ -126,9 +185,38 @@ describe('prepaid credits', () => {
 		expect(error).toMatchObject({ balance: 400, topUpStarted: false });
 	});
 
+	it('totals this month\'s spends by the app that made them', async () => {
+		await withCard('org_1');
+		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 300, key: 'studio-1', source: 'studio' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 200, key: 'studio-2', source: 'studio' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 100, key: 'tests-1', source: 'test_engineer' });
+		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 50, key: 'other-1' });
+		expect(await application.billing.creditUsage('org_1')).toEqual([
+			{ bucket: 'ai', source: 'studio', credits: 500 },
+			{ bucket: 'ai', source: 'test_engineer', credits: 100 },
+			{ bucket: 'ai', source: null, credits: 50 },
+		]);
+		expect(await application.billing.creditUsage('org_1', { since: new Date(Date.now() + 60_000) })).toEqual([]);
+		expect(await application.billing.creditUsage('org_2')).toEqual([]);
+	});
+
+	it('prices work by its cost plus the markup, and records finished work past zero', async () => {
+		expect(application.billing.creditsForCost('ai', 0)).toBe(0);
+		expect(application.billing.creditsForCost('ai', 0.01)).toBe(1);
+		expect(application.billing.creditsForCost('ai', 250)).toBe(300);
+		expect(application.billing.creditsForCost('ai', 2.5)).toBe(3);
+		await withCard('org_1');
+		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		await expect(application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 1500, key: 'big-run' })).rejects.toBeInstanceOf(BillingCreditsExhaustedError);
+		expect(await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 1500, key: 'big-run', overdraw: true })).toEqual({ balance: -500 });
+		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(-500);
+	});
+
 	it('tops up automatically when the balance falls below the threshold', async () => {
 		await withCard('org_1');
 		await application.billing.setAutoTopUp({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
+		expect(await application.billing.autoTopUp('org_1')).toEqual({ ai: 'ai-10' });
 		await application.billing.buyCredits({ ownerId: 'org_1', bucket: 'ai', pack: 'ai-10' });
 		await application.billing.spendCredits({ ownerId: 'org_1', bucket: 'ai', amount: 950, key: 'run-1' });
 		expect(await application.billing.creditBalance('org_1', 'ai')).toBe(1050);

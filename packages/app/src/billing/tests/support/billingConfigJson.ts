@@ -14,6 +14,7 @@ export const billingConfigJson = {
 			label: 'AI credits',
 			packs: { 'ai-10': { amount: 1000, credits: 1000 }, 'ai-50': { amount: 5000, credits: 5200 } },
 			autoTopUp: { below: 100, pack: 'ai-10' },
+			fromCost: { minorPerCredit: 1, markup: 0.2 },
 		},
 	},
 };

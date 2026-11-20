@@ -3,6 +3,9 @@ import { ActiveRecord } from '../db';
 import type {
 	BillingAccountStatus,
 	BillingAccountSummary,
+	BillingCreditUsage,
+	BillingInvoicePreview,
+	BillingInvoiceSummary,
 	BillingConfig,
 	BillingPeriod,
 	BillingProvider,
@@ -49,7 +52,7 @@ export class Billing implements BillingService {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
 		const credits: Record<string, number> = {};
 		for (const bucket of Object.keys(this.config.credits)) credits[bucket] = account ? await this.#balance(account.id, bucket) : 0;
-		if (!account) return { ownerId, status: 'none', card: null, monthToDate: 0, spendLimit: this.config.newAccountSpendLimit, graceEndsAt: null, credits };
+		if (!account) return { ownerId, status: 'none', card: null, monthToDate: 0, spendLimit: this.config.newAccountSpendLimit, graceEndsAt: null, credits, complimentary: false };
 		const now = this.#now();
 		return {
 			ownerId,
@@ -59,11 +62,13 @@ export class Billing implements BillingService {
 			spendLimit: this.#spendLimit(account),
 			graceEndsAt: this.#graceEndsAt(account),
 			credits,
+			complimentary: account.complimentary,
 		};
 	}
 
 	async hasBilling(ownerId: string): Promise<boolean> {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (account?.complimentary) return this.#status(account) !== 'suspended';
 		if (!account?.cardLast4) return false;
 		const status = this.#status(account);
 		return status === 'active' || status === 'past_due';
@@ -102,13 +107,25 @@ export class Billing implements BillingService {
 		return (await provider.portalUrl({ customerId: account.providerCustomerId, returnUrl: input.returnUrl })).url;
 	}
 
+	async setComplimentary(input: { ownerId: string; complimentary: boolean }): Promise<void> {
+		const account = await this.#account(input.ownerId);
+		if (account.complimentary === input.complimentary) return;
+		account.complimentary = input.complimentary;
+		await account.save();
+		for (const wake of [...(this.#waiters.get(account.ownerId) ?? [])]) wake();
+	}
+
 	async checkSpend(ownerId: string, monthly: number): Promise<BillingSpendCheck> {
 		const account = await BillingAccount.where('ownerId', ownerId).first();
 		const spendLimit = account ? this.#spendLimit(account) : this.config.newAccountSpendLimit;
 		const now = this.#now();
 		const monthToDate = account ? await this.#total(account, { start: monthStart(now), end: now }) : 0;
-		const projected = (account ? await this.#total(account, { start: monthStart(now), end: nextMonth(now) }) : 0) + monthly;
+		const month = account ? await this.#total(account, { start: monthStart(now), end: nextMonth(now) }) : 0;
+		// The platform fee only appears once a month has charges, so the first resource brings it in.
+		const fee = month === 0 && monthly > 0 ? this.config.platformFee?.amount ?? 0 : 0;
+		const projected = month + monthly + fee;
 		const result = { monthToDate, projected, spendLimit };
+		if (account?.complimentary) return this.#status(account) === 'suspended' ? { allowed: false, reason: 'suspended', ...result } : { allowed: true, ...result, spendLimit: null };
 		if (!account?.cardLast4) return { allowed: false, reason: 'no_card', ...result };
 		if (this.#status(account) === 'suspended') return { allowed: false, reason: 'suspended', ...result };
 		if (spendLimit !== null && projected > spendLimit) return { allowed: false, reason: 'spend_limit', ...result };
@@ -157,7 +174,7 @@ export class Billing implements BillingService {
 		return account ? this.#balance(account.id, bucket) : 0;
 	}
 
-	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string }): Promise<{ balance: number }> {
+	async spendCredits(input: { ownerId: string; bucket: string; amount: number; key: string; source?: string; overdraw?: boolean }): Promise<{ balance: number }> {
 		const config = this.#bucket(input.bucket);
 		if (!Number.isSafeInteger(input.amount) || input.amount <= 0) throw new Error('Credit spend must be a whole number above 0.');
 		const account = await this.#account(input.ownerId);
@@ -166,8 +183,8 @@ export class Billing implements BillingService {
 		const outcome = await this.#locked(account.id, async () => {
 			const balance = await this.#balance(account.id, input.bucket);
 			if (await BillingCreditEntry.where('key', `spend:${input.key}`).first()) return { spent: true, balance };
-			if (balance < input.amount) return { spent: false, balance };
-			await BillingCreditEntry.create({ accountId: account.id, bucket: input.bucket, amount: -input.amount, key: `spend:${input.key}` }).save();
+			if (balance < input.amount && !input.overdraw) return { spent: false, balance };
+			await BillingCreditEntry.create({ accountId: account.id, bucket: input.bucket, amount: -input.amount, key: `spend:${input.key}`, source: input.source ?? null }).save();
 			return { spent: true, balance: balance - input.amount };
 		});
 		const pack = account.autoTopUp?.[input.bucket];
@@ -178,24 +195,52 @@ export class Billing implements BillingService {
 		return { balance: outcome.balance };
 	}
 
+	creditsForCost(bucket: string, cost: number): number {
+		const rate = this.#bucket(bucket).fromCost;
+		if (!rate) throw new Error(`db3/billing.json credits.${bucket} has no fromCost.`);
+		if (!Number.isFinite(cost) || cost < 0) throw new Error('Cost must be a number, 0 or more.');
+		return cost === 0 ? 0 : Math.max(1, Math.ceil(cost * (1 + rate.markup) / rate.minorPerCredit - 1e-9));
+	}
+
+	async creditUsage(ownerId: string, options: { since?: Date } = {}): Promise<BillingCreditUsage[]> {
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (!account) return [];
+		const now = this.#now();
+		const since = options.since ?? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+		const rows = await BillingCreditEntry.getDb()(BillingCreditEntry.table)
+			.where('account_id', account.id).where('amount', '<', 0).where('key', 'like', 'spend:%').where('created_at', '>=', since)
+			.groupBy('bucket', 'source').select('bucket', 'source').sum({ spent: 'amount' }) as Array<{ bucket: string; source: string | null; spent: number | string }>;
+		return rows
+			.map(row => ({ bucket: String(row.bucket), source: row.source == null ? null : String(row.source), credits: -Number(row.spent) }))
+			.sort((a, b) => b.credits - a.credits);
+	}
+
 	async buyCredits(input: { ownerId: string; bucket: string; pack: string; ipAddress?: string }) {
 		const pack = this.#bucket(input.bucket).packs[input.pack];
 		if (!pack) throw new Error(`Credit pack ${input.pack} is not in db3/billing.json credits.${input.bucket}.`);
 		const account = await BillingAccount.where('ownerId', input.ownerId).first();
-		if (!account?.cardLast4 || !account.providerCustomerId) throw new BillingNotSetUpError(input.ownerId);
+		if (!account?.complimentary && (!account?.cardLast4 || !account.providerCustomerId)) throw new BillingNotSetUpError(input.ownerId);
 		if (this.#status(account) === 'suspended') throw new BillingNotSetUpError(input.ownerId, `Billing is suspended for ${input.ownerId}.`);
 		const charge = BillingCharge.create({
 			accountId: account.id, kind: 'credits', idempotencyKey: `credits:${randomUUID()}`, state: 'pending',
 			amount: pack.amount, currency: this.config.currency, bucket: input.bucket, credits: pack.credits,
 		});
 		await charge.save();
+		if (account.complimentary) {
+			await this.#chargeResult(charge, complimentary(charge));
+			return { status: 'paid' as const };
+		}
 		const result = await this.#requireProvider(input.ownerId).chargeOnce({
-			customerId: account.providerCustomerId, currency: this.config.currency, amount: pack.amount,
+			customerId: account.providerCustomerId!, currency: this.config.currency, amount: pack.amount,
 			description: `${this.config.credits[input.bucket]!.label}: ${pack.credits}`, idempotencyKey: charge.idempotencyKey,
 			risk: { accountId: account.id, accountCreatedAt: account.createdAt, ipAddress: input.ipAddress },
 		});
 		await this.#chargeResult(charge, result);
 		return { status: result.status, ...(result.payUrl ? { payUrl: result.payUrl } : {}) };
+	}
+
+	async autoTopUp(ownerId: string): Promise<Readonly<Record<string, string>>> {
+		return (await BillingAccount.where('ownerId', ownerId).first())?.autoTopUp ?? {};
 	}
 
 	async setAutoTopUp(input: { ownerId: string; bucket: string; pack: string | null }): Promise<void> {
@@ -206,6 +251,26 @@ export class Billing implements BillingService {
 		else next[input.bucket] = input.pack;
 		account.autoTopUp = next;
 		await account.save();
+	}
+
+	async previewInvoice(ownerId: string): Promise<BillingInvoicePreview> {
+		const now = this.#now();
+		const period = { start: monthStart(now), end: now };
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		const lines = account ? usageInvoiceLines(this.config, period, await this.#spans(account.id), await this.#uses(account.id)) : [];
+		return { period, lines, amount: lines.reduce((sum, line) => sum + line.amount, 0), currency: this.config.currency };
+	}
+
+	async invoices(ownerId: string, options: { limit?: number } = {}): Promise<BillingInvoiceSummary[]> {
+		const account = await BillingAccount.where('ownerId', ownerId).first();
+		if (!account) return [];
+		const charges = await BillingCharge.where('accountId', account.id).orderBy('createdAt', 'desc').orderBy('id', 'desc').limit(Math.min(options.limit ?? 24, 100)).all();
+		return charges.map(charge => ({
+			id: charge.id, kind: charge.kind, state: charge.state, amount: charge.amount, currency: charge.currency,
+			periodStart: charge.periodStart, lines: charge.lines ?? [], bucket: charge.bucket, credits: charge.credits,
+			payUrl: charge.state === 'paid' ? null : charge.payUrl, complimentary: Boolean(charge.providerId?.startsWith('complimentary:')),
+			paidAt: charge.paidAt, createdAt: charge.createdAt,
+		}));
 	}
 
 	async invoicePeriod(period: BillingPeriod): Promise<{ invoiced: number; failed: number }> {
@@ -228,6 +293,12 @@ export class Billing implements BillingService {
 				if (amount === 0) continue;
 				charge = BillingCharge.create({ accountId: account.id, kind: 'invoice', idempotencyKey: key, state: 'pending', amount, currency: this.config.currency, periodStart: period.start, lines });
 				await charge.save();
+			}
+			// A charge already sent to the provider stays tracked there; only unsent ones are settled at $0.
+			if (account.complimentary && !charge.providerId) {
+				await this.#chargeResult(charge, complimentary(charge));
+				invoiced++;
+				continue;
 			}
 			if (!account.providerCustomerId) {
 				await this.#chargeResult(charge, { providerId: `none:${charge.id}`, status: 'failed' }, 'no saved card');
@@ -443,6 +514,11 @@ export class Billing implements BillingService {
 		if (!this.#provider) throw new BillingNotSetUpError(ownerId, 'No billing provider is configured; pass billing.provider to App.');
 		return this.#provider;
 	}
+}
+
+/** A charge on a complimentary account: paid at once, with no provider object behind it. */
+function complimentary(charge: BillingCharge) {
+	return { providerId: `complimentary:${charge.id}`, status: 'paid' as const };
 }
 
 function monthStart(date: Date): Date {

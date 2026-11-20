@@ -29,6 +29,8 @@ An account and a login method are different things:
 - `AuthToken` stores hashed bearer tokens. The plaintext token is returned only
   when it is created.
 - `PasswordResetToken` stores hashed, expiring, single-use reset tokens.
+- `AuthTwoFactor` stores an account's authenticator-app secret (encrypted) and
+  hashed recovery codes.
 
 The important relationship is:
 
@@ -38,6 +40,7 @@ users (account)
   +-- many auth_providers (password, google, future providers)
   +-- many auth_tokens (bearer sessions)
   +-- many password_reset_tokens
+  +-- one auth_two_factor (optional second factor)
 ```
 
 Password authentication is a provider even though it is first-party rather
@@ -418,18 +421,23 @@ a token:
 
 ```ts
 const issued = await app.auth.issueTokenForProvider('password', credentials, {
-	name: 'Chrome on macOS',
 	ipAddress: request.ip,
 	userAgent: request.headers['user-agent'],
-	browser: 'Chrome',
-	operatingSystem: 'macOS',
-	device: 'Desktop',
+	location: requestLocation(request.headers),
 });
 ```
 
-The framework stores the raw user agent for server-side diagnostics but hides it,
-along with the token hash, from model JSON. `AuthToken.toSessionData()` returns a
-safe account-management projection.
+The user agent fills `browser`, `operatingSystem` and `device`.
+`requestLocation(headers)` reads Cloudflare's visitor-location headers
+(`cf-ipcity`, `cf-region`, `cf-ipcountry`) into "Bristol, England, GB", or null;
+no lookup service is called. `lastUsedAt` moves on each authenticated request.
+`issued.newDevice` is true for a known account on a never-seen device: send a
+sign-in alert. `issued.sessionId` names the session.
+
+The raw user agent and token hash stay out of model JSON;
+`AuthToken.toSessionData()` is the safe projection. It includes `label`
+("Chrome (macOS)", from `sessionLabel`) and `location`. `@db3.ai/account`
+renders these as a ready-made **Where you're logged in** table.
 
 List and revoke active sessions through the authenticated account:
 
@@ -455,6 +463,22 @@ subsequent authentication rejects the old tokens. A new sign-in can create a new
 session. This does not disconnect existing application-owned streams or revoke
 external provider credentials. Show failures and retain browser state if the
 all-devices request fails; clear browser credentials after successful confirmation.
+
+## Two-Factor Sign-In
+
+Accounts may add an authenticator app (TOTP, RFC 6238). It needs the app
+`security` key, and `AuthTwoFactor` in the model registry.
+
+```ts
+const { uri } = await app().auth.startTwoFactor(user, { issuer: 'My app' }); // show uri as a QR code
+const recoveryCodes = await app().auth.confirmTwoFactor(user, code); // show once
+```
+
+Once confirmed, `issueTokenForPassword` and `issueTokenForProvider` throw
+`TwoFactorRequiredError` instead of issuing a session. Send its `challenge` (sealed,
+five minutes) to the client, then call `completeTwoFactor(challenge, code, options)`.
+A code works once; a recovery code is used up. `disableTwoFactor` and
+`regenerateRecoveryCodes` take a current code. Rate-limit the code route.
 
 ## Security Responsibilities
 

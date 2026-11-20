@@ -1,0 +1,32 @@
+{
+	"name": "@db3.ai/account",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Ready-made account settings sections (signed-in devices first) for apps built on @db3.ai/app/auth.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./account.css": "./src/account.css"
+	},
+	"scripts": {
+		"check": "vue-tsc --noEmit -p tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@db3.ai/app": "0.1.0",
+		"@getdom/studio": "0.2.1"
+	},
+	"peerDependencies": {
+		"vue": "^3.5.44"
+	},
+	"devDependencies": {
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.12",
+		"vue": "^3.5.44",
+		"vue-tsc": "^3.3.4"
+	},
+	"files": [
+		"src"
+	],
+	"license": "MIT"
+}

@@ -8,6 +8,7 @@ describe('parseBillingConfig', () => {
 		expect(config.currency).toBe('usd');
 		expect(config.prices['server.small']).toEqual({ per: 'month', amount: 672, label: 'db3 Server (1 GB)' });
 		expect(config.credits.ai.autoTopUp).toEqual({ below: 100, pack: 'ai-10' });
+		expect(config.credits.ai.fromCost).toEqual({ minorPerCredit: 1, markup: 0.2 });
 		expect(config.newAccountSpendLimit).toBe(5000);
 	});
 
@@ -19,6 +20,8 @@ describe('parseBillingConfig', () => {
 		[{ ...billingConfigJson, prices: { Server: { per: 'month', amount: 1, label: 'x' } } }, 'prices.Server'],
 		[{ ...billingConfigJson, credits: { ai: { label: 'AI', packs: {}, autoTopUp: { below: 1, pack: 'nope' } } } }, 'credits.ai.autoTopUp.pack'],
 		[{ ...billingConfigJson, credits: { ai: { label: 'AI', packs: { p: { amount: 100, credits: 0 } } } } }, 'credits.ai.packs.p.credits'],
+		[{ ...billingConfigJson, credits: { ai: { label: 'AI', packs: {}, fromCost: { minorPerCredit: 1, markup: '20%' } } } }, 'credits.ai.fromCost.markup'],
+		[{ ...billingConfigJson, credits: { ai: { label: 'AI', packs: {}, fromCost: { minorPerCredit: 0, markup: 0.2 } } } }, 'credits.ai.fromCost.minorPerCredit'],
 	])('names the bad field', (input, path) => {
 		expect(() => parseBillingConfig(input)).toThrow(BillingConfigError);
 		try {

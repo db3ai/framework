@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { AuthProvider, AuthProviderLinkedError, AuthToken, PasswordLoginAttempt, PasswordResetToken, UserIdentity } from '@db3.ai/app/auth';
+import { AuthProvider, AuthProviderLinkedError, AuthToken, PasswordLoginAttempt, PasswordResetToken, AuthTwoFactor, UserIdentity } from '@db3.ai/app/auth';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 import { App } from '@db3.ai/app/server';
 
@@ -20,7 +20,7 @@ describe('merging two accounts one person controls', () => {
 	beforeAll(async () => {
 		database = await createGeneratedTestDatabase('auth_merge');
 		application = new App({ db: database.db, auth: { providers: { password: true, google } } });
-		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken);
+		await application.db.install(UserIdentity, AuthProvider, PasswordLoginAttempt, AuthToken, PasswordResetToken, AuthTwoFactor);
 	});
 
 	afterAll(async () => {

@@ -57,6 +57,16 @@ describe('usageInvoiceLines', () => {
 		expect(lines).toEqual([{ price: 'domain.check', label: 'Domain check', quantity: 4, unit: 'use', amount: 8 }]);
 	});
 
+	it('adds the platform fee once to a month with other charges, and never to an empty month', () => {
+		const withFee = parseBillingConfig({ ...billingConfigJson, platformFee: { amount: 500, label: 'Platform fee' } });
+		const lines = usageInvoiceLines(withFee, november, [
+			{ resourceId: 'srv_1', price: 'server.small', startedAt: at('01T00:00:00'), endedAt: at('01T01:00:00') },
+		], []);
+		expect(lines.at(-1)).toEqual({ price: 'platform-fee', label: 'Platform fee', quantity: 1, unit: 'month', amount: 500 });
+		expect(lines).toHaveLength(2);
+		expect(usageInvoiceLines(withFee, november, [], [])).toEqual([]);
+	});
+
 	it('leaves out spans outside the period and prices not in the config fail loudly', () => {
 		expect(usageInvoiceLines(config, november, [
 			{ resourceId: 'srv_1', price: 'server.small', startedAt: new Date('2026-10-01T00:00:00Z'), endedAt: new Date('2026-10-02T00:00:00Z') },
