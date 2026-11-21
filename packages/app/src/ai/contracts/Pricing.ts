@@ -6,7 +6,9 @@
  */
 export interface AIModelPricing {
 	/** Verified tier multipliers for this model only; absent tiers remain unpriced. */
-	serviceTierMultipliers?: Partial<Record<'flex' | 'fast' | 'priority', number>>;
+	serviceTierMultipliers?: Partial<Record<'flex' | 'fast' | 'priority' | 'ultrafast', number>>;
+	/** Future changes to a tier's multiplier, applied from the stated UTC instant. */
+	serviceTierMultiplierChanges?: Partial<Record<'flex' | 'fast' | 'priority' | 'ultrafast', { effectiveAt: string; multiplier: number }>>;
 	inputUSDPer1M: number;
 	cachedInputUSDPer1M: number | null;
 	outputUSDPer1M: number | null;
@@ -17,6 +19,8 @@ export interface AIModelPricing {
 	 * the ordinary uncached input rate. Models without that charge omit it.
 	 */
 	cacheWriteInputMultiplier?: number;
+	/** Total input-rate multiplier for 12-hour cache writes. */
+	cacheWrite12hInputMultiplier?: number;
 	/**
 	 * Input-token threshold above which the full request uses long-context rates.
 	 */
@@ -56,6 +60,8 @@ export interface AIRequestCostUsage {
 	cachedTokens?: number | null;
 	/** Input tokens written into a billable provider prompt cache. */
 	cacheWriteTokens?: number | null;
+	/** Portion of cacheWriteTokens billed at the 12-hour write rate. */
+	cacheWrite12hTokens?: number | null;
 }
 
 /**

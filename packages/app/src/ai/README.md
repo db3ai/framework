@@ -380,8 +380,12 @@ defaults to `'default'`; queued runs preserve the selected tier. Streaming and
 tool turns use the same tier. Separate calls inside tools do not inherit it.
 Nondefault tiers require an entirely OpenAI provider chain.
 
-For the models above, Flex token rates are half Standard and Fast/Priority
-rates are twice Standard. Costs use each response's reported tier and model;
+For supported models, Flex token rates are half Standard and Fast/Priority
+rates are twice Standard. GPT-6.2 Astra and Sol do not have a Flex rate card.
+Ultrafast is 6x Standard for GPT-6 Astra and GPT-6.1 Sol. For GPT-6.2 Astra
+and Sol it is 3x Standard through February 28, 2027, then 6x from March 1,
+2027 (Pacific time). Cache writes with a reported 12-hour lifetime use 2.5x
+the uncached input rate; 30-minute writes use 1.25x. Costs use each response's reported tier and model;
 unconfirmed nonstandard tiers or missing tier rate cards remain unpriced.
 Hosted-tool fees are unchanged. Estimates exclude regional surcharges. OpenRouter and xAI
 use their provider-reported billed costs. Updates affect new estimates and

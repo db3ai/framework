@@ -3,7 +3,7 @@ import { AIConfigurationError } from './AIErrors';
 
 /** Validates explicit tiers before provider work; other providers retain their own defaults. */
 export function assertAIServiceTier(provider: string, tier: AIServiceTier): void {
-	if (!['default', 'flex', 'fast', 'priority'].includes(tier)) throw new AIConfigurationError('Unsupported AI service tier.');
+	if (!['default', 'flex', 'fast', 'priority', 'ultrafast'].includes(tier)) throw new AIConfigurationError('Unsupported AI service tier.');
 	if (provider !== 'openai' && tier !== 'default') throw new AIConfigurationError('Explicit AI service tiers require the OpenAI provider.');
 }
 

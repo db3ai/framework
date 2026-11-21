@@ -33,6 +33,27 @@ describe('AI model pricing', () => {
 		expect(calculateAIRequestCostUSD('gpt-6-sol', usage)).toBe(0.000612);
 	});
 
+	it('prices the reported Fast and Ultrafast tiers, including the GPT-6.2 rate change', () => {
+		const usage = { inputTokens: 200, cachedTokens: 60, cacheWriteTokens: 40, outputTokens: 30 };
+		const beforeChange = new Date('2027-03-01T07:59:59Z');
+		const afterChange = new Date('2027-03-01T08:00:00Z');
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'default' }, beforeChange)).toBe(0.000606);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'fast' }, beforeChange)).toBe(0.001212);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'ultrafast' }, beforeChange)).toBe(0.001818);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'ultrafast' }, afterChange)).toBe(0.003636);
+		expect(calculateAIRequestCostUSD('gpt-6.2-astra', { ...usage, serviceTier: 'ultrafast' }, beforeChange)).toBe(0.007272);
+		expect(calculateAIRequestCostUSD('gpt-6.1-sol', { ...usage, serviceTier: 'ultrafast' }, beforeChange)).toBe(0.003636);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'flex' }, beforeChange)).toBeNull();
+		expect(calculateAIRequestCostUSD('gpt-5.6-sol', { ...usage, serviceTier: 'ultrafast' }, beforeChange)).toBeNull();
+	});
+
+	it('charges 12-hour cache writes at their own rate without double-counting input', () => {
+		const usage = { inputTokens: 200, cachedTokens: 60, cacheWriteTokens: 40, cacheWrite12hTokens: 40, outputTokens: 30 };
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', usage)).toBe(0.000706);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, serviceTier: 'ultrafast' }, new Date('2026-11-21T00:00:00Z'))).toBe(0.002118);
+		expect(calculateAIRequestCostUSD('gpt-6.2-sol', { ...usage, cacheWrite12hTokens: 41 })).toBeNull();
+	});
+
 	it('prices the default GPT-4.1 mini model and dated snapshots with cached input discounts', () => {
 		for (const model of ['gpt-4.1-mini', 'gpt-4.1-mini-2025-04-14']) {
 			expect(calculateAIRequestCostUSD(model, { inputTokens: 200, cachedTokens: 60, outputTokens: 30 })).toBe(0.00011);
