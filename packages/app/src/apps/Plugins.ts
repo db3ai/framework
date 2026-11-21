@@ -91,9 +91,7 @@ export class Plugins {
 			}
 			for (const check of this.#checks) await check({ appId, scope, actorId: actor.id });
 			await definition.turningOn?.(scope, service);
-			await this.#save(appId, scope, true, actor.id);
-			await definition.turnedOn?.(scope, service);
-			await this.#host.events.dispatch(new PluginChanged(appId, scope, true, actor.id));
+			await this.#change(appId, scope, true, actor.id, () => definition.turnedOn?.(scope, service));
 			return { appId, scope, on: true };
 		});
 	}
@@ -105,9 +103,7 @@ export class Plugins {
 			if (!await this.#own(appId, scope, new Map())) return { appId, scope, on: false };
 			const using = await this.#dependantsOn(appId, scope);
 			if (using.length) throw new AppRouteError(409, `Turn off ${using.map(id => this.#name(id)).join(', ')} first.`);
-			await this.#save(appId, scope, false, actor.id);
-			await definition.turnedOff?.(scope, service);
-			await this.#host.events.dispatch(new PluginChanged(appId, scope, false, actor.id));
+			await this.#change(appId, scope, false, actor.id, () => definition.turnedOff?.(scope, service));
 			return { appId, scope, on: false };
 		});
 	}
@@ -181,13 +177,37 @@ export class Plugins {
 		return { definition, service };
 	}
 
-	/** Writes the switch, creating its row the first time. */
-	async #save(appId: string, scope: PluginScope, on: boolean, actorId: string): Promise<void> {
+	/**
+	 * Flips the switch, then runs the plugin's hook and announces it. Only the caller whose write
+	 * actually changed the row runs them, so overlapping calls start or stop work once. If the hook
+	 * or a listener fails, the switch goes back and the error is thrown, so a retry runs them again.
+	 */
+	async #change(appId: string, scope: PluginScope, on: boolean, actorId: string, hook: () => unknown): Promise<void> {
+		if (!await this.#flip(appId, scope, on, actorId)) return;
+		try {
+			await hook();
+			await this.#host.events.dispatch(new PluginChanged(appId, scope, on, actorId));
+		} catch (error) {
+			await this.#flip(appId, scope, !on, actorId);
+			throw error;
+		}
+	}
+
+	/** Writes the switch only if it is not already in that state; true when this call changed it. */
+	async #flip(appId: string, scope: PluginScope, on: boolean, actorId: string): Promise<boolean> {
 		if (!await this.#hasTable()) throw new Error('Install an app to create db3_app_activations before switching plugins.');
 		const key = keyOf(appId, scope);
-		const row = await AppActivation.where('key', key).first() ?? AppActivation.create({ key, appId, scopeType: scope.type, scopeId: scope.id, on, changedBy: actorId });
-		row.assign({ on, changedBy: actorId });
-		await row.save();
+		const table = this.#host.db.knex(AppActivation.table);
+		if (await table.clone().where({ key, on: !on }).update({ on, changed_by: actorId, changed_at: new Date() })) return true;
+		if (await table.clone().where({ key }).first()) return false;
+		try {
+			await AppActivation.create({ key, appId, scopeType: scope.type, scopeId: scope.id, on, changedBy: actorId }).save();
+			return true;
+		} catch (error) {
+			// Another call created the row first; it owns this change.
+			if ((error as { code?: string }).code === 'ER_DUP_ENTRY' || (error as { cause?: { code?: string } }).cause?.code === 'ER_DUP_ENTRY') return false;
+			throw error;
+		}
 	}
 
 	/** A plugin's display name for messages people read. */

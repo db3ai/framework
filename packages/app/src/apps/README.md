@@ -161,7 +161,10 @@ block to its manifest:
   of the plugin must have it (`/apps/:app/review`), or the manifest is refused.
 - `default: "on"` keeps it on until someone turns it off; `off`, the default, the reverse.
 - A required plugin must be on first, and cannot be turned off while a plugin that needs it is
-  on anywhere inside its scope.
+  on anywhere inside its scope. A default-on plugin may only require plugins of its own scope.
+- Overlapping calls change a switch once, and only that call runs the hook and the event. If the
+  hook or a `PluginChanged` listener fails, the switch goes back and the error is thrown, so a
+  retry runs them again.
 
 `app().apps.plugins` holds the switches. The `db3_app_activations` table, created with the
 first app install, keeps a row only once someone has switched a plugin, so every process

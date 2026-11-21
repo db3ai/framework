@@ -41,6 +41,16 @@ export function validateAppDefinitions(definitions: apps.AppDefinitions, reserve
 			if (manifest.requires?.[dependency] !== undefined && manifest.optional?.[dependency] !== undefined) throw new Error(`Dependency "${dependency}" is both required and optional in "${id}".`);
 		}
 	}
+	for (const id of ids) {
+		const plugin = definitions[id].manifest.plugin;
+		if (plugin?.default !== 'on') continue;
+		for (const dependency of Object.keys(definitions[id].manifest.requires ?? {})) {
+			const required = definitions[dependency]?.manifest.plugin;
+			// Turning the required plugin off checks its dependants' rows; a default-on dependant in a
+			// narrower scope has none, so it would be switched off unseen.
+			if (required && required.scope !== plugin.scope) throw new Error(`Plugin "${id}" is on by default, so it may only require plugins switched per ${plugin.scope}; "${dependency}" is switched per ${required.scope}.`);
+		}
+	}
 	const visiting = new Set<string>();
 	const ordered = new Set<string>();
 	/** Topologically orders available dependencies and rejects composition cycles. */

@@ -139,4 +139,27 @@ describe('plugins: apps each scope turns on and off', () => {
 			expect((await server.inject('/api/apps/scanner/organizations/o1/findings')).statusCode).toBe(404);
 		} finally { await server.close(); }
 	});
+	it('runs effects once when calls overlap, and undoes the switch when an effect fails', async () => {
+		let fail = true;
+		const flaky = defineApp({
+			manifest: { id: 'flaky', name: 'Flaky', version: '1.0.0', plugin: { scope: 'organization' } },
+			create: () => ({}),
+			turnedOn: () => { calls.push('flaky on'); if (fail) throw new Error('Billing is down.'); },
+		});
+		const application = await host({ scanner: security(), security_ai: securityAi(), flaky });
+		await Promise.all([1, 2, 3].map(() => application.apps.plugins.turnOn('security_ai', app1, actor)));
+		expect(calls).toEqual(['ai on a1']);
+
+		await expect(application.apps.plugins.turnOn('flaky', org, actor)).rejects.toThrow('Billing is down.');
+		expect(await application.apps.plugins.isOn('flaky', org)).toBe(false);
+		fail = false;
+		await application.apps.plugins.turnOn('flaky', org, actor);
+		expect(await application.apps.plugins.isOn('flaky', org)).toBe(true);
+		expect(calls).toEqual(['ai on a1', 'flaky on', 'flaky on']);
+	});
+
+	it('refuses a default-on plugin that requires a plugin of another scope', () => {
+		const child = defineApp({ manifest: { id: 'child', name: 'Child', version: '1.0.0', requires: { scanner: 1 }, plugin: { scope: 'app', default: 'on' } }, create: () => ({}) });
+		expect(() => new App({ db: database.db, apps: { scanner: security(), child } })).toThrow('may only require plugins switched per app');
+	});
 });
