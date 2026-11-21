@@ -2495,6 +2495,14 @@
 					"comment": null
 				},
 				{
+					"name": "preferences",
+					"type": "json",
+					"nullable": true,
+					"primary": false,
+					"unique": false,
+					"comment": "Per-user interface choices the app restores on every device, such as sidebar size. Apps own the keys."
+				},
+				{
 					"name": "remember_token",
 					"type": "varchar(100)",
 					"nullable": true,
