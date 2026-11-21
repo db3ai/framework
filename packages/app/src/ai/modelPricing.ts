@@ -5,7 +5,8 @@ export type { AIModelPricing, AIImageModelPricing, AIRequestCostUsage, AIRequest
  * OpenAI Standard processing prices in USD, verified on 2026-09-25.
  *
  * Used to estimate request cost at write time; stored historical costs are not
- * recalculated. Excludes regional processing surcharges. Tier multipliers were verified on 2026-10-08.
+ * recalculated. Excludes regional processing surcharges. Fast and Ultrafast
+ * multipliers for GPT-6.2 were verified on 2026-11-21.
  *
  * @see https://developers.openai.com/api/docs/pricing
  */
@@ -16,44 +17,50 @@ export const AI_MODEL_PRICING: Record<string, AIModelPricing> = {
 		cachedInputUSDPer1M: 0.10,
 		outputUSDPer1M: 1.60,
 	},
-	// GPT-6.2 Standard, 30-minute cache-write and long-context rates verified on 2026-11-20.
+	// GPT-6.2 Standard, cache-write, long-context and speed rates verified on 2026-11-21.
 	'gpt-6.2-astra': {
-		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		serviceTierMultipliers: { fast: 2, priority: 2, ultrafast: 3 },
+		serviceTierMultiplierChanges: { ultrafast: { effectiveAt: '2027-03-01T08:00:00Z', multiplier: 6 } },
 		inputUSDPer1M: 8.00,
 		cachedInputUSDPer1M: 0.40,
 		outputUSDPer1M: 40.00,
 		cacheWriteInputMultiplier: 1.25,
+		cacheWrite12hInputMultiplier: 2.5,
 		longContextInputTokenThreshold: 272_000,
 		longContextInputMultiplier: 2,
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-6.2-sol': {
-		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		serviceTierMultipliers: { fast: 2, priority: 2, ultrafast: 3 },
+		serviceTierMultiplierChanges: { ultrafast: { effectiveAt: '2027-03-01T08:00:00Z', multiplier: 6 } },
 		inputUSDPer1M: 2.00,
 		cachedInputUSDPer1M: 0.10,
 		outputUSDPer1M: 10.00,
 		cacheWriteInputMultiplier: 1.25,
+		cacheWrite12hInputMultiplier: 2.5,
 		longContextInputTokenThreshold: 272_000,
 		longContextInputMultiplier: 2,
 		longContextOutputMultiplier: 1.5,
 	},
 	'gpt-6-astra': {
-		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2, ultrafast: 6 },
 		inputUSDPer1M: 10.00,
 		cachedInputUSDPer1M: 1.00,
 		outputUSDPer1M: 50.00,
 		cacheWriteInputMultiplier: 1.25,
+		cacheWrite12hInputMultiplier: 2.5,
 		longContextInputTokenThreshold: 272_000,
 		longContextInputMultiplier: 2,
 		longContextOutputMultiplier: 1.5,
 	},
 	// Standard, cache-write, long-context and Flex/Fast rates verified on 2026-10-27.
 	'gpt-6.1-sol': {
-		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2 },
+		serviceTierMultipliers: { flex: 0.5, fast: 2, priority: 2, ultrafast: 6 },
 		inputUSDPer1M: 2.00,
 		cachedInputUSDPer1M: 0.10,
 		outputUSDPer1M: 10.00,
 		cacheWriteInputMultiplier: 1.25,
+		cacheWrite12hInputMultiplier: 2.5,
 		longContextInputTokenThreshold: 272_000,
 		longContextInputMultiplier: 2,
 		longContextOutputMultiplier: 1.5,
@@ -212,17 +219,22 @@ const COST_PRECISION = 100_000_000;
  *
  * @param model - Provider model used by the request.
  * @param usage - Normalized token counts from the provider response.
+ * @param asOf - Pricing instant, used for published tier rate changes.
  * @returns Rounded USD cost, or null when cost cannot be computed.
  */
 export function calculateAIRequestCostUSD(
 	model: string,
 	usage: AIRequestCostUsage,
+	asOf: Date = new Date(),
 ): number | null {
 	const pricing = AI_MODEL_PRICING[canonicalModelName(model)];
 
 	if (!pricing) return null;
+	if (Number.isNaN(asOf.getTime())) return null;
 	const tier = usage.serviceTier === undefined ? 'default' : usage.serviceTier;
-	const tierMultiplier = tier === 'default' ? 1 : tier === 'flex' || tier === 'fast' || tier === 'priority' ? pricing.serviceTierMultipliers?.[tier] : undefined;
+	const baseTierMultiplier = tier === 'default' ? 1 : tier === 'flex' || tier === 'fast' || tier === 'priority' || tier === 'ultrafast' ? pricing.serviceTierMultipliers?.[tier] : undefined;
+	const change = tier === 'flex' || tier === 'fast' || tier === 'priority' || tier === 'ultrafast' ? pricing.serviceTierMultiplierChanges?.[tier] : undefined;
+	const tierMultiplier = change && asOf.getTime() >= Date.parse(change.effectiveAt) ? change.multiplier : baseTierMultiplier;
 	if (tierMultiplier === undefined) return null;
 	if (!validTokenCount(usage.inputTokens)) return null;
 	if (pricing.outputUSDPer1M !== null && !validTokenCount(usage.outputTokens)) return null;
@@ -237,8 +249,11 @@ export function calculateAIRequestCostUSD(
 		tokenCountOrZero(usage.cacheWriteTokens),
 		inputTokens - cachedTokens,
 	);
+	const cacheWrite12hTokens = usage.cacheWrite12hTokens === undefined || usage.cacheWrite12hTokens === null ? 0 : usage.cacheWrite12hTokens;
+	if (!validTokenCount(cacheWrite12hTokens) || cacheWrite12hTokens > cacheWriteTokens) return null;
 
 	if (cacheWriteTokens > 0 && pricing.cacheWriteInputMultiplier === undefined) return null;
+	if (cacheWrite12hTokens > 0 && pricing.cacheWrite12hInputMultiplier === undefined) return null;
 
 	const uncachedInputTokens = inputTokens - cachedTokens - cacheWriteTokens;
 	const longContext = pricing.longContextInputTokenThreshold !== undefined
@@ -248,11 +263,13 @@ export function calculateAIRequestCostUSD(
 	const inputRate = pricing.inputUSDPer1M * inputMultiplier;
 	const cachedInputRate = (pricing.cachedInputUSDPer1M ?? pricing.inputUSDPer1M) * inputMultiplier;
 	const cacheWriteInputRate = inputRate * (pricing.cacheWriteInputMultiplier ?? 1);
+	const cacheWrite12hInputRate = inputRate * (pricing.cacheWrite12hInputMultiplier ?? 1);
 	const outputRate = (pricing.outputUSDPer1M ?? 0) * outputMultiplier;
 	const cost = (
 		(uncachedInputTokens * inputRate)
 		+ (cachedTokens * cachedInputRate)
-		+ (cacheWriteTokens * cacheWriteInputRate)
+		+ ((cacheWriteTokens - cacheWrite12hTokens) * cacheWriteInputRate)
+		+ (cacheWrite12hTokens * cacheWrite12hInputRate)
 		+ (outputTokens * outputRate)
 	) * tierMultiplier / TOKENS_PER_PRICING_UNIT;
 
