@@ -13,6 +13,8 @@ import { discoverApps } from './discoverApps';
 import { AppService } from './AppService';
 import { AppRouteError } from './AppRouteError';
 import { AppInstallation } from './AppInstallation';
+import { AppActivation } from './AppActivation';
+import { Plugins } from './Plugins';
 import { validateAppDefinitions } from './validateAppDefinitions';
 import { normalizeAppNavigation } from './normalizeAppNavigation';
 import type * as apps from './contracts';
@@ -38,6 +40,8 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	#booted = false;
 	#booting?: Promise<void>;
 	#starting = false;
+	/** Turns plugin apps on and off per scope, such as an organization; installed non-plugins are always on. */
+	readonly plugins: Plugins;
 
 	/** Discovers or validates app definitions and exposes their optional services without executing app code. */
 	constructor(host: App, definitions?: TDefinitions) {
@@ -50,7 +54,12 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 				this.#definitions[found.manifest.id] = { manifest: found.manifest, create: () => { throw new Error('Load the app before creating its service.'); } };
 			}
 		}
-		const reserved = [...Object.getOwnPropertyNames(Apps.prototype), 'then', 'toJSON'];
+		this.plugins = new Plugins(host, {
+			ids: () => this.#order,
+			definition: id => Object.hasOwn(this.#definitions, id) ? this.#definitions[id] : undefined,
+			service: id => this.get(id),
+		});
+		const reserved = [...Object.getOwnPropertyNames(Apps.prototype), 'plugins', 'then', 'toJSON'];
 		for (let prototype: object | null = host; prototype; prototype = Object.getPrototypeOf(prototype)) reserved.push(...Object.getOwnPropertyNames(prototype));
 		this.#reserved = reserved;
 		this.#order = validateAppDefinitions(this.#definitions, reserved);
@@ -106,6 +115,9 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			jobs: Service.jobs,
 			...(Service.prototype.schedule !== AppService.prototype.schedule ? { schedule: (schedule, service) => service.schedule(schedule) } satisfies Pick<apps.AppDefinition<AppService>, 'schedule'> : {}),
 			navigation: (context, service) => service.navigation(context),
+			turningOn: (scope, service) => service.turningOn(scope),
+			turnedOn: (scope, service) => service.turnedOn(scope),
+			turnedOff: (scope, service) => service.turnedOff(scope),
 			start: context => context.service.start(context),
 			afterInstall: host => new Service(host).install(),
 			beforeUninstall: host => new Service(host).uninstall(),
@@ -423,7 +435,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			const [acquired] = await db.raw('SELECT GET_LOCK(?, 10) AS acquired', [lock]).connection(connection);
 			if (Number(acquired[0].acquired) !== 1) throw new Error('Another app installation operation holds the maintenance lock.');
 			return await ActiveRecord.withDb(db, async () => {
-				await this.#host.db.install(AppInstallation);
+				await this.#host.db.install(AppInstallation, AppActivation);
 				await this.#readRecords();
 				return operation();
 			});

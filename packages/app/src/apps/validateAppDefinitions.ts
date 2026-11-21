@@ -27,6 +27,13 @@ export function validateAppDefinitions(definitions: apps.AppDefinitions, reserve
 			if (!['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(route.method) || !/^\/(?:[a-zA-Z0-9_:-]+(?:\/[a-zA-Z0-9_:-]+)*)?$/.test(route.path) || paths.has(key) || typeof route.handle !== 'function') throw new Error(`Invalid or duplicate route "${key}" in "${id}".`);
 			paths.add(key);
 		}
+		if (manifest.plugin !== undefined) {
+			const { scope, default: initial } = manifest.plugin;
+			if (typeof scope !== 'string' || !/^[a-z][a-z0-9_]{0,23}$/.test(scope) || (initial !== undefined && initial !== 'on' && initial !== 'off')) throw new Error(`Invalid plugin block in "${id}"; give a lowercase scope and a default of on or off.`);
+			for (const route of definition.routes ?? []) {
+				if (!route.path.split('/').includes(`:${scope}`)) throw new Error(`Plugin route "${route.method} ${route.path}" in "${id}" must have :${scope}, the scope it is switched for.`);
+			}
+		}
 		try { normalizeAppNavigation({ items: manifest.navigation ?? [] }); }
 		catch { throw new Error(`Invalid navigation in "${id}".`); }
 		for (const [dependency, generation] of Object.entries({ ...manifest.requires, ...manifest.optional })) {

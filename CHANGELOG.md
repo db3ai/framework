@@ -5,6 +5,11 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+- App: plugins. A manifest `plugin` block (`scope`, `default`) makes an installed app
+	something each organization or hosted app turns on and off. `app().apps.plugins`
+	(`isOn`, `list`, `turnOn`, `turnOff`, `allows`, `parent`, `check`) keeps the switches
+	in `db3_app_activations`, runs `turningOn`/`turnedOn`/`turnedOff`, dispatches
+	`PluginChanged`, and route and MCP calls answer only where the plugin is on.
 - Create: new apps include `db3.app.json`, an app profile naming their processes,
 	build script, database and environment variable names; Dock reads it to set
 	up a project's processes.

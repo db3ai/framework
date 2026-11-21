@@ -2,7 +2,7 @@ import type { ActiveRecordClass } from '../db';
 import type { QueueableJobClass } from '../queue';
 import type { Schedule } from '../scheduler';
 import type { App as HostApp } from '../server/App';
-import type { AppNavigation, AppNavigationContext, AppRoute, AppStartContext } from './contracts';
+import type { AppNavigation, AppNavigationContext, AppRoute, AppStartContext, PluginScope } from './contracts';
 
 /** Base for a discovered app's root App.ts. The instance is exposed as app().social, for example. */
 export class AppService {
@@ -24,6 +24,15 @@ export class AppService {
 
 	/** Runs after migrations on every install or upgrade. Implementations must tolerate retries. */
 	async install(): Promise<void> {}
+
+	/** A plugin's last word before it is turned on for a scope; throw an AppRouteError to refuse. */
+	async turningOn(_scope: PluginScope): Promise<void> {}
+
+	/** Runs after this plugin is turned on for a scope, to start its work there. */
+	async turnedOn(_scope: PluginScope): Promise<void> {}
+
+	/** Runs after this plugin is turned off for a scope, to stop its work there. Its data stays. */
+	async turnedOff(_scope: PluginScope): Promise<void> {}
 
 	/** Checks and releases durable app-specific registrations. Database tables are retained by default. */
 	async uninstall(): Promise<void> {}

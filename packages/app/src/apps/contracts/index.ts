@@ -1,4 +1,5 @@
 export type { AppManifest, AppMenuItem } from './AppManifest';
+export type { AppPlugin, PluginScope, PluginState } from './AppPlugin';
 export type { AppDefinition, AppDefinitions, AppServices, AppStartContext } from './AppDefinition';
 export type { AppRoute, AppRouteContext, AppRouteInput } from './AppRoute';
 export { APP_ROUTE_RISKS, type AppRouteRisk } from './AppRouteRisk';

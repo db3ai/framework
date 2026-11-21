@@ -6,6 +6,7 @@ import type { QueueableJobClass } from '../../queue';
 import type { Schedule } from '../../scheduler';
 import type { AppNavigation } from './AppNavigation';
 import type { AppNavigationContext } from './AppNavigationContext';
+import type { PluginScope } from './AppPlugin';
 
 /** Explicit contributions of one local or npm-distributed app. Importing it has no runtime effects. */
 export interface AppDefinition<TService = unknown> {
@@ -29,6 +30,12 @@ export interface AppDefinition<TService = unknown> {
 	navigation?(context: AppNavigationContext, service: TService): AppNavigation | null | undefined | Promise<AppNavigation | null | undefined>;
 	/** Starts resources after dependency services exist. Use defer immediately for failure-safe cleanup. */
 	start?(context: AppStartContext<TService>): void | Promise<void>;
+	/** A plugin's last word before it is turned on; throw an AppRouteError to refuse, and nothing is saved. */
+	turningOn?(scope: PluginScope, service: TService): void | Promise<void>;
+	/** Runs after a plugin is turned on for a scope, to start its work there. */
+	turnedOn?(scope: PluginScope, service: TService): void | Promise<void>;
+	/** Runs after a plugin is turned off for a scope, to stop its work there. Its data stays. */
+	turnedOff?(scope: PluginScope, service: TService): void | Promise<void>;
 	/** Checks app-specific outstanding work before uninstall; throwing leaves the installation intact. */
 	beforeUninstall?(host: App): void | Promise<void>;
 }
