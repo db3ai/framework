@@ -6,6 +6,9 @@ import {
 
 type RecoveryCodes = string[];
 
+/** Per-user interface choices, keyed by the app that owns each one. */
+export type UserPreferences = Record<string, unknown>;
+
 export type UserIdentityModel<TIdentity extends UserIdentity = UserIdentity> =
 	ActiveRecordClass<TIdentity> & {
 		identityField: string;
@@ -86,6 +89,10 @@ export class UserIdentity extends ActiveRecord {
 				column: 'last_login_at',
 			}),
 
+			preferences: field.json<UserPreferences>({
+				comment: 'Per-user interface choices the app restores on every device, such as sidebar size. Apps own the keys.',
+			}),
+
 		};
 	}
 
@@ -101,6 +108,7 @@ export class UserIdentity extends ActiveRecord {
 	declare twoFactorRecoveryCodes: RecoveryCodes | null;
 	declare twoFactorConfirmedAt: Date | null;
 	declare lastLoginAt: Date | null;
+	declare preferences: UserPreferences | null;
 
 	get emailDomain(): string | null {
 		return this.email ? this.email.split('@')[1] : null;
