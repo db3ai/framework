@@ -180,7 +180,7 @@ function sanitizeBodyValue(
 	state: BodySanitizationState,
 	depth = 0,
 ): unknown {
-	if (isSensitiveName(key)) return redactedValue;
+	if (isSensitiveName(key) || (typeof value === 'string' && containsSensitiveWord(key))) return redactedValue;
 	if (value === null || value === undefined) return value;
 	if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
 		return value;
@@ -296,6 +296,22 @@ function isSensitiveName(name: string): boolean {
 		|| normalized === 'refreshtoken'
 		|| normalized === 'apikey'
 		|| normalized === 'xapikey';
+}
+
+/** Words that make a field's text a credential wherever they appear in its name, such as `newPassword` or `client_secret`. */
+const sensitiveWords = ['password', 'passphrase', 'secret', 'token', 'apikey', 'privatekey', 'authorization', 'cookie'];
+
+/**
+ * Whether a property name contains a credential word. Only text values are hidden this way, so
+ * counts such as `maxTokens` stay readable.
+ *
+ * @param name - JSON or form property name.
+ * @returns True when a text value under this name must be removed from the capture.
+ */
+function containsSensitiveWord(name: string): boolean {
+	const normalized = name.toLowerCase().replace(/[-_]/g, '');
+
+	return sensitiveWords.some(word => normalized.includes(word));
 }
 
 /**

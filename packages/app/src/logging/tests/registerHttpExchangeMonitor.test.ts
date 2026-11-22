@@ -3,7 +3,7 @@ import Fastify, { type FastifyBaseLogger } from 'fastify';
 import { PinoLoggerDriver, type HttpExchangeLog } from '@db3.ai/app/logging';
 import { describe, expect, it, vi } from 'vitest';
 
-import { registerHttpExchangeMonitor } from '@db3.ai/app/logging';
+import { hideRequestBody, registerHttpExchangeMonitor } from '@db3.ai/app/logging';
 
 describe('registerHttpExchangeMonitor', () => {
 
@@ -197,6 +197,29 @@ describe('registerHttpExchangeMonitor', () => {
 
 		expect(records.some(record => record.msg === 'request exchange')).toBe(false);
 		expect(JSON.stringify(records)).not.toContain('must-not-be-captured');
+	});
+
+	it('logs only masked request bodies in production when the app turns them on', async () => {
+		const records: Array<Record<string, unknown>> = [];
+		const driver = new PinoLoggerDriver({ devtools: false, environment: 'production', level: 'info', source: 'notes-test' }, captureDestination(records));
+		const server = Fastify({ loggerInstance: driver.logger as FastifyBaseLogger });
+		registerHttpExchangeMonitor(server, { environment: 'production', requestBodies: true });
+		server.post('/notes', async () => ({ token: 'response-token' }));
+		server.post('/variables', async request => { hideRequestBody(request); return { saved: true }; });
+		server.get('/notes', async () => ({ listed: true }));
+		try {
+			await server.inject({ method: 'POST', url: '/notes', payload: { title: 'Hello', newPassword: 'private-password', client_secret: 'private-secret', maxTokens: 400 } });
+			await server.inject({ method: 'POST', url: '/variables', payload: { name: 'STRIPE_KEY', value: 'private-value' } });
+			await server.inject('/notes');
+		} finally { await server.close(); await driver.close(); }
+		const bodies = records.filter(record => record.msg === 'request body');
+		expect(bodies.map(record => record.requestBody)).toEqual([
+			{ kind: 'json', contentType: 'application/json', sizeBytes: expect.any(Number), truncated: false, value: { title: 'Hello', newPassword: '[Redacted]', client_secret: '[Redacted]', maxTokens: 400 } },
+			{ kind: 'hidden', note: 'This route marks its input secret.' },
+		]);
+		expect(bodies.every(record => record.reqId !== undefined)).toBe(true);
+		expect(records.some(record => record.msg === 'request exchange')).toBe(false);
+		expect(JSON.stringify(records)).not.toMatch(/private-|response-token/);
 	});
 });
 
