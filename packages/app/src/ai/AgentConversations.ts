@@ -126,6 +126,30 @@ export class AgentConversations {
 		return result;
 	}
 
+	/**
+	 * Adds a message to the running turn, which reads it before its next model call.
+	 *
+	 * Call it only after the application has authorized the sender for this
+	 * conversation. It accepts only while a turn is running; otherwise the caller
+	 * sends the message as a normal queued followup. A message that arrives after
+	 * the turn's last model call is queued as a followup by the turn itself.
+	 */
+	async steer(input: stream.AgentSteerInput): Promise<stream.AgentSteerResult> {
+		const message = input.message.trim();
+		if (!input.conversationId || !message || message.length > 32_000 || !input.idempotencyKey) throw new AgentConversationReadError(400, 'A conversation, message and idempotency key are required.');
+		// Transaction invariant: the running writer takes and clears this list under the same row lock,
+		// so a message is either delivered to the turn or left for the turn's followup, never both.
+		return this.#transaction(async () => {
+			const conversation = await this.ai.models.conversation.where('id', input.conversationId).forUpdate().first();
+			const state = conversation?.streamState;
+			if (!conversation || !state || state.run.status !== 'running' || !state.owner) return { accepted: false, aiRequestId: state?.run.aiRequestId ?? null };
+			state.steering = state.steering ?? [];
+			if (!state.steering.some(item => item.idempotencyKey === input.idempotencyKey)) state.steering.push({ message, idempotencyKey: input.idempotencyKey, createdAt: new Date().toISOString() });
+			await this.ai.models.conversation.where('id', conversation.id).patch({ streamState: state });
+			return { accepted: true, aiRequestId: state.run.aiRequestId };
+		});
+	}
+
 	/** Wakes a local execution promptly; remote workers observe the same durable fence. */
 	onStop(aiRequestId: string, listener: () => void): () => void {
 		const listeners = this.#stopListeners.get(aiRequestId) ?? new Set<() => void>();

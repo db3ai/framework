@@ -445,6 +445,54 @@ describe('durable agent streaming', () => {
 		} finally { finishTool(); await work; }
 	});
 
+	it('delivers messages sent mid-turn before the next model call and queues late ones as followups', async () => {
+		/** Receives steering while its tool runs, as a browser message would arrive mid-turn. */
+		class SteeringAgent extends Agent {
+			/** Keeps the provider request deterministic. */
+			instructions(): string { return 'Answer briefly.'; }
+			/** Sends the same message twice to prove idempotency. */
+			protected tools(): AgentTool[] {
+				return [Object.assign(tool({
+					name: 'paint', description: 'Paint.', parameters: z.object({}),
+					execute: async (_input, runContext?: RunContext<AgentRunContext>) => {
+						const conversationId = runContext!.context.conversationId;
+						for (let send = 0; send < 2; send++) expect(await application.ai.conversations.steer({ conversationId, message: 'Use blue instead.', idempotencyKey: 'steer-blue' })).toMatchObject({ accepted: true });
+						return 'Painted red.';
+					},
+				}), { title: 'Paint' })];
+			}
+		}
+		registerQueuedAgent('SteeringAgent', SteeringAgent);
+		const call = { type: 'function_call', id: 'fc_paint', call_id: 'call_paint', name: 'paint', arguments: '{}' };
+		const response = { id: 'resp_paint', object: 'response', model: 'test-model', created_at: 1, status: 'completed', output: [call], usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 } };
+		const events = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }, { type: 'response.output_item.added', output_index: 0, item: call }, { type: 'response.output_item.done', output_index: 0, item: call }, { type: 'response.completed', response }];
+		let conversationId = '';
+		const final = controlledResponse(); final.finish('Painted blue.');
+		fetch.mockResolvedValueOnce(new Response(events.map((event, sequence_number) => `data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } }))
+			.mockImplementationOnce(async () => {
+				// Arrives after this, the run's last model call, has already read its input.
+				expect(await application.ai.conversations.steer({ conversationId, message: 'Add a title too.', idempotencyKey: 'steer-title' })).toMatchObject({ accepted: true });
+				return final.response;
+			});
+		const queued = await new SteeringAgent({ user: 'viewer', scope: 'team' }).queue('Paint it red', { queue: 'steer' });
+		conversationId = queued.conversationId;
+		expect((await application.queue.workNextJob('steer'))?.status).toBe('succeeded');
+
+		const secondInput = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body)).input as Record<string, unknown>[];
+		const outputIndex = secondInput.findIndex(item => item.type === 'function_call_output');
+		const steeringIndex = secondInput.findIndex(item => item.role === 'user' && JSON.stringify(item.content).includes('Use blue instead.'));
+		expect(steeringIndex).toBeGreaterThan(outputIndex);
+		expect(secondInput.filter(item => JSON.stringify(item).includes('Use blue instead.'))).toHaveLength(1);
+		const steered = await AiMessage.where('conversation', conversationId).where('role', 'user').orderBy('sequence', 'asc').all();
+		expect(steered.map(message => [message.content, message.metadata?.eventType ?? null])).toEqual([['Paint it red', 'user_message'], ['Use blue instead.', 'steering'], ['Add a title too.', 'user_message']]);
+
+		const followup = await AiRequest.where('conversation', conversationId).where('status', 'pending').firstOrFail();
+		expect(JSON.stringify(followup.request)).toContain('Add a title too.');
+		const conversation = await AiConversation.findOrFail(conversationId);
+		expect(conversation.streamState?.steering).toBeUndefined();
+		expect(await application.ai.conversations.steer({ conversationId, message: 'Anyone there?', idempotencyKey: 'steer-idle' })).toMatchObject({ accepted: false });
+	});
+
 	it('publishes independent tool outcomes before their parallel batch finishes', async () => {
 		const gates = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
 		const names = ['lookup_record', 'check_permission', 'wait_for_report'];

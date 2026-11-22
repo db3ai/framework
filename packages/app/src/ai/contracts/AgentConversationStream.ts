@@ -86,7 +86,18 @@ export interface AgentStreamState {
 	run: AgentRunState;
 	activity: AgentActivity | null;
 	pending?: string[];
+	/** Messages sent while the run works, delivered before its next model call. */
+	steering?: AgentSteeringMessage[];
 }
+
+/** One message waiting to join the active run. */
+export interface AgentSteeringMessage { message: string; idempotencyKey: string; createdAt: string }
+
+/** Adds a message to the conversation's running turn. */
+export interface AgentSteerInput { conversationId: string; message: string; idempotencyKey: string }
+
+/** Whether the running turn took the message; when not, send it as a normal followup. */
+export interface AgentSteerResult { accepted: boolean; aiRequestId: string | null }
 
 /** One intentional send; its UUID survives an uncertain HTTP response. */
 export interface AgentSendInput { conversationId: string | null; message: string; idempotencyKey: string }

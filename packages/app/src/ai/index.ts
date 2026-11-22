@@ -23,6 +23,7 @@ export * from './contracts/Agent';
 export * from './AgentRunJob';
 export * from './registry';
 export * from './toolHelpers';
+export * from './coding';
 export * from './agentCitations';
 export * from './OpenAIQuotaRetry';
 export * from './ResponsesProviderCall';

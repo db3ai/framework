@@ -153,9 +153,9 @@ export class AgentStreamRecorder {
 	}
 
 	/** Commits root lifecycle and its current-run state together, preserving queued followups. */
-	async status(status: stream.AgentRunState['status'], save?: () => Promise<unknown>, error?: string): Promise<void> {
+	async status(status: stream.AgentRunState['status'], save?: () => Promise<unknown>, error?: string): Promise<stream.AgentSteeringMessage[]> {
 		await this.flush();
-		await this.#serialize(() => this.#write(async conversation => {
+		return this.#serialize(() => this.#write(async conversation => {
 			await save?.();
 			const previous = conversation.streamState!;
 			const code = error ? (await app().ai.models.request.findOrFail(this.state.rootAiRequest.id)).errorCode ?? undefined : undefined;
@@ -165,6 +165,20 @@ export class AgentStreamRecorder {
 				const id = `${previous.run.aiRequestId}:${status}`;
 				if (previous.attention?.id !== id) conversation.streamState.attention = { id, kind: status, createdAt: new Date().toISOString(), readBy: [] };
 			}
+			if (!terminal) return [];
+			// Messages that arrived after the last model call leave with the finished turn.
+			const leftover = previous.steering ?? [];
+			delete conversation.streamState.steering;
+			return leftover;
+		}));
+	}
+
+	/** Takes messages sent to the running turn since its previous model call. */
+	async takeSteering(): Promise<stream.AgentSteeringMessage[]> {
+		return this.#serialize(() => this.#write(async conversation => {
+			const steering = conversation.streamState!.steering ?? [];
+			if (steering.length) delete conversation.streamState!.steering;
+			return steering;
 		}));
 	}
 
