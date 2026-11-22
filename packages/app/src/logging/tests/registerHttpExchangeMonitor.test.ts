@@ -208,13 +208,13 @@ describe('registerHttpExchangeMonitor', () => {
 		server.post('/variables', async request => { hideRequestBody(request); return { saved: true }; });
 		server.get('/notes', async () => ({ listed: true }));
 		try {
-			await server.inject({ method: 'POST', url: '/notes', payload: { title: 'Hello', newPassword: 'private-password', client_secret: 'private-secret', maxTokens: 400 } });
+			await server.inject({ method: 'POST', url: '/notes', payload: { title: 'Hello', newPassword: 'private-password', client_secret: 'private-secret', code: 'private-code', maxTokens: 400 } });
 			await server.inject({ method: 'POST', url: '/variables', payload: { name: 'STRIPE_KEY', value: 'private-value' } });
 			await server.inject('/notes');
 		} finally { await server.close(); await driver.close(); }
 		const bodies = records.filter(record => record.msg === 'request body');
 		expect(bodies.map(record => record.requestBody)).toEqual([
-			{ kind: 'json', contentType: 'application/json', sizeBytes: expect.any(Number), truncated: false, value: { title: 'Hello', newPassword: '[Redacted]', client_secret: '[Redacted]', maxTokens: 400 } },
+			{ kind: 'json', contentType: 'application/json', sizeBytes: expect.any(Number), truncated: false, value: { title: 'Hello', newPassword: '[Redacted]', client_secret: '[Redacted]', code: '[Redacted]', maxTokens: 400 } },
 			{ kind: 'hidden', note: 'This route marks its input secret.' },
 		]);
 		expect(bodies.every(record => record.reqId !== undefined)).toBe(true);

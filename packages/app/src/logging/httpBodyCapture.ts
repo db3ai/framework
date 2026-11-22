@@ -295,7 +295,11 @@ function isSensitiveName(name: string): boolean {
 		|| normalized === 'accesstoken'
 		|| normalized === 'refreshtoken'
 		|| normalized === 'apikey'
-		|| normalized === 'xapikey';
+		|| normalized === 'xapikey'
+		// One-time codes and sign-in challenges, such as a two-factor code or a room invitation.
+		|| normalized === 'code'
+		|| normalized === 'otp'
+		|| normalized === 'challenge';
 }
 
 /** Words that make a field's text a credential wherever they appear in its name, such as `newPassword` or `client_secret`. */
