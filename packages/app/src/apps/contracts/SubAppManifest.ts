@@ -2,7 +2,7 @@ import type { AppNavigationBadge } from './AppNavigationBadge';
 import type { AppPlugin } from './AppPlugin';
 
 /** Browser-safe description of an app, shared by runtime, navigation and visual tools. */
-export interface AppManifest {
+export interface SubAppManifest {
 	/** Stable lowercase identifier; also owns the database and route namespaces. */
 	id: string;
 	name: string;

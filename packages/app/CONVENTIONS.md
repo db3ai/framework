@@ -271,9 +271,9 @@ Private functions should also have docblocks when their purpose, boundary, or fa
 ## Review Checklist
 
 Feature and service tests should import the smallest owning module and use only
-the models required by their behaviour. Boot the complete host and install its
+the models required by their behaviour. Boot the complete main app and install its
 whole schema when the asserted contract requires that composition. Keep a small
-set of host integration tests alongside independently runnable feature tests;
+set of main app integration tests alongside independently runnable feature tests;
 adding one app should not make unrelated tests load its code or create its tables.
 
 Before finishing a framework contract change:
@@ -288,28 +288,28 @@ Before finishing a framework contract change:
 8. Add or update a service-owned example when a common application workflow changed.
 9. Keep service tests, fixtures, and example verification inside the owning service directory.
 
-## Feature apps within a host
+## Sub apps within the main app
 
 Prefer `apps/{id}/` with root `manifest.json` and `App.ts`. The class default
-extends `AppService`; server/, client/, database/ and optional shared/ belong
-inside that folder. Discovery replaces per-app host registration. Marked direct
+extends `SubApp`; server/, client/, database/ and optional shared/ belong
+inside that folder. Discovery replaces per-sub-app registration in the main app. Marked direct
 npm dependencies use the same structure, with compiled entry paths in package
 metadata. Keep general libraries in packages/ and framework implementation in
 packages/app/src.
 
 The root manifest is browser-safe metadata for visual exploration and default navigation.
-An app's `navigation(context)` can return current links, plain-text information and
-badges for a host-verified viewer. `apps.navigation(context)` collects enabled-app
+A sub app's `navigation(context)` can return current links, plain-text information and
+badges for a viewer the main app verified. `apps.navigation(context)` collects enabled-app
 contributions; keep viewer state off shared service instances and out of `describe()`.
 `app().social` resolves an optional service; generated declarations supply its
 type. Framework service and registry names are reserved. Apps own prefixed models,
-snapshots, immutable migrations and their down functions; host models stay separate.
+snapshots, immutable migrations and their down functions; main app models stay separate.
 Uninstall retains data; rollback is explicit. Npm lifecycle hooks never migrate SQL.
 
 Starter ships discovery, generated browser loaders and an administrator Apps UI.
-Online lifecycle management requires a single-process host; stop all consumers
-for multi-process CLI maintenance. See [Apps](src/apps/README.md)
-for both local and npm workflows and the one-time custom-host integration.
+Online lifecycle management requires a single-process main app; stop all consumers
+for multi-process CLI maintenance. See [Sub apps](src/apps/README.md)
+for both local and npm workflows and the one-time custom main app integration.
 
 ## Human and agent application workspace
 

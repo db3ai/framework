@@ -1,8 +1,8 @@
-import type { AppManifest } from './AppManifest';
+import type { SubAppManifest } from './SubAppManifest';
 
 /** Metadata-only discovery result; reading it does not import the app's server or browser code. */
-export interface DiscoveredApp {
-	manifest: AppManifest;
+export interface DiscoveredSubApp {
+	manifest: SubAppManifest;
 	directory: string;
 	entry: string;
 	client?: string;

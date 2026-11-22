@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ActiveRecord, type FieldBuilder } from '@db3.ai/app/db';
 import { App } from '@db3.ai/app/server';
-import { defineApp, type AppDefinition } from '@db3.ai/app/apps';
+import { defineSubApp, type SubAppDefinition } from '@db3.ai/app/apps';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 
 let database: GeneratedTestDatabase;
@@ -19,12 +19,12 @@ class SocialEntry extends ActiveRecord {
 }
 
 /** Defines a small real service. */
-function feature(): AppDefinition<{ label: string }> {
-	return defineApp({ manifest: { id: 'social', name: 'social', version: '1.0.0', icon: '◎' }, create: () => ({ label: 'social' }) });
+function feature(): SubAppDefinition<{ label: string }> {
+	return defineSubApp({ manifest: { id: 'social', name: 'social', version: '1.0.0', icon: '◎' }, create: () => ({ label: 'social' }) });
 }
 
 /** Creates a host on the disposable database and tracks it for cleanup. */
-function host<T extends Record<string, AppDefinition<any>>>(apps: T) {
+function host<T extends Record<string, SubAppDefinition<any>>>(apps: T) {
 	const application = new App({ db: database.db, apps });
 	hosts.push(application);
 	return application;

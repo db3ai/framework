@@ -37,7 +37,7 @@ test('unplaced samples get deterministic collision-free sections and existing pl
 
 /** Keeps the guide discoverable by exact implementation vocabulary. */
 test('app creation and cleanup can be found through search', () => {
-	assert.equal(searchDocumentation('defineApp')[0]?.id, 'apps');
+	assert.equal(searchDocumentation('defineSubApp')[0]?.id, 'apps');
 	assert.ok(searchDocumentation('defer cleanup').some(article => article.id === 'apps'));
 	const article = findArticle('apps')!;
 	for (const id of ['start', 'service', 'install', 'run', 'lifecycle', 'define-app', 'testing', 'failures', 'production']) {

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, markRaw, onMounted, onUnmounted, ref, shallowRef, watch, type Component } from 'vue';
-import type { AppDescription, AppAction, AppNavigationResult } from '@db3.ai/app/apps/contracts';
+import type { SubAppDescription, SubAppAction, AppNavigationResult } from '@db3.ai/app/apps/contracts';
 import clients from 'virtual:db3/apps';
 import { api } from './api';
 
 const props = defineProps<{ route: string }>();
-const catalog = ref<AppDescription[]>([]);
+const catalog = ref<SubAppDescription[]>([]);
 const navigation = ref<AppNavigationResult>({ apps: [], unavailable: [] });
 const navigationError = ref('');
 const canManage = ref(false);
@@ -51,10 +51,10 @@ async function loadApp() {
 }
 
 /** Applies an administrator action and refreshes navigation from the resulting durable state. */
-async function manage(id: string, action: AppAction) {
+async function manage(id: string, action: SubAppAction) {
 	busy.value = id;
 	error.value = '';
-	try { catalog.value = (await api<{ apps: AppDescription[] }>(`/app-management/${id}/${action}`, {})).apps; await refreshNavigation(); }
+	try { catalog.value = (await api<{ apps: SubAppDescription[] }>(`/app-management/${id}/${action}`, {})).apps; await refreshNavigation(); }
 	catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not update this app.'; }
 	finally { busy.value = ''; }
 }
@@ -62,7 +62,7 @@ async function manage(id: string, action: AppAction) {
 watch(selected, loadApp);
 onMounted(async () => {
 	window.addEventListener('focus', refreshNavigation);
-	try { const result = await api<{ apps: AppDescription[]; canManage: boolean }>('/apps'); catalog.value = result.apps; canManage.value = result.canManage; }
+	try { const result = await api<{ apps: SubAppDescription[]; canManage: boolean }>('/apps'); catalog.value = result.apps; canManage.value = result.canManage; }
 	catch (cause) { error.value = cause instanceof Error ? cause.message : 'Could not load apps.'; }
 	finally { loaded.value = true; }
 	await refreshNavigation();

@@ -1,6 +1,6 @@
 import type { App } from '../../server/App';
 import type { ActiveRecordClass } from '../../db';
-import type { AppManifest } from './AppManifest';
+import type { SubAppManifest } from './SubAppManifest';
 import type { AppRoute } from './AppRoute';
 import type { QueueableJobClass } from '../../queue';
 import type { Schedule } from '../../scheduler';
@@ -9,10 +9,10 @@ import type { AppNavigationContext } from './AppNavigationContext';
 import type { PluginScope } from './AppPlugin';
 
 /** Explicit contributions of one local or npm-distributed app. Importing it has no runtime effects. */
-export interface AppDefinition<TService = unknown> {
-	manifest: AppManifest;
-	/** Creates one public service in the host runtime; never create a second framework App. */
-	create(host: App): TService;
+export interface SubAppDefinition<TService = unknown> {
+	manifest: SubAppManifest;
+	/** Creates one public service in the main app; never create a second framework App. */
+	create(app: App): TService;
 	/** App-owned models and immutable migration assets, resolved relative to the defining module. */
 	database?: {
 		models: readonly ActiveRecordClass[];
@@ -20,7 +20,7 @@ export interface AppDefinition<TService = unknown> {
 		directory: URL;
 	};
 	/** Retry-safe app-owned setup after migrations have succeeded. */
-	afterInstall?(host: App): void | Promise<void>;
+	afterInstall?(app: App): void | Promise<void>;
 	routes?: readonly AppRoute<TService>[];
 	/** Serializable job classes with explicit names beneath this app's id, such as social.review. */
 	jobs?: readonly QueueableJobClass[];
@@ -29,7 +29,7 @@ export interface AppDefinition<TService = unknown> {
 	/** Computes viewer-specific navigation. Undefined uses manifest links; null hides the app. */
 	navigation?(context: AppNavigationContext, service: TService): AppNavigation | null | undefined | Promise<AppNavigation | null | undefined>;
 	/** Starts resources after dependency services exist. Use defer immediately for failure-safe cleanup. */
-	start?(context: AppStartContext<TService>): void | Promise<void>;
+	start?(context: SubAppStartContext<TService>): void | Promise<void>;
 	/** A plugin's last word before it is turned on; throw an AppRouteError to refuse, and nothing is saved. */
 	turningOn?(scope: PluginScope, service: TService): void | Promise<void>;
 	/** Runs after a plugin is turned on for a scope, to start its work there. */
@@ -37,20 +37,20 @@ export interface AppDefinition<TService = unknown> {
 	/** Runs after a plugin is turned off for a scope, to stop its work there. Its data stays. */
 	turnedOff?(scope: PluginScope, service: TService): void | Promise<void>;
 	/** Checks app-specific outstanding work before uninstall; throwing leaves the installation intact. */
-	beforeUninstall?(host: App): void | Promise<void>;
+	beforeUninstall?(app: App): void | Promise<void>;
 }
 
 /** Resource ownership during startup. Cleanup runs in reverse registration order, including on failure. */
-export interface AppStartContext<TService> {
-	host: App;
+export interface SubAppStartContext<TService> {
+	app: App;
 	service: TService;
 	defer(cleanup: () => void | Promise<void>): void;
 }
 
-/** Explicit host composition, keyed by the matching manifest identifier. */
-export type AppDefinitions = Readonly<Record<string, AppDefinition<any>>>;
+/** Explicit main app composition, keyed by the matching manifest identifier. */
+export type SubAppDefinitions = Readonly<Record<string, SubAppDefinition<any>>>;
 
-/** Optional public service types inferred from the host's actual composition. */
-export type AppServices<TDefinitions extends AppDefinitions> = {
-	readonly [K in keyof TDefinitions]: TDefinitions[K] extends AppDefinition<infer TService> ? TService | undefined : never;
+/** Optional public service types inferred from the main app's actual composition. */
+export type SubAppServices<TDefinitions extends SubAppDefinitions> = {
+	readonly [K in keyof TDefinitions]: TDefinitions[K] extends SubAppDefinition<infer TService> ? TService | undefined : never;
 };

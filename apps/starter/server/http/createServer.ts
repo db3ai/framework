@@ -10,7 +10,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import type { App } from '@db3.ai/app';
 import { AppRouteError } from '@db3.ai/app/apps';
-import type { AppAction } from '@db3.ai/app/apps/contracts';
+import type { SubAppAction } from '@db3.ai/app/apps/contracts';
 import { registerAppRoutes } from '@db3.ai/app/apps/fastify';
 import { AuthIdentityExistsError, PasswordSuspendedError, UserIdentity } from '@db3.ai/app/auth';
 import { AIRequestError, AIRateLimitDeferredError, AIConfigurationError, AIUsagePersistenceError } from '@db3.ai/app/ai';
@@ -174,7 +174,7 @@ export async function createServer(application: App, config: StarterConfig) {
 		const user = await requireUser(application, request);
 		if (!canManageApps(application, config, user)) throw new HttpError(403, 'App management requires the configured administrator and a recent sign-in.');
 		if (!['install', 'enable', 'disable', 'uninstall'].includes(request.params.action)) throw new HttpError(400, 'Unknown app action.');
-		return { apps: await application.apps.manage(request.params.action as AppAction, request.params.id) };
+		return { apps: await application.apps.manage(request.params.action as SubAppAction, request.params.id) };
 	});
 	registerAppRoutes(server, application.apps, async request => {
 		const user = await requireUser(application, request);

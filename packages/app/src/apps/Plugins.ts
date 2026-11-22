@@ -2,7 +2,7 @@ import { ActiveRecord } from '../db';
 import type { App } from '../server/App';
 import { AppActivation } from './AppActivation';
 import { AppRouteError } from './AppRouteError';
-import type { AppDefinition, PluginScope, PluginState } from './contracts';
+import type { SubAppDefinition, PluginScope, PluginState } from './contracts';
 
 /** Announced after a plugin is turned on or off for a scope, for a parent app, billing or the browser. */
 export class PluginChanged {
@@ -25,7 +25,7 @@ export interface PluginTurnOn {
 /** What the switchboard needs from the app registry. */
 export interface PluginRegistry {
 	ids(): readonly string[];
-	definition(id: string): AppDefinition<any> | undefined;
+	definition(id: string): SubAppDefinition<any> | undefined;
 	service(id: string): unknown;
 }
 

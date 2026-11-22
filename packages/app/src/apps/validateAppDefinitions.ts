@@ -3,7 +3,7 @@ import { normalizeAppNavigation } from './normalizeAppNavigation';
 import { isQueueableJobClass, queueableJobName } from '../queue';
 
 /** Validates names, contribution ownership and dependency order before any app code is started. */
-export function validateAppDefinitions(definitions: apps.AppDefinitions, reserved: readonly string[]): string[] {
+export function validateAppDefinitions(definitions: apps.SubAppDefinitions, reserved: readonly string[]): string[] {
 	const ids = Object.keys(definitions);
 	const tables = new Set<string>();
 	for (const id of ids) {

@@ -1,7 +1,7 @@
-import { AppService, AppRouteError, type AppRoute, type AppStartContext } from '@db3.ai/app/apps';
+import { SubApp, AppRouteError, type AppRoute, type SubAppStartContext } from '@db3.ai/app/apps';
 
 /** A small authenticated feature whose readiness belongs to the host lifecycle. */
-export default class App extends AppService {
+export default class App extends SubApp {
 	static override routes: readonly AppRoute<App>[] = [{
 		method: 'GET',
 		path: '/',
@@ -12,7 +12,7 @@ export default class App extends AppService {
 	#ready = false;
 
 	/** Marks this process ready and registers cleanup, including startup rollback. */
-	override async start({ defer }: AppStartContext<this>): Promise<void> {
+	override async start({ defer }: SubAppStartContext<this>): Promise<void> {
 		this.#ready = true;
 		defer(() => { this.#ready = false; });
 	}

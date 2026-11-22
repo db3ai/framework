@@ -1,12 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { DiscoveredApp } from './contracts';
+import type { DiscoveredSubApp } from './contracts';
 import { validateAppDefinitions } from './validateAppDefinitions';
 
 /** Discovers local apps and opted-in direct npm dependencies without executing their code. */
-export function discoverApps(directory: string): DiscoveredApp[] {
-	const found: DiscoveredApp[] = [];
+export function discoverApps(directory: string): DiscoveredSubApp[] {
+	const found: DiscoveredSubApp[] = [];
 	const root = join(directory, 'apps');
 	if (existsSync(root)) {
 		for (const item of readdirSync(root, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -37,7 +37,7 @@ export function discoverApps(directory: string): DiscoveredApp[] {
 }
 
 /** Reads one conventional root manifest and resolves entries contained in that app's directory. */
-function readApp(directory: string, id: string, packageName?: string, entries?: { entry?: string; client?: string }): DiscoveredApp {
+function readApp(directory: string, id: string, packageName?: string, entries?: { entry?: string; client?: string }): DiscoveredSubApp {
 	const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'));
 	if (manifest.id !== undefined && manifest.id !== id) throw new Error(`App folder "${id}" disagrees with manifest identifier "${manifest.id}".`);
 	const entry = containedEntry(directory, entries?.entry ?? 'App.ts');
