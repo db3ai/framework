@@ -3,7 +3,7 @@ export { defineSubApp } from './defineSubApp';
 export { Apps } from './Apps';
 export { AppRouteError } from './AppRouteError';
 export { SubApp } from './SubApp';
-export { Plugins, PluginChanged, type PluginTurnOn, type PluginScopeParent } from './Plugins';
+export { Plugins, PluginChanged, type PluginActivationRequest, type PluginScopeParent } from './Plugins';
 export { discoverApps } from './discoverApps';
 export { writeAppTypes } from './writeAppTypes';
 export { checkAppBoundaries, formatAppBoundaries, type AppBoundaryProblem, type AppBoundaryReport } from './checkAppBoundaries';

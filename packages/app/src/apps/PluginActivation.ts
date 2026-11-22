@@ -1,13 +1,13 @@
 import { ActiveRecord, type FieldBuilder } from '../db';
 
 /**
- * One plugin's switch at one scope. A row exists only once someone has switched it; until then
- * the manifest's default holds. `key` is `app:scopeType:scopeId`, so each switch is one row.
+ * One plugin's activation at one scope. A row exists only once someone has changed it; until then
+ * the manifest's default holds. `key` is `app:scopeType:scopeId`, so each activation is one row.
  */
-export class AppActivation extends ActiveRecord {
-	static override table = 'db3_app_activations';
+export class PluginActivation extends ActiveRecord {
+	static override table = 'db3_plugin_activations';
 
-	/** Defines the switch, who last changed it and when. */
+	/** Defines the state, who last changed it and when. */
 	static override fields(field: FieldBuilder) {
 		return {
 			id: field.ulid(),
@@ -15,7 +15,7 @@ export class AppActivation extends ActiveRecord {
 			appId: field.string({ column: 'app_id', required: true, length: 48 }),
 			scopeType: field.string({ column: 'scope_type', required: true, length: 24 }),
 			scopeId: field.string({ column: 'scope_id', required: true, length: 120 }),
-			on: field.boolean({ required: true }),
+			active: field.boolean({ required: true }),
 			changedBy: field.string({ column: 'changed_by', required: true, length: 120 }),
 			changedAt: field.timestamp({ column: 'changed_at', auto: 'both' }),
 		};
@@ -25,7 +25,7 @@ export class AppActivation extends ActiveRecord {
 	declare appId: string;
 	declare scopeType: string;
 	declare scopeId: string;
-	declare on: boolean;
+	declare active: boolean;
 	declare changedBy: string;
 	declare changedAt: Date | null;
 }

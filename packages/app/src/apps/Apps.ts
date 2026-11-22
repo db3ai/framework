@@ -13,7 +13,7 @@ import { discoverApps } from './discoverApps';
 import { SubApp } from './SubApp';
 import { AppRouteError } from './AppRouteError';
 import { SubAppInstallation } from './SubAppInstallation';
-import { AppActivation } from './AppActivation';
+import { PluginActivation } from './PluginActivation';
 import { Plugins } from './Plugins';
 import { validateAppDefinitions } from './validateAppDefinitions';
 import { normalizeAppNavigation } from './normalizeAppNavigation';
@@ -115,9 +115,9 @@ export class Apps<TDefinitions extends apps.SubAppDefinitions = {}> {
 			jobs: Service.jobs,
 			...(Service.prototype.schedule !== SubApp.prototype.schedule ? { schedule: (schedule, service) => service.schedule(schedule) } satisfies Pick<apps.SubAppDefinition<SubApp>, 'schedule'> : {}),
 			navigation: (context, service) => service.navigation(context),
-			turningOn: (scope, service) => service.turningOn(scope),
-			turnedOn: (scope, service) => service.turnedOn(scope),
-			turnedOff: (scope, service) => service.turnedOff(scope),
+			activating: (scope, service) => service.activating(scope),
+			activated: (scope, service) => service.activated(scope),
+			deactivated: (scope, service) => service.deactivated(scope),
 			start: context => context.service.start(context),
 			afterInstall: host => new Service(host).install(),
 			beforeUninstall: host => new Service(host).uninstall(),
@@ -435,7 +435,7 @@ export class Apps<TDefinitions extends apps.SubAppDefinitions = {}> {
 			const [acquired] = await db.raw('SELECT GET_LOCK(?, 10) AS acquired', [lock]).connection(connection);
 			if (Number(acquired[0].acquired) !== 1) throw new Error('Another app installation operation holds the maintenance lock.');
 			return await ActiveRecord.withDb(db, async () => {
-				await this.#host.db.install(SubAppInstallation, AppActivation);
+				await this.#host.db.install(SubAppInstallation, PluginActivation);
 				await this.#readRecords();
 				return operation();
 			});

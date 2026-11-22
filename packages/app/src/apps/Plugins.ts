@@ -1,22 +1,22 @@
 import { ActiveRecord } from '../db';
 import type { App } from '../server/App';
-import { AppActivation } from './AppActivation';
+import { PluginActivation } from './PluginActivation';
 import { AppRouteError } from './AppRouteError';
 import type { SubAppDefinition, PluginScope, PluginState } from './contracts';
 
-/** Announced after a plugin is turned on or off for a scope, for a parent app, billing or the browser. */
+/** Announced after a plugin is activated or deactivated for a scope, for a parent app, billing or the browser. */
 export class PluginChanged {
 	/** Records which plugin changed, where, to which state and who changed it. */
 	constructor(
 		readonly appId: string,
 		readonly scope: PluginScope,
-		readonly on: boolean,
+		readonly active: boolean,
 		readonly actorId: string,
 	) {}
 }
 
-/** A turn-on the host may refuse, by throwing an AppRouteError, before anything is saved. */
-export interface PluginTurnOn {
+/** An activation the main app may refuse, by throwing an AppRouteError, before anything is saved. */
+export interface PluginActivationRequest {
 	appId: string;
 	scope: PluginScope;
 	actorId: string;
@@ -33,16 +33,16 @@ export interface PluginRegistry {
 export type PluginScopeParent = (id: string) => PluginScope | undefined | Promise<PluginScope | undefined>;
 
 /**
- * Turns plugin apps on and off per scope. The database row is the only state, so every process
+ * Activates and deactivates plugins per scope. The database row is the only state, so every process
  * agrees; a refresh reads it again. Billing is not its concern: a parent app listens for
  * PluginChanged, or the plugin calls billing from its own hooks.
- * @example await app().apps.plugins.turnOn('security_ai', { type: 'app', id: appId }, actor);
+ * @example await app().apps.plugins.activate('security_ai', { type: 'app', id: appId }, actor);
  */
 export class Plugins {
 	readonly #host: App;
 	readonly #registry: PluginRegistry;
 	readonly #parents = new Map<string, PluginScopeParent>();
-	readonly #checks = new Set<(change: PluginTurnOn) => void | Promise<void>>();
+	readonly #checks = new Set<(change: PluginActivationRequest) => void | Promise<void>>();
 
 	/** Built by the app registry; reach it as `app().apps.plugins`. */
 	constructor(host: App, registry: PluginRegistry) {
@@ -55,15 +55,15 @@ export class Plugins {
 		this.#parents.set(type, resolve);
 	}
 
-	/** Adds a host check that may refuse a turn-on, such as no card on file; returns its removal. */
-	check(check: (change: PluginTurnOn) => void | Promise<void>): () => void {
+	/** Adds a main app check that may refuse an activation, such as no card on file; returns its removal. */
+	check(check: (change: PluginActivationRequest) => void | Promise<void>): () => void {
 		this.#checks.add(check);
 		return () => { this.#checks.delete(check); };
 	}
 
-	/** Whether an app works at this scope: always for a booted non-plugin, else its switch and every required plugin's. */
-	async isOn(appId: string, scope: PluginScope): Promise<boolean> {
-		return this.#db(() => this.#isOn(appId, scope, new Map()));
+	/** Whether an app works at this scope: always for a booted non-plugin, else its activation and every required plugin's. */
+	async isActive(appId: string, scope: PluginScope): Promise<boolean> {
+		return this.#db(() => this.#isActive(appId, scope, new Map()));
 	}
 
 	/** Every booted plugin that reaches this scope, with its state at its own scope. */
@@ -75,36 +75,36 @@ export class Plugins {
 				const plugin = this.#registry.definition(appId)?.manifest.plugin;
 				if (!plugin || this.#registry.service(appId) === undefined) continue;
 				const at = await this.#at(scope, plugin.scope);
-				if (at) states.push({ appId, scope: at, on: await this.#isOn(appId, at, rows) });
+				if (at) states.push({ appId, scope: at, active: await this.#isActive(appId, at, rows) });
 			}
 			return states;
 		});
 	}
 
-	/** Turns a plugin on at its own scope once its required plugins are on and no check refuses. */
-	async turnOn(appId: string, scope: PluginScope, actor: { id: string }): Promise<PluginState> {
+	/** Activates a plugin at its own scope once its required plugins are on and no check refuses. */
+	async activate(appId: string, scope: PluginScope, actor: { id: string }): Promise<PluginState> {
 		return this.#db(async () => {
 			const { definition, service } = this.#plugin(appId, scope);
-			if (await this.#isOn(appId, scope, new Map())) return { appId, scope, on: true };
+			if (await this.#isActive(appId, scope, new Map())) return { appId, scope, active: true };
 			for (const required of Object.keys(definition.manifest.requires ?? {})) {
-				if (!await this.#isOn(required, scope, new Map())) throw new AppRouteError(409, `Turn on ${this.#name(required)} first.`);
+				if (!await this.#isActive(required, scope, new Map())) throw new AppRouteError(409, `Activate ${this.#name(required)} first.`);
 			}
 			for (const check of this.#checks) await check({ appId, scope, actorId: actor.id });
-			await definition.turningOn?.(scope, service);
-			await this.#change(appId, scope, true, actor.id, () => definition.turnedOn?.(scope, service));
-			return { appId, scope, on: true };
+			await definition.activating?.(scope, service);
+			await this.#change(appId, scope, true, actor.id, () => definition.activated?.(scope, service));
+			return { appId, scope, active: true };
 		});
 	}
 
-	/** Turns a plugin off at its own scope, refusing while a plugin that requires it is on inside that scope. */
-	async turnOff(appId: string, scope: PluginScope, actor: { id: string }): Promise<PluginState> {
+	/** Deactivates a plugin at its own scope, refusing while a plugin that requires it is active inside that scope. */
+	async deactivate(appId: string, scope: PluginScope, actor: { id: string }): Promise<PluginState> {
 		return this.#db(async () => {
 			const { definition, service } = this.#plugin(appId, scope);
-			if (!await this.#own(appId, scope, new Map())) return { appId, scope, on: false };
+			if (!await this.#own(appId, scope, new Map())) return { appId, scope, active: false };
 			const using = await this.#dependantsOn(appId, scope);
-			if (using.length) throw new AppRouteError(409, `Turn off ${using.map(id => this.#name(id)).join(', ')} first.`);
-			await this.#change(appId, scope, false, actor.id, () => definition.turnedOff?.(scope, service));
-			return { appId, scope, on: false };
+			if (using.length) throw new AppRouteError(409, `Deactivate ${using.map(id => this.#name(id)).join(', ')} first.`);
+			await this.#change(appId, scope, false, actor.id, () => definition.deactivated?.(scope, service));
+			return { appId, scope, active: false };
 		});
 	}
 
@@ -113,28 +113,28 @@ export class Plugins {
 		const plugin = this.#registry.definition(appId)?.manifest.plugin;
 		if (!plugin) return true;
 		const id = params[plugin.scope];
-		return Boolean(id) && this.isOn(appId, { type: plugin.scope, id: id! });
+		return Boolean(id) && this.isActive(appId, { type: plugin.scope, id: id! });
 	}
 
-	/** Effective state: booted, its own switch, and every required plugin's. Rows read once per call. */
-	async #isOn(appId: string, scope: PluginScope, rows: Map<string, boolean>): Promise<boolean> {
+	/** Effective state: booted, its own activation, and every required plugin's. Rows read once per call. */
+	async #isActive(appId: string, scope: PluginScope, rows: Map<string, boolean>): Promise<boolean> {
 		const definition = this.#registry.definition(appId);
 		if (!definition || this.#registry.service(appId) === undefined) return false;
 		if (!definition.manifest.plugin) return true;
 		const at = await this.#at(scope, definition.manifest.plugin.scope);
 		if (!at || !await this.#own(appId, at, rows)) return false;
 		for (const required of Object.keys(definition.manifest.requires ?? {})) {
-			if (!await this.#isOn(required, at, rows)) return false;
+			if (!await this.#isActive(required, at, rows)) return false;
 		}
 		return true;
 	}
 
-	/** The plugin's own switch at exactly this scope: its row, else the manifest default. */
+	/** The plugin's own activation at exactly this scope: its row, else the manifest default. */
 	async #own(appId: string, scope: PluginScope, rows: Map<string, boolean>): Promise<boolean> {
 		const key = keyOf(appId, scope);
 		if (!rows.has(key)) {
-			const row = await this.#hasTable() ? await AppActivation.where('key', key).first() : undefined;
-			rows.set(key, row ? Boolean(row.on) : this.#registry.definition(appId)?.manifest.plugin?.default === 'on');
+			const row = await this.#hasTable() ? await PluginActivation.where('key', key).first() : undefined;
+			rows.set(key, row ? Boolean(row.active) : this.#registry.definition(appId)?.manifest.plugin?.default === 'on');
 		}
 		return rows.get(key)!;
 	}
@@ -145,7 +145,7 @@ export class Plugins {
 		for (const id of this.#registry.ids()) {
 			const manifest = this.#registry.definition(id)?.manifest;
 			if (!manifest?.plugin || manifest.requires?.[appId] === undefined) continue;
-			const rows = await AppActivation.where({ appId: id, on: true }).all();
+			const rows = await PluginActivation.where({ appId: id, active: true }).all();
 			let inside = false;
 			for (const row of rows) {
 				const holder = await this.#at({ type: row.scopeType, id: row.scopeId }, scope.type);
@@ -178,9 +178,9 @@ export class Plugins {
 	}
 
 	/**
-	 * Flips the switch, then runs the plugin's hook and announces it. Only the caller whose write
+	 * Changes the activation, then runs the plugin's hook and announces it. Only the caller whose write
 	 * actually changed the row runs them, so overlapping calls start or stop work once. If the hook
-	 * or a listener fails, the switch goes back and the error is thrown, so a retry runs them again.
+	 * or a listener fails, the activation goes back and the error is thrown, so a retry runs them again.
 	 */
 	async #change(appId: string, scope: PluginScope, on: boolean, actorId: string, hook: () => unknown): Promise<void> {
 		if (!await this.#flip(appId, scope, on, actorId)) return;
@@ -193,15 +193,15 @@ export class Plugins {
 		}
 	}
 
-	/** Writes the switch only if it is not already in that state; true when this call changed it. */
+	/** Writes the activation only if it is not already in that state; true when this call changed it. */
 	async #flip(appId: string, scope: PluginScope, on: boolean, actorId: string): Promise<boolean> {
-		if (!await this.#hasTable()) throw new Error('Install an app to create db3_app_activations before switching plugins.');
+		if (!await this.#hasTable()) throw new Error('Install an app to create db3_plugin_activations before switching plugins.');
 		const key = keyOf(appId, scope);
-		const table = this.#host.db.knex(AppActivation.table);
-		if (await table.clone().where({ key, on: !on }).update({ on, changed_by: actorId, changed_at: new Date() })) return true;
+		const table = this.#host.db.knex(PluginActivation.table);
+		if (await table.clone().where({ key, active: !on }).update({ active: on, changed_by: actorId, changed_at: new Date() })) return true;
 		if (await table.clone().where({ key }).first()) return false;
 		try {
-			await AppActivation.create({ key, appId, scopeType: scope.type, scopeId: scope.id, on, changedBy: actorId }).save();
+			await PluginActivation.create({ key, appId, scopeType: scope.type, scopeId: scope.id, active: on, changedBy: actorId }).save();
 			return true;
 		} catch (error) {
 			// Another call created the row first; it owns this change.
@@ -215,9 +215,9 @@ export class Plugins {
 		return this.#registry.definition(appId)?.manifest.name ?? appId;
 	}
 
-	/** Hosts that never installed an app have no switch table; every plugin then sits at its default. */
+	/** Hosts that never installed an app have no activation table; every plugin then sits at its default. */
 	async #hasTable(): Promise<boolean> {
-		return this.#host.db.knex.schema.hasTable(AppActivation.table);
+		return this.#host.db.knex.schema.hasTable(PluginActivation.table);
 	}
 
 	/** Runs on the host database outside any caller's transaction. */
@@ -226,7 +226,7 @@ export class Plugins {
 	}
 }
 
-/** The one row a switch lives in: app, scope type and scope id. */
+/** The one row an activation lives in: app, scope type and scope id. */
 function keyOf(appId: string, scope: PluginScope): string {
 	return `${appId}:${scope.type}:${scope.id}`;
 }

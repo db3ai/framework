@@ -147,11 +147,18 @@ database/network operations. Programmatic `defineSubApp` compositions can supply
 `navigation(context, service)` with the same return contract. Further contribution
 types can follow this pattern when there is a concrete consumer.
 
-## Plugins: apps each organization turns on and off
+## Plugins: sub apps each organization activates
 
-Installing an app makes it available to the whole main app. A **plugin** is an installed app that
-each scope, such as an organization or a hosted app, also turns on and off. Add a `plugin`
-block to its manifest:
+A sub app without a `plugin` block is always active once installed, like the core sub apps
+a main app ships with. A **plugin** is a sub app that people also **activate** and
+**deactivate** for one scope, such as an organization or a hosted app, like extensions in
+VS Code. Three words, three levels:
+
+| Word | Who | Covers |
+| --- | --- | --- |
+| install / uninstall | developer or CLI, processes stopped | code and tables arrive in, or leave, the main app |
+| enable / disable | developer, `apps.manage()` | the sub app runs, or not, for the whole main app |
+| activate / deactivate | a person, at runtime | the plugin works, or not, for one organization or hosted app |
 
 ```json
 {
@@ -162,17 +169,18 @@ block to its manifest:
 }
 ```
 
-- `scope` names what one switch covers and the route parameter that carries it. Every route
-  of the plugin must have it (`/apps/:app/review`), or the manifest is refused.
-- `default: "on"` keeps it on until someone turns it off; `off`, the default, the reverse.
-- A required plugin must be on first, and cannot be turned off while a plugin that needs it is
-  on anywhere inside its scope. A default-on plugin may only require plugins of its own scope.
-- Overlapping calls change a switch once, and only that call runs the hook and the event. If the
-  hook or a `PluginChanged` listener fails, the switch goes back and the error is thrown, so a
-  retry runs them again.
+- `scope` names what one activation covers and the route parameter that carries it. Every
+  route of the plugin must have it (`/apps/:app/review`), or the manifest is refused.
+- `default: "on"` keeps it active until someone deactivates it; `off`, the default, the reverse.
+- A required plugin must be active first, and cannot be deactivated while a plugin that needs
+  it is active anywhere inside its scope. A default-on plugin may only require plugins of its
+  own scope.
+- Overlapping calls change an activation once, and only that call runs the hook and the event.
+  If the hook or a `PluginChanged` listener fails, the activation goes back and the error is
+  thrown, so a retry runs them again.
 
-`app().apps.plugins` holds the switches. The `db3_app_activations` table, created with the
-first app install, keeps a row only once someone has switched a plugin, so every process
+`app().apps.plugins` holds the activations. The `db3_plugin_activations` table, created with
+the first sub app install, keeps a row only once someone has changed one, so every process
 agrees and a page refresh reads the same state.
 
 ```ts
@@ -180,22 +188,22 @@ const plugins = app().apps.plugins;
 // A hosted app sits inside an organization, so an organization plugin answers inside it.
 plugins.parent('app', async id => ({ type: 'organization', id: await organizationOf(id) }));
 
-await plugins.turnOn('security_ai', { type: 'app', id: appId }, actor);
-await plugins.isOn('security_ai', { type: 'app', id: appId }); // true
+await plugins.activate('security_ai', { type: 'app', id: appId }, actor);
+await plugins.isActive('security_ai', { type: 'app', id: appId }); // true
 await plugins.list({ type: 'app', id: appId }); // every plugin that reaches this app, with its state
-await plugins.turnOff('security_ai', { type: 'app', id: appId }, actor);
+await plugins.deactivate('security_ai', { type: 'app', id: appId }, actor);
 ```
 
 The route adapter and the MCP server answer a plugin's routes only where its scope parameter
-names a scope it is on for; elsewhere they answer 404 like a missing app. Main apps check their
-own channels with `plugins.allows(appId, params)`.
+names a scope it is active for; elsewhere they answer 404 like a missing sub app. Main apps
+check their own channels with `plugins.allows(appId, params)`.
 
-The switch knows nothing of billing. After a change it runs the plugin's `turnedOn(scope)` or
-`turnedOff(scope)` and dispatches `PluginChanged { appId, scope, on, actorId }`. So either a
-parent app listens for the event and starts or stops a charge, or the plugin calls a billing
-service through its contract from its own hooks. Either may refuse a turn-on before anything
-is saved: the main app with `plugins.check(change => …)`, the plugin by throwing an
-`AppRouteError` from `turningOn(scope)`. Turning off keeps the plugin's data.
+Activation knows nothing of billing. After a change it runs the plugin's `activated(scope)` or
+`deactivated(scope)` and dispatches `PluginChanged { appId, scope, active, actorId }`. So either
+a parent sub app listens for the event and starts or stops a charge, or the plugin calls a
+billing service through its contract from its own hooks. Either may refuse an activation
+before anything is saved: the main app with `plugins.check(request => …)`, the plugin by
+throwing an `AppRouteError` from `activating(scope)`. Deactivating keeps the plugin's data.
 
 ## Use the Starter
 

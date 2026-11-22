@@ -1,5 +1,5 @@
 export type { SubAppManifest, AppMenuItem } from './SubAppManifest';
-export type { AppPlugin, PluginScope, PluginState } from './AppPlugin';
+export type { SubAppPlugin, PluginScope, PluginState } from './SubAppPlugin';
 export type { SubAppDefinition, SubAppDefinitions, SubAppServices, SubAppStartContext } from './SubAppDefinition';
 export type { AppRoute, AppRouteContext, AppRouteInput } from './AppRoute';
 export { APP_ROUTE_RISKS, type AppRouteRisk } from './AppRouteRisk';
