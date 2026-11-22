@@ -65,12 +65,21 @@ export async function buildServer(options: BuildServerOptions): Promise<ServerBu
 	const plugin: Plugin = {
 		name: 'db3-server',
 		setup(esbuild) {
-			// Each output entry first records the compiled apps, then runs the real entry.
+			// Each output entry first records the compiled apps and its source path, then runs the real entry.
 			esbuild.onResolve({ filter: /^db3-entry:/ }, args => ({ path: args.path.slice('db3-entry:'.length), namespace: 'db3-entry' }));
 			esbuild.onLoad({ filter: /.*/, namespace: 'db3-entry' }, args => ({
 				resolveDir: root, loader: 'js',
-				contents: `import 'db3-compiled-apps';\nimport ${JSON.stringify(args.path)};\n`,
+				contents: `import ${JSON.stringify(`db3-argv:${args.path}`)};\nimport 'db3-compiled-apps';\nimport ${JSON.stringify(args.path)};\n`,
 			}));
+			// The entry sees its source file as the script node ran, so `import.meta.url === pathToFileURL(process.argv[1]).href` still finds the main module.
+			esbuild.onResolve({ filter: /^db3-argv:/ }, args => ({ path: args.path.slice('db3-argv:'.length), namespace: 'db3-argv' }));
+			esbuild.onLoad({ filter: /.*/, namespace: 'db3-argv' }, args => {
+				const output = resolve(outdir, `${entries.find(entry => entry.file === args.path)!.name}.mjs`);
+				return {
+					resolveDir: root, loader: 'js',
+					contents: `import { realpathSync } from 'node:fs';\nconst real = file => { try { return realpathSync(file); } catch { return file; } };\nif (process.argv[1] && real(process.argv[1]) === real(${JSON.stringify(output)})) process.argv[1] = ${JSON.stringify(args.path)};\n`,
+				};
+			});
 			esbuild.onResolve({ filter: /^db3-compiled-apps$/ }, () => ({ path: 'apps', namespace: 'db3-apps' }));
 			esbuild.onLoad({ filter: /.*/, namespace: 'db3-apps' }, () => ({
 				resolveDir: root, loader: 'js',

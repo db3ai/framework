@@ -29,7 +29,10 @@ async function fixture() {
 		"const apps = (globalThis as any)[Symbol.for('db3.compiledApps')] as Record<string, () => Promise<{ default: { title: string } }>>;",
 		"const entry = Object.keys(apps)[0]!;",
 		"const loaded = await apps[entry]!();",
-		"console.log(JSON.stringify({ where, folder, entry, title: loaded.default.title, parsed: z.number().parse(3), shouted: shout('hi') }));",
+		"import { pathToFileURL } from 'node:url';",
+		"// A guarded entry, as servers that are also imported by tests use.",
+		"const main = Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]!).href;",
+		"console.log(JSON.stringify({ where, folder, entry, title: loaded.default.title, parsed: z.number().parse(3), shouted: shout('hi'), main }));",
 	].join('\n'));
 	await writeFile(join(root, 'server', 'queue.ts'), "console.log('queue');\n");
 	await writeFile(join(root, 'apps', 'notes', 'manifest.json'), JSON.stringify({ name: 'Notes', version: '1.0.0', description: 'Notes.' }));
@@ -47,7 +50,7 @@ describe('db3 build:server', () => {
 		const printed = JSON.parse(execFileSync(process.execPath, [result.outputs[0]!], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH } }));
 		expect(printed).toEqual({
 			where: pathToFileURL(join(root, 'server', 'lib', 'where.ts')).href, folder: join(root, 'server', 'lib'),
-			entry: join(root, 'apps', 'notes', 'App.ts'), title: 'Notes app', parsed: 3, shouted: 'HI',
+			entry: join(root, 'apps', 'notes', 'App.ts'), title: 'Notes app', parsed: 3, shouted: 'HI', main: true,
 		});
 		expect(execFileSync(process.execPath, [result.outputs[1]!], { cwd: root, encoding: 'utf8' }).trim()).toBe('queue');
 		// Installed JavaScript is loaded from node_modules; TypeScript packages are compiled in.
