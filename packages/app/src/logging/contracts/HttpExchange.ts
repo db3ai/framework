@@ -3,7 +3,7 @@
  */
 export interface HttpBodyLog {
 	/** How the original payload was represented or why it was omitted. */
-	kind: 'empty' | 'json' | 'text' | 'binary' | 'stream';
+	kind: 'empty' | 'json' | 'text' | 'binary' | 'stream' | 'hidden';
 	/** Media type reported by the request or response. */
 	contentType?: string;
 	/** Redacted serialized payload size before the development capture limit. */
