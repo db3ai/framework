@@ -277,39 +277,17 @@ for the provider contract.
 
 ## Coding agents
 
-`codingTools(workspace)` gives an agent the tools OpenAI coding models are
-trained on: the Responses API's native `shell` and `apply_patch` tools, plus an
-`update_plan` function matching the Codex harness. `CODING_AGENT_INSTRUCTIONS`
-holds general coding instructions adapted from Codex (Apache-2.0). Add your
-own workspace facts after them.
+`codingTools(workspace)` returns the native Responses `shell` and `apply_patch`
+tools plus a Codex-style `update_plan`. `CODING_AGENT_INSTRUCTIONS` holds coding
+instructions adapted from Codex (Apache-2.0); append your workspace facts. A
+`CodingWorkspace` runs a command and reads, writes or deletes files; paths are
+validated and patches applied by the framework. `LocalCodingWorkspace` is
+unsandboxed, for tests and trusted local work. Pass `signal: () => this.runSignal`
+so Stop ends running commands. Saved calls replay as native items.
 
-```ts
-class BuildAgent extends Agent<BaseAgentContext & { root: string }> {
-	protected override readonly maxTurns = null;
-	protected instructions() { return `${CODING_AGENT_INSTRUCTIONS}\n\n# This app\nRun npm test before finishing.`; }
-	protected tools() { return codingTools(new LocalCodingWorkspace(this.context.root), { signal: () => this.runSignal }); }
-}
-```
-
-A `CodingWorkspace` only runs a command, reads, writes and deletes files.
-Implement it for a container, a remote runner or a desktop folder; the framework
-validates every path as relative before calling it and applies patches itself.
-`LocalCodingWorkspace` runs commands unsandboxed as the current user, so use it
-only for tests and trusted local work. `runSignal` aborts on Stop and when a
-queue delivery loses ownership; pass it so running commands end too.
-
-Saved `shell` and `apply_patch` rows replay to the model as native items, so a
-continued conversation looks to the model like one long Codex session.
-
-### Messages during a running turn
-
-`app().ai.conversations.steer({ conversationId, message, idempotencyKey })`
-adds a message to the running turn after your application has authorized the
-sender. The turn reads it before its next model call, saves it as a user
-message and keeps it in the input for the rest of the run. It returns
-`accepted: false` when no turn is running; send the message as a normal queued
-followup then. A message that arrives after the turn's last model call is queued
-as a followup when the turn finishes.
+`app().ai.conversations.steer({ conversationId, message, idempotencyKey })` adds
+an authorized message to a running turn before its next model call. It returns
+`accepted: false` when idle; queue a followup then. Late messages become followups.
 
 ## Images, embeddings and structured output
 
