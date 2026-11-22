@@ -247,7 +247,7 @@ export function redactHeaders(
 	const captured: Record<string, unknown> = {};
 
 	for (const [name, value] of Object.entries(headers)) {
-		captured[name] = isSensitiveName(name)
+		captured[name] = isSensitiveName(name) || containsSensitiveWord(name)
 			? redactedValue
 			: boundedHeaderValue(value);
 	}
