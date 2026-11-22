@@ -35,6 +35,16 @@ describe('UserIdentity avatar', () => {
 	});
 });
 
+describe('UserIdentity preferences', () => {
+	it('stores interface choices as JSON and reads them back', async () => {
+		const user = new UserIdentity({ name: 'Steve', email: 'steve@example.com', preferences: { sidebar: 'icons', sidebarWidth: 180 } });
+
+		const row = await user.getDataForDb({ isInsert: true });
+		expect(JSON.parse(String(row.preferences))).toEqual({ sidebar: 'icons', sidebarWidth: 180 });
+		expect(user.toJSON()).toMatchObject({ preferences: { sidebar: 'icons', sidebarWidth: 180 } });
+	});
+});
+
 /**
  * Creates an auth harness for an account with an existing Google provider.
  *
