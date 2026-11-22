@@ -5,6 +5,10 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
+- App: `db3 build:server` compiles server entries and local feature apps to plain
+	JavaScript in `dist-server/`, so production starts with `node` instead of `tsx`
+	(the Starter becomes healthy in about half the time). Create: the Starter's
+	`build` runs it and `start`, `queue` and `scheduler` run the output.
 - Create: new apps include `db3.app.json`, an app profile naming their processes,
 	build script, database and environment variable names; Dock reads it to set
 	up a project's processes.

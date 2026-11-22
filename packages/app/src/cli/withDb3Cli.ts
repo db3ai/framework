@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { register, type ScopedImport } from 'tsx/esm/api';
 import { Cli } from './Cli';
 import { createAgentsCommands, type AppAgentsModule } from './commands/agents';
+import { createBuildServerCommand } from './commands/buildServer';
 import { createReplCommand } from './commands/repl';
 import type * as cli from './contracts';
 
@@ -33,7 +34,7 @@ export async function withDb3Cli<T>(options: cli.CliOptions, use: (runner: Cli) 
 				context.write(context.options.json ? JSON.stringify({ formatVersion: 1, commands }, null, 2) : commands.map(command => `${command.name}  ${command.description}${command.aliases.length ? ` (aliases: ${command.aliases.join(', ')})` : ''}`).join('\n'));
 			},
 		};
-		runner = new Cli({ ...config, commands: [repl, list, ...agents, ...queueCommands, ...createQueueCommands(config.queue), ...createSchedulerCommands(config.scheduler), ...config.commands] }, { ...options, directory });
+		runner = new Cli({ ...config, commands: [repl, list, ...agents, createBuildServerCommand(), ...queueCommands, ...createQueueCommands(config.queue), ...createSchedulerCommands(config.scheduler), ...config.commands] }, { ...options, directory });
 		return await use(runner);
 	} finally {
 		await loader.unregister();

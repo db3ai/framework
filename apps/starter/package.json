@@ -8,8 +8,8 @@
 	},
 	"scripts": {
 		"dev": "node --import tsx scripts/dev.mjs",
-		"build": "npm run check && vite build --configLoader runner",
-		"start": "tsx server/index.ts",
+		"build": "npm run check && vite build --configLoader runner && db3 build:server --entry server/index.ts --entry server/queue.ts --entry server/scheduler.ts",
+		"start": "node dist-server/index.mjs",
 		"check": "node --import tsx scripts/prepareApps.mjs && vue-tsc --noEmit && db3 apps:check",
 		"test": "vitest run --configLoader runner",
 		"db3": "db3",
@@ -18,8 +18,8 @@
 		"db:migrate": "db3 db:migrate",
 		"db:check": "db3 db:check",
 		"db:make:migration": "npm run check && db3 db:make-migration",
-		"queue": "tsx server/queue.ts",
-		"scheduler": "tsx server/scheduler.ts"
+		"queue": "node dist-server/queue.mjs",
+		"scheduler": "node dist-server/scheduler.mjs"
 	},
 	"dependencies": {
 		"@db3.ai/app": "0.1.0",

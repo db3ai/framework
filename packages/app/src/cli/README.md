@@ -79,6 +79,24 @@ before applying it. `db:check` returns a nonzero exit status for drift, pending
 migrations or missing migration files. Unsafe generation remains blocked by
 the database service, and source generation is refused in production.
 
+## Build the server for production
+
+`db3 build:server` compiles server entry files to plain JavaScript in
+`dist-server/`, so production starts with `node` instead of loading every
+TypeScript file through `tsx`. Repeat `--entry` for each process:
+
+```sh
+npx db3 build:server --entry server/index.ts --entry server/queue.ts --entry server/scheduler.ts
+node dist-server/index.mjs
+```
+
+Local feature apps under `apps/` are compiled in too, and `Apps.load` uses them
+without a TypeScript loader. Packages in `node_modules` stay outside the bundle
+and load as usual. Each bundled file keeps its own `import.meta.url`, so paths it
+resolves relative to itself still point at the source tree: build in the folder
+the app runs from, as an image's build step does. The Starter's `npm run build`
+runs this command and its `start`, `queue` and `scheduler` scripts run the output.
+
 ## Register service commands
 
 The starter keeps this configuration under `server/cli.config.ts`:
