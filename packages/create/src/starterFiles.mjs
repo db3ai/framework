@@ -8,7 +8,7 @@ export const STARTER_SOURCE_ENTRIES = new Set([
 	'apps', 'client', 'scripts', 'server', 'tests', 'plans',
 ]);
 
-const artifacts = new Set(['node_modules', 'dist', 'coverage', '.git', '.cache', '.db3', '.vite', '.turbo', '.playwright-cli', 'output', 'playwright-report', 'test-results', '.DS_Store', '.npmrc', 'package-lock.json']);
+const artifacts = new Set(['node_modules', 'dist', 'dist-server', 'coverage', '.git', '.cache', '.db3', '.vite', '.turbo', '.playwright-cli', 'output', 'playwright-report', 'test-results', '.DS_Store', '.npmrc', 'package-lock.json']);
 const extensions = new Set(['.ts', '.mjs', '.json', '.vue', '.css', '.html', '.svg', '.md', '.yml', '.yaml']);
 
 /**

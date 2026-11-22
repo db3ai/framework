@@ -420,7 +420,9 @@ evidence that a live provider was called.
 ## Before public deployment
 
 Build with `npm run build`, apply migrations in a release step, and run
-`NODE_ENV=production npm start` behind HTTPS. Set `APP_ORIGIN` to the exact HTTPS
+`NODE_ENV=production npm start` behind HTTPS. The build also compiles the server,
+queue and scheduler to `dist-server/` with `db3 build:server`, so production
+processes start with plain `node` instead of compiling TypeScript at every start. Set `APP_ORIGIN` to the exact HTTPS
 origin and configure `HOST`/`PORT` for your reverse proxy. Set `TRUSTED_PROXIES`
 to the exact IP or CIDR ranges of proxies directly connecting to the Node
 listener, so rate limits use validated client addresses. Leave it empty for
