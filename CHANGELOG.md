@@ -14,6 +14,10 @@ Pure, App and Create use one lockstep version and one release entry.
 	(`isActive`, `list`, `activate`, `deactivate`, `allows`, `parent`, `check`) keeps the
 	state in `db3_plugin_activations`, runs `activating`/`activated`/`deactivated`, dispatches
 	`PluginChanged`, and route and MCP calls answer only where the plugin is active.
+- App: `db3 build:server` compiles server entries and local sub apps to plain
+	JavaScript in `dist-server/`, so production starts with `node` instead of `tsx`
+	(the Starter becomes healthy in about half the time). Create: the Starter's
+	`build` runs it and `start`, `queue` and `scheduler` run the output.
 - Create: new apps include `db3.app.json`, an app profile naming their processes,
 	build script, database and environment variable names; Dock reads it to set
 	up a project's processes.

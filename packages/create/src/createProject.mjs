@@ -38,6 +38,6 @@ export async function createProject(destination, options = {}) {
 		? example.replace('DB_PORT=3306', 'DB_PORT=33067').replace('DB_PASSWORD=\n', `DB_PASSWORD=${randomBytes(24).toString('hex')}\n`)
 		: example;
 	await writeFile(join(target, '.env'), environment, { flag: 'wx', mode: 0o600 });
-	await writeFile(join(target, '.gitignore'), 'node_modules/\ndist/\n.env\n.env.*\n!.env.example\ncoverage/\nstorage/\n');
+	await writeFile(join(target, '.gitignore'), 'node_modules/\ndist/\ndist-server/\n.env\n.env.*\n!.env.example\ncoverage/\nstorage/\n');
 	return target;
 }

@@ -9,6 +9,7 @@ import type { ScheduledTaskDefinition, ScheduledJobSource } from '../scheduler';
 import { databaseDialectForConnection } from '../db/dialects';
 import { DatabaseMigrationManager, readMigrationPhase, type RollbackResult } from '../db/migrations';
 import type { App } from '../server/App';
+import { COMPILED_APPS } from './compiledApps';
 import { discoverApps } from './discoverApps';
 import { SubApp } from './SubApp';
 import { AppRouteError } from './AppRouteError';
@@ -102,9 +103,11 @@ export class Apps<TDefinitions extends apps.SubAppDefinitions = {}> {
 		this.#definition(id);
 		const source = this.#discovered.get(id);
 		if (!source || this.#loaded.has(id)) return;
-		const unregister = source.entry.endsWith('.ts') ? register() : undefined;
+		// A server built by `db3 build:server` carries its local apps already compiled.
+		const compiled = (globalThis as { [COMPILED_APPS]?: Record<string, () => Promise<{ default: typeof SubApp }>> })[COMPILED_APPS]?.[source.entry];
+		const unregister = !compiled && source.entry.endsWith('.ts') ? register() : undefined;
 		let Service: typeof SubApp;
-		try { ({ default: Service } = await import(pathToFileURL(source.entry).href)); }
+		try { ({ default: Service } = compiled ? await compiled() : await import(pathToFileURL(source.entry).href)); }
 		finally { await unregister?.(); }
 		if (typeof Service !== 'function' || !(Service.prototype instanceof SubApp)) throw new Error(`App "${id}" must default-export a class extending SubApp.`);
 		this.#definitions[id] = {

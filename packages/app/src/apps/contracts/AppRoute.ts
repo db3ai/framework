@@ -43,5 +43,10 @@ export interface AppRoute<TService = unknown> {
 	risk?: AppRouteRisk;
 	/** Schemas the router checks before `handle` runs; also documented. See {@link AppRouteInput}. */
 	input?: AppRouteInput;
+	/**
+	 * The request body carries a secret no field name gives away, such as a variable's value, so
+	 * request logs show it as hidden.
+	 */
+	secretInput?: boolean;
 	handle(context: AppRouteContext<TService>): unknown | Promise<unknown>;
 }

@@ -63,7 +63,8 @@ export async function createServer(application: App, config: StarterConfig) {
 	await application.apps.boot();
 	const server = Fastify({ loggerInstance: application.log.logger as FastifyBaseLogger, bodyLimit: 96 * 1024, trustProxy: config.trustedProxies?.length ? config.trustedProxies : false, ajv: { customOptions: { removeAdditional: false } } });
 	registerBrowserJsonFormatting(server);
-	registerHttpExchangeMonitor(server);
+	// Masked request bodies are logged in production too, for the request list in db3 Cloud.
+	registerHttpExchangeMonitor(server, { requestBodies: true });
 	const ai = config.ai.apiKey ? application.ai : null;
 	const allowance = new AiAllowance();
 	application.health.register('database', databaseHealthCheck(application.db));

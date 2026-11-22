@@ -38,7 +38,7 @@ Environment and shipped configuration
 
 ## Shared definitions and consistent handling
 
-Each feature app can override a synchronous `settings()` method on its root
+Each sub app can override a synchronous `settings()` method on its root
 `SubApp`. The base implementation returns an empty definition, so an app
 with no settings needs no additional code. The method returns schema/metadata
 for the settings the app uses, not their current saved values.
