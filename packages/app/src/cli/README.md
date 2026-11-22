@@ -91,8 +91,9 @@ node dist-server/index.mjs
 ```
 
 Local feature apps under `apps/` are compiled in too, and `Apps.load` uses them
-without a TypeScript loader. Packages in `node_modules` stay outside the bundle
-and load as usual. Each bundled file keeps its own `import.meta.url`, so paths it
+without a TypeScript loader. Installed JavaScript packages stay outside the
+bundle and load from `node_modules` as usual; packages that ship TypeScript
+source are compiled in. Each bundled file keeps its own `import.meta.url`, so paths it
 resolves relative to itself still point at the source tree: build in the folder
 the app runs from, as an image's build step does. The Starter's `npm run build`
 runs this command and its `start`, `queue` and `scheduler` scripts run the output.

@@ -27,17 +27,21 @@ export interface BuildServerOptions {
 	outdir?: string;
 }
 
+const TYPESCRIPT = /\.[cm]?tsx?$/;
 const SOURCE = /\.(?:[cm]?ts|tsx|[cm]?js|jsx)$/;
 const META = /\bimport\.meta\.(url|dirname|filename)\b/g;
 const loaders = { '.ts': 'ts', '.mts': 'ts', '.cts': 'ts', '.tsx': 'tsx', '.js': 'js', '.mjs': 'js', '.cjs': 'js', '.jsx': 'jsx' } as const;
 const insideDependencies = (path: string) => path.split(sep).includes('node_modules');
+/** Installed JavaScript loads from node_modules as it is; TypeScript, wherever it lives, needs compiling. */
+const external = (path: string) => insideDependencies(path) && !TYPESCRIPT.test(path);
 
 /**
  * Compiles server entry files and the app's TypeScript feature apps into plain JavaScript that
  * `node` runs with no TypeScript loader, so a process starts in a fraction of the time `tsx` takes.
  *
- * Packages installed in node_modules stay outside the bundle and load as they do today; the app's
- * own code and linked workspace packages are bundled. Each bundled file keeps its own
+ * Installed JavaScript packages stay outside the bundle and load from node_modules as they do
+ * today; the app's own code, linked workspace packages and packages that ship TypeScript source
+ * are bundled. Each bundled file keeps its own
  * `import.meta.url`, so paths it resolves relative to itself (`../dist`, migrations) still point at
  * the source tree. Build in the folder the app runs from, as the image's build step does.
  * @param options - Root, entries and output folder.
@@ -55,8 +59,8 @@ export async function buildServer(options: BuildServerOptions): Promise<ServerBu
 	});
 	const names = new Set(entries.map(entry => entry.name));
 	if (names.size !== entries.length) throw new Error('Server entries need different file names.');
-	// Local feature apps are imported by path at runtime; compiling them in avoids loading each through tsx.
-	const apps = discoverApps(root).map(app => app.entry).filter(entry => /\.[cm]?tsx?$/.test(entry) && !insideDependencies(entry));
+	// Feature apps are imported by path at runtime; compiling the TypeScript ones in avoids loading each through tsx.
+	const apps = discoverApps(root).map(app => app.entry).filter(entry => TYPESCRIPT.test(entry));
 
 	const plugin: Plugin = {
 		name: 'db3-server',
@@ -78,11 +82,11 @@ export async function buildServer(options: BuildServerOptions): Promise<ServerBu
 				const found = await esbuild.resolve(args.path, { kind: args.kind, resolveDir: args.resolveDir, importer: args.importer, pluginData: { db3: true } });
 				if (found.errors.length || !found.path) return undefined;
 				if (found.external) return { path: args.path, external: true };
-				return insideDependencies(found.path) ? { path: found.path, external: true } : { path: found.path };
+				return external(found.path) ? { path: found.path, external: true } : { path: found.path };
 			});
 			// Gives every bundled module its own location instead of the bundle's.
 			esbuild.onLoad({ filter: SOURCE }, async args => {
-				if (insideDependencies(args.path)) return undefined;
+				if (external(args.path)) return undefined;
 				const source = await readFile(args.path, 'utf8');
 				if (!source.includes('import.meta.')) return undefined;
 				const values = { url: pathToFileURL(args.path).href, dirname: dirname(args.path), filename: args.path };
