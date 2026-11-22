@@ -209,7 +209,7 @@ test('complete AI context contains every registered article and verified source'
 	assert.equal(document.split(validationSource.trim()).length - 1, 1);
 	assert.match(document, /Exact shared source/);
 	// The all-service completion plan adds full field/migration/service references.
-	// Feature apps add their local/npm guide, installation contracts and lifecycle evidence.
+	// Sub apps add their local/npm guide, installation contracts and lifecycle evidence.
 	// The WebSocket guide adds seven executable shared-board sources and their integration test.
 	// Keep the expanded, deduplicated export bounded; normal readers use per-page feeds.
 	// Measure the production feed: repeating a longer preview host must not consume its budget.
@@ -227,7 +227,7 @@ test('complete AI context contains every registered article and verified source'
 	// Billing invoice preview, history and complimentary accounts, and session device details, add public declarations.
 	// Two-factor sign-in (TOTP + recovery codes) adds its model, helpers and guide section.
 	// Described app routes add OpenAPI, reference, AI tool and MCP declarations and their guide section.
-	assert.ok(contentBytes < 1_892_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.892 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
+	assert.ok(contentBytes < 1_898_000, `Production llms-full.txt is ${productionBytes} bytes; content must fit the 1.898 MB budget plus ${mountOverhead} bytes of mount-path overhead`);
 	assert.doesNotMatch(document, /github\.com\/steve-obrien\/platform|git@github\.com:steve-obrien\/platform|\/Users\/steve\//);
 });
 

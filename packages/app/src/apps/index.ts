@@ -1,8 +1,9 @@
 export * from './contracts';
-export { defineApp } from './defineApp';
+export { defineSubApp } from './defineSubApp';
 export { Apps } from './Apps';
 export { AppRouteError } from './AppRouteError';
-export { AppService } from './AppService';
+export { SubApp } from './SubApp';
+export { Plugins, PluginChanged, type PluginActivationRequest, type PluginScopeParent } from './Plugins';
 export { discoverApps } from './discoverApps';
 export { writeAppTypes } from './writeAppTypes';
 export { checkAppBoundaries, formatAppBoundaries, type AppBoundaryProblem, type AppBoundaryReport } from './checkAppBoundaries';

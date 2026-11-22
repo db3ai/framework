@@ -109,10 +109,10 @@ components and starter examples are not exceptions or architectural precedent.
 ## Feature apps
 
 For cohesive features start with apps/{id}/manifest.json and App.ts. The root
-service extends AppService; shared/ is optional. Read src/apps/README.md before
+service extends SubApp; shared/ is optional. Read src/apps/README.md before
 changing discovery, install/uninstall, owned migrations or npm extraction. Use
-app().social for an optional generated service type. Do not add per-app host
-registration or mix feature models into the host snapshot. Marked npm dependencies
+app().social for an optional generated service type. Do not add per-sub-app
+registration or mix sub app models into the main app snapshot. Marked npm dependencies
 are discovered using their exported package.json. Migrations and down functions
 belong to the app; npm lifecycle hooks must never mutate SQL. Starter ships
 administrator controls for single-process hosts; multi-process maintenance

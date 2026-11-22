@@ -192,9 +192,9 @@ initial command explorer.
 
 ## Local Feature Apps And Visual Structure
 
-Start cohesive features in a host-local apps/ directory, with a root manifest.json
-and App.ts service extending AppService. Folder discovery and marked npm dependency
-discovery avoid per-feature host registration. Keep the same ownership when a
+Start cohesive features in the main app's apps/ directory, with a root manifest.json
+and App.ts service extending SubApp. Folder discovery and marked npm dependency
+discovery avoid per-sub-app registration in the main app. Keep the same ownership when a
 feature becomes an independent package. Public services are available through
 app().social, with reserved framework names and generated optional types.
 

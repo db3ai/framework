@@ -36,7 +36,7 @@ const insideDependencies = (path: string) => path.split(sep).includes('node_modu
 const external = (path: string) => insideDependencies(path) && !TYPESCRIPT.test(path);
 
 /**
- * Compiles server entry files and the app's TypeScript feature apps into plain JavaScript that
+ * Compiles server entry files and the app's TypeScript sub apps into plain JavaScript that
  * `node` runs with no TypeScript loader, so a process starts in a fraction of the time `tsx` takes.
  *
  * Installed JavaScript packages stay outside the bundle and load from node_modules as they do
@@ -59,7 +59,7 @@ export async function buildServer(options: BuildServerOptions): Promise<ServerBu
 	});
 	const names = new Set(entries.map(entry => entry.name));
 	if (names.size !== entries.length) throw new Error('Server entries need different file names.');
-	// Feature apps are imported by path at runtime; compiling the TypeScript ones in avoids loading each through tsx.
+	// Sub apps are imported by path at runtime; compiling the TypeScript ones in avoids loading each through tsx.
 	const apps = discoverApps(root).map(app => app.entry).filter(entry => TYPESCRIPT.test(entry));
 
 	const plugin: Plugin = {

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ai, type AIOptions } from '../ai';
 import { Billing, parseBillingConfig, type BillingConfig, type BillingProvider } from '../billing';
-import { Apps, type AppDefinitions, type AppServices, type InstalledApps } from '../apps';
+import { Apps, type SubAppDefinitions, type SubAppServices, type InstalledApps } from '../apps';
 
 import {
 	Auth,
@@ -59,7 +59,7 @@ import {
 } from './appContext';
 
 /** Application root, service configuration and optional dependencies supplied at bootstrap. */
-export interface AppOptions<TApps extends AppDefinitions = {}> {
+export interface AppOptions<TApps extends SubAppDefinitions = {}> {
 	/** Optional explicit composition. Omit to discover local apps and marked npm dependencies. */
 	apps?: TApps;
 	/** App root as a path or file URL; defaults to the working directory at construction. */
@@ -101,7 +101,7 @@ export interface AppOptions<TApps extends AppDefinitions = {}> {
  * Keep this as the place where top-level framework capabilities are discovered
  * and wired, not where domain logic itself accumulates.
  */
-export class App<TApps extends AppDefinitions = {}> {
+export class App<TApps extends SubAppDefinitions = {}> {
 	private readonly services = new Map<string, unknown>();
 	/** Absolute app root used for conventional server paths, independent of later working-directory changes. */
 	readonly directory: string;
@@ -120,8 +120,8 @@ export class App<TApps extends AppDefinitions = {}> {
 	}
 
 	/** Returns the app composition registry with optional, inferred public service accessors. */
-	get apps(): Apps<TApps> & AppServices<TApps> {
-		return this.service('apps', () => new Apps(this, this.options.apps)) as Apps<TApps> & AppServices<TApps>;
+	get apps(): Apps<TApps> & SubAppServices<TApps> {
+		return this.service('apps', () => new Apps(this, this.options.apps)) as Apps<TApps> & SubAppServices<TApps>;
 	}
 
 	/** Returns the lazy database service with this app's connection, model registry and root directory. */
@@ -425,4 +425,4 @@ function parseOptionalBoolean(input: string | undefined): boolean | undefined {
 }
 
 /** Optional discovered app services, generated from root App.ts classes by DB3 tooling. */
-export interface App<TApps extends AppDefinitions = {}> extends InstalledApps {}
+export interface App<TApps extends SubAppDefinitions = {}> extends InstalledApps {}

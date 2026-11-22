@@ -1,13 +1,18 @@
-# Apps: add a folder, then install
+# Sub apps: add a folder, then install
 
-Put a cohesive feature in `apps/{id}/` inside the host application. DB3 discovers
+Put a cohesive feature in `apps/{id}/` inside the main app. DB3 discovers
 its root `manifest.json` without importing its code. Install it from the Starter's
-Apps screen or the CLI. There are no per-app host imports, model lists, navigation
+Apps screen or the CLI. There are no per-sub-app imports, model lists, navigation
 registrations or CSS source directives to edit.
+
+**Words.** The **main app** is the program you run: `new App()`, reached anywhere as
+`app()`. A **sub app** is an `apps/<id>/` folder inside it: a whole product with its own
+models, routes and screens, built like the main app, whose root class extends `SubApp`.
+A **service** is a smaller piece inside a sub app (`apps/<id>/services/<name>/`).
 
 Start locally and extract the folder into an independent npm package when it
 needs reuse or independent releases. General-purpose libraries still belong in
-`packages/`. A feature app shares the host's runtime, database and authentication.
+`packages/`. A sub app shares the main app's runtime, database and authentication.
 
 The documentation generator and packed Create test share the Hello fragments in
 `examples/helloGuideSamples.ts`, allowing an independent public checkout to verify
@@ -53,15 +58,15 @@ if present, `id` must agree with the folder name.
 ```
 
 `App.ts` default-exports the public service. It can expose subservices as the app
-grows. Extend `AppService`, not the host's framework `App`:
+grows. Extend `SubApp`, not the main app's framework `App`:
 
 ```ts
-import { AppService } from '@db3.ai/app/apps';
+import { SubApp } from '@db3.ai/app/apps';
 import { SocialOpportunity } from './server/models/SocialOpportunity.js';
 import { socialRoutes } from './server/routes.js';
 
-/** Public Social service; the framework supplies the existing host. */
-export default class App extends AppService {
+/** Public Social service; the framework supplies the main app. */
+export default class App extends SubApp {
 	static override models = [SocialOpportunity];
 	static override routes = socialRoutes;
 
@@ -76,7 +81,7 @@ Static navigation can stay in JSON so a visual tool can inspect an uninstalled a
 without executing its server code. Apps that need live counts, permission-aware
 links or status information provide `navigation(context)` on their root service.
 `client/index.ts` default-exports its browser component.
-Its host supplies an app-relative `path` prop; Social handles its own About view.
+The main app supplies an app-relative `path` prop; Social handles its own About view.
 Backend-only apps may omit `client/`. Do not put secrets in the manifest.
 
 ## Contributions from enabled apps
@@ -104,16 +109,16 @@ override async navigation(context: AppNavigationContext): Promise<AppNavigation>
 }
 ```
 
-The host authenticates the request, then calls:
+The main app authenticates the request, then calls:
 
 ```ts
-const navigation = await host.apps.navigation({ actor: { id: verifiedUser.id } });
+const navigation = await application.apps.navigation({ actor: { id: verifiedUser.id } });
 // { apps: [{ appId, name, icon, items, badge?, description? }], unavailable: [] }
 ```
 
 Only booted, enabled apps participate. Providers receive a frozen request context
-and the host database scope. An optional `organisationId` must already be authorized
-by the host; apps still enforce their own permissions. Never accept the actor from
+and the main app's database scope. An optional `organisationId` must already be authorized
+by the main app; sub apps still enforce their own permissions. Never accept the actor from
 query parameters or cache a viewer's data on the shared service instance.
 
 - No override, or `undefined`: use manifest navigation, defaulting to no sublinks.
@@ -138,9 +143,67 @@ There is no background polling or push transport in this initial contract.
 
 Navigation requests participate in lifecycle draining automatically. Providers run
 concurrently and the registry waits for them all; providers should use bounded
-database/network operations. Programmatic `defineApp` compositions can supply
+database/network operations. Programmatic `defineSubApp` compositions can supply
 `navigation(context, service)` with the same return contract. Further contribution
 types can follow this pattern when there is a concrete consumer.
+
+## Plugins: sub apps each organization activates
+
+A sub app without a `plugin` block is always active once installed, like the core sub apps
+a main app ships with. A **plugin** is a sub app that people also **activate** and
+**deactivate** for one scope, such as an organization or a hosted app, like extensions in
+VS Code. Three words, three levels:
+
+| Word | Who | Covers |
+| --- | --- | --- |
+| install / uninstall | developer or CLI, processes stopped | code and tables arrive in, or leave, the main app |
+| enable / disable | developer, `apps.manage()` | the sub app runs, or not, for the whole main app |
+| activate / deactivate | a person, at runtime | the plugin works, or not, for one organization or hosted app |
+
+```json
+{
+	"name": "AI security",
+	"version": "0.1.0",
+	"requires": { "security_monitor": 1 },
+	"plugin": { "scope": "app", "default": "off" }
+}
+```
+
+- `scope` names what one activation covers and the route parameter that carries it. Every
+  route of the plugin must have it (`/apps/:app/review`), or the manifest is refused.
+- `default: "on"` keeps it active until someone deactivates it; `off`, the default, the reverse.
+- A required plugin must be active first, and cannot be deactivated while a plugin that needs
+  it is active anywhere inside its scope. A default-on plugin may only require plugins of its
+  own scope.
+- Overlapping calls change an activation once, and only that call runs the hook and the event.
+  If the hook or a `PluginChanged` listener fails, the activation goes back and the error is
+  thrown, so a retry runs them again.
+
+`app().apps.plugins` holds the activations. The `db3_plugin_activations` table, created with
+the first sub app install, keeps a row only once someone has changed one, so every process
+agrees and a page refresh reads the same state.
+
+```ts
+const plugins = app().apps.plugins;
+// A hosted app sits inside an organization, so an organization plugin answers inside it.
+plugins.parent('app', async id => ({ type: 'organization', id: await organizationOf(id) }));
+
+await plugins.activate('security_ai', { type: 'app', id: appId }, actor);
+await plugins.isActive('security_ai', { type: 'app', id: appId }); // true
+await plugins.list({ type: 'app', id: appId }); // every plugin that reaches this app, with its state
+await plugins.deactivate('security_ai', { type: 'app', id: appId }, actor);
+```
+
+The route adapter and the MCP server answer a plugin's routes only where its scope parameter
+names a scope it is active for; elsewhere they answer 404 like a missing sub app. Main apps
+check their own channels with `plugins.allows(appId, params)`.
+
+Activation knows nothing of billing. After a change it runs the plugin's `activated(scope)` or
+`deactivated(scope)` and dispatches `PluginChanged { appId, scope, active, actorId }`. So either
+a parent sub app listens for the event and starts or stops a charge, or the plugin calls a
+billing service through its contract from its own hooks. Either may refuse an activation
+before anything is saved: the main app with `plugins.check(request => …)`, the plugin by
+throwing an `AppRouteError` from `activating(scope)`. Deactivating keeps the plugin's data.
 
 ## Use the Starter
 
@@ -170,16 +233,16 @@ Production browser bundles still need rebuilding when code is added or removed.
 Changing an existing app's code/version requires restarting its server processes;
 this implementation does not replace loaded JavaScript modules in place.
 
-## One-time host integration
+## One-time main app integration
 
-Starter already includes this wiring. A custom host sets its root directory,
+Starter already includes this wiring. A custom main app sets its root directory,
 boots apps before serving requests, mounts the authenticated adapter and exposes
 the catalog. Omitting `apps` enables discovery; `apps: {}` opts out. An explicit
-`defineApp` map remains available for tests and unusual compositions.
+`defineSubApp` map remains available for tests and unusual compositions.
 
 ```ts
-const host = new App({ directory: new URL('../', import.meta.url) });
-await host.apps.boot();
+const application = new App({ directory: new URL('../', import.meta.url) });
+await application.apps.boot();
 ```
 
 For Vite frontends, add `appsPlugin()` from `@db3.ai/app/apps/vite` once. Import
@@ -189,8 +252,8 @@ The Starter ships the virtual-module declaration and `AppWorkspace.vue`, which
 renders the catalog, icons, sublinks and administrator actions. Other frontends
 can render the same contracts using their own router.
 
-`writeAppTypes(hostDirectory)` generates `.db3/apps.d.ts` without executing app
-code. Include it in the host TypeScript configuration. Starter runs it before
+`writeAppTypes(mainAppDirectory)` generates `.db3/apps.d.ts` without executing app
+code. Include it in the main app's TypeScript configuration. Starter runs it before
 type checking; Vite also runs it during development/build. Generated declarations
 make direct access optional and typed:
 
@@ -201,7 +264,7 @@ const social = app().social;
 if (social) await social.list(verifiedUserId);
 ```
 
-`host.apps.get('social')` also supports runtime discovery. Framework service names,
+`application.apps.get('social')` also supports runtime discovery. Framework service names,
 registry names, prototype names and `db3`/`db3_` are reserved. Collisions fail before
 app code loads. Identifiers start with a lowercase letter and contain at most 40
 lowercase letters, digits or underscores.
@@ -312,17 +375,17 @@ export const noteRoutes: AppRoute<App>[] = [
   `body.text: Too small`, and the handler receives the parsed values, with
   defaults and coercions applied. Routes without `input` receive the raw request.
 
-The generators read the same table the router serves, `host.apps.routes()`:
+The generators read the same table the router serves, `application.apps.routes()`:
 
 ```ts
 import { appOpenApi, appReference, appTools } from '@db3.ai/app/apps';
 import { registerAppMcp } from '@db3.ai/app/apps/fastify';
 
-const tools = appTools(host.apps.routes(), { fixed: ['team'] });
-const spec = appOpenApi(host.apps.routes(), { info: { title: 'Notes API', version: '1' }, tools });
+const tools = appTools(application.apps.routes(), { fixed: ['team'] });
+const spec = appOpenApi(application.apps.routes(), { info: { title: 'Notes API', version: '1' }, tools });
 server.get('/api/openapi.json', async () => spec);
 server.get('/api/reference.md', async (_request, reply) => reply.type('text/markdown').send(appReference(spec)));
-registerAppMcp(server, host.apps, {
+registerAppMcp(server, application.apps, {
 	serverInfo: { name: 'notes', title: 'Notes', version: '1' }, origin: config.origin, tools,
 	authorize: async request => ({ actor: { id: await userFromKey(request.headers.authorization) }, params: { team: await teamOfKey(request.headers.authorization) } }),
 });
@@ -346,7 +409,7 @@ registerAppMcp(server, host.apps, {
   registered; register it after the apps it serves have booted.
 
 To record who changed what, wrap the routes before the app returns them: the
-wrapper sees every HTTP and MCP call, with the actor the host passed.
+wrapper sees every HTTP and MCP call, with the actor the main app passed.
 
 ## Lifecycle and administration
 
@@ -360,8 +423,8 @@ The base service provides these overridable asynchronous hooks:
   outstanding jobs or schedules would be stranded. The framework does not infer
   job cancellation from a deleted directory.
 
-`host.apps.manage(action, id)` supports install, enable, disable and uninstall
-inside an explicitly authorized **single-process** host. It rejects new app HTTP
+`application.apps.manage(action, id)` supports install, enable, disable and uninstall
+inside an explicitly authorized **single-process** main app. It rejects new app HTTP
 requests while waiting for existing app requests, closes owned resources, applies
 the action and boots the remaining apps. The Starter exposes it only to the
 configured administrator, with session authentication and Origin protection.
@@ -373,11 +436,11 @@ participate in draining, and background resources must register cleanup.
 For multiple processes, stop all affected web/worker runtimes and use the CLI.
 The database advisory lock serializes installers; it cannot stop other processes.
 Boot never applies migrations. `App.close()` releases app resources before shared
-framework services. Installation is host-wide, not per tenant.
+framework services. Installation covers the whole main app, not one tenant.
 
 ## App-owned migrations and down migrations
 
-Feature models stay out of the host's model list and schema snapshot. Tables must
+Sub app models stay out of the main app's model list and schema snapshot. Tables must
 start with `{id}_`, such as `social_opportunities`. Each app owns `database/`, its
 snapshot and immutable `.mjs` migrations beside `App.ts` (beside `dist/App.js` when
 packaged). The framework keeps installation metadata in `db3_apps` and a separate
@@ -415,13 +478,13 @@ Increase the stable `x.y.z` manifest/package version for releases and use instal
 for upgrades. Installation fingerprints migration bytes and refuses changed or
 missing history and version downgrades. A failed migration, install hook or schema
 check leaves a failed installation; repair and retry. MariaDB DDL is not atomic.
-Use `await host.apps.load(id)` before `host.apps.migrations(id)` for inspection or
+Use `await application.apps.load(id)` before `application.apps.migrations(id)` for inspection or
 source tooling outside the supplied commands. Never generate inside node_modules.
 
 ## Extract the same app to npm
 
 Social includes an independent build and private package named `@db3.ai/social`.
-The name is an example, not a claim of publication. From the host root:
+The name is an example, not a claim of publication. From the main app's root:
 
 ```sh
 npm pack ./apps/social --pack-destination /tmp
@@ -430,7 +493,7 @@ npm install /tmp/db3.ai-social-0.1.0.tgz
 ```
 
 Choose an unused extraction destination. Stop running consumers before switching
-sources; restart/rebuild afterward. Do not keep both copies in discovery. No host
+sources; restart/rebuild afterward. Do not keep both copies in discovery. No main app
 source edits are needed. Install from the Apps screen or `apps:install social`.
 An identical local/package version reuses the existing migration history.
 
@@ -461,23 +524,23 @@ Social's build shows this complete pattern. Outside the monorepo, install its
 declared development dependencies before building. `shared/` stays optional.
 
 To remove an app, click **Uninstall · keep data**, then delete its local folder
-or run `npm uninstall @db3.ai/social`. In multi-process hosts use
+or run `npm uninstall @db3.ai/social`. In multi-process main apps use
 `apps:uninstall social` while all consumers are stopped and code is still present.
-Rebuild the browser and restart servers after code removal. There are no host
+Rebuild the browser and restart servers after code removal. There are no main app
 imports to clean up. Required dependants must be removed first. If enabled code
 was deleted prematurely, restore it to run its uninstall hook. Reinstalling a
 compatible copy recovers retained data. Npm lifecycle scripts never migrate SQL.
 
 ## Verification and boundaries
 
-Keep a feature app's behaviour tests with its own code and import the smallest
-feature entry that exercises the contract. Add those test paths to the host's
+Keep a sub app's behaviour tests with its own code and import the smallest
+feature entry that exercises the contract. Add those test paths to the main app's
 Vitest configuration so a focused `npm test -- <test path>` runs them without
 selecting every other feature. Use real framework services and install only the
-models required by that fixture. Reserve complete host bootstrap and all-app
+models required by that fixture. Reserve complete main app bootstrap and all-app
 schemas for tests that verify composition, discovery or cross-app workflows.
 This keeps adding an unrelated app from expanding each existing test's import
-graph and schema setup. Full host and package checks remain the release boundary.
+graph and schema setup. Full main app and package checks remain the release boundary.
 
 `npm run framework:apps:test` builds actual tarballs, installs them into a clean
 temporary consumer, generates service types, compiles TypeScript, builds discovered
@@ -487,8 +550,8 @@ routes and administrator actions; framework tests cover discovery, dependencies,
 cleanup, in-flight draining, schema failures, history integrity and authored down
 migrations.
 
-Apps are trusted code in the host process, not a security sandbox. The manifest
+Apps are trusted code in the main app's process, not a security sandbox. The manifest
 supports visual exploration; visual definition editing, automatic social-platform
 discovery, tenant installations and live replacement of existing code are future
-work. Host authentication and authorization remain mandatory regardless of menu
+work. Main app authentication and authorization remain mandatory regardless of menu
 visibility.

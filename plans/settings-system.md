@@ -38,19 +38,19 @@ Environment and shipped configuration
 
 ## Shared definitions and consistent handling
 
-Each feature app can override a synchronous `settings()` method on its root
-`AppService`. The base implementation returns an empty definition, so an app
+Each sub app can override a synchronous `settings()` method on its root
+`SubApp`. The base implementation returns an empty definition, so an app
 with no settings needs no additional code. The method returns schema/metadata
 for the settings the app uses, not their current saved values.
 
 For example, the proposed hook for an app with manifest ID `publishing` is:
 
 ```ts
-import { AppService } from '@db3.ai/app/apps';
+import { SubApp } from '@db3.ai/app/apps';
 import { field } from '@db3.ai/app/settings';
 
 /** Provides the publishing feature and its settings declarations. */
-export default class PublishingApp extends AppService {
+export default class PublishingApp extends SubApp {
 	/**
 	 * Declares the fields the common Settings UI can edit for this app.
 	 * @returns App-local keys, their fields and the scopes allowed to override them.
@@ -332,7 +332,7 @@ must not retain one request's tenant state.
    table, individual/bulk helpers and exact-scope behaviour with behaviour tests.
 2. Add named/bulk cache support, Redis integration and the shared-directory file
    driver; verify SQL-first writes, cache misses and degradation behaviour.
-3. Add the optional `AppService.settings()` hook and automatic collection, trusted
+3. Add the optional `SubApp.settings()` hook and automatic collection, trusted
    request-context helpers, field adapters and safe declarations. Verify apps
    with no settings, namespace ownership, scope isolation, strict validation and
    encrypted round trips.

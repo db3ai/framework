@@ -90,7 +90,7 @@ npx db3 build:server --entry server/index.ts --entry server/queue.ts --entry ser
 node dist-server/index.mjs
 ```
 
-Local feature apps under `apps/` are compiled in too, and `Apps.load` uses them
+Local sub apps under `apps/` are compiled in too, and `Apps.load` uses them
 without a TypeScript loader. Installed JavaScript packages stay outside the
 bundle and load from `node_modules` as usual; packages that ship TypeScript
 source are compiled in. Each bundled file keeps its own `import.meta.url`, so paths it

@@ -1,4 +1,4 @@
-import type { AppMenuItem } from './AppManifest';
+import type { AppMenuItem } from './SubAppManifest';
 import type { AppNavigationBadge } from './AppNavigationBadge';
 
 /** One app's current navigation contribution. Return null from the provider to hide the app for this viewer. */

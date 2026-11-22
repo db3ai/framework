@@ -1,11 +1,12 @@
-export type { AppManifest, AppMenuItem } from './AppManifest';
-export type { AppDefinition, AppDefinitions, AppServices, AppStartContext } from './AppDefinition';
+export type { SubAppManifest, AppMenuItem } from './SubAppManifest';
+export type { SubAppPlugin, PluginScope, PluginState } from './SubAppPlugin';
+export type { SubAppDefinition, SubAppDefinitions, SubAppServices, SubAppStartContext } from './SubAppDefinition';
 export type { AppRoute, AppRouteContext, AppRouteInput } from './AppRoute';
 export { APP_ROUTE_RISKS, type AppRouteRisk } from './AppRouteRisk';
-export type { AppDescription, AppInstallationState, AppClientDefinition } from './AppDescription';
-export type { DiscoveredApp } from './DiscoveredApp';
+export type { SubAppDescription, SubAppInstallationState, SubAppClientDefinition } from './SubAppDescription';
+export type { DiscoveredSubApp } from './DiscoveredSubApp';
 export type { InstalledApps } from './InstalledApps';
-export type { AppAction } from './AppAction';
+export type { SubAppAction } from './SubAppAction';
 export type { AppNavigation } from './AppNavigation';
 export type { AppNavigationBadge } from './AppNavigationBadge';
 export type { AppNavigationContext } from './AppNavigationContext';

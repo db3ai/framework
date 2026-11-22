@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ActiveRecord, type FieldBuilder } from '@db3.ai/app/db';
 import { App } from '@db3.ai/app/server';
-import { defineApp, AppRouteError, type AppDefinition, type AppNavigation } from '@db3.ai/app/apps';
+import { defineSubApp, AppRouteError, type SubAppDefinition, type AppNavigation } from '@db3.ai/app/apps';
 import { registerAppRoutes } from '@db3.ai/app/apps/fastify';
 import { QueueableJob, QueuedJob, FailedJob } from '@db3.ai/app/queue';
 import { ScheduledOccurrence } from '@db3.ai/app/scheduler';
@@ -39,8 +39,8 @@ class AppReviewJob extends QueueableJob {
 }
 
 /** Defines a small real service with inspectable metadata and an authenticated route. */
-function feature(id = 'social'): AppDefinition<{ label: string }> {
-	return defineApp({
+function feature(id = 'social'): SubAppDefinition<{ label: string }> {
+	return defineSubApp({
 		manifest: { id, name: id, version: '1.0.0', icon: '◎', navigation: [{ id: 'home', label: 'Overview', path: '' }] },
 		create: () => ({ label: id }),
 		routes: [{ method: 'GET', path: '/', handle: ({ service, actor }) => ({ label: service.label, actor: actor.id }) }],
@@ -48,7 +48,7 @@ function feature(id = 'social'): AppDefinition<{ label: string }> {
 }
 
 /** Creates a host using the disposable database and tracks its resource ownership. */
-function host<T extends Record<string, AppDefinition<any>>>(apps: T) {
+function host<T extends Record<string, SubAppDefinition<any>>>(apps: T) {
 	const application = new App({ db: database.db, apps });
 	hosts.push(application);
 	return application;
@@ -301,7 +301,7 @@ describe('app composition through public exports', () => {
 		const social = feature();
 		social.manifest.requires = { base: 1 };
 		social.manifest.optional = { crm: 1 };
-		social.start = ({ host }) => { expect(host.apps.get('base')).toBeDefined(); order.push('social'); };
+		social.start = ({ app }) => { expect(app.apps.get('base')).toBeDefined(); order.push('social'); };
 		const application = host({ social, base });
 		await expect(application.apps.install('social')).rejects.toThrow('requires enabled app');
 		await application.apps.install('base');

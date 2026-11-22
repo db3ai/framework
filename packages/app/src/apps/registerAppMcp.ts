@@ -71,7 +71,7 @@ export function registerAppMcp(server: FastifyInstance, apps: Apps<any>, options
 		try {
 			const result = await apps.run(async () => {
 				const service = apps.get(tool.appId);
-				if (service === undefined) throw new AppRouteError(404, 'App is unavailable.');
+				if (service === undefined || !await apps.plugins.allows(tool.appId, params)) throw new AppRouteError(404, 'App is unavailable.');
 				return callAppRoute(tool.route, { service, actor, params, query: object(input.query), body: tool.route.method === 'GET' ? {} : tool.route.input?.body ? input.body : object(input.body) });
 			});
 			const text = JSON.stringify(result ?? null);

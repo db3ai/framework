@@ -301,12 +301,12 @@ and [`RequestContext.ts`](./RequestContext.ts). Behavioural tests live at
 `packages/app/src/server/tests/` in the source repository and are not included
 in the installed runtime package.
 
-## Composing feature apps
+## Composing sub apps
 
 Set the host directory and call `await application.apps.boot()` before serving
 requests. DB3 discovers apps/{id}/manifest.json and marked direct npm dependencies.
-A root App.ts extends AppService; app().social resolves the optional service.
-Generated declarations preserve its type. Explicit defineApp maps are supported
+A root App.ts extends SubApp; app().social resolves the optional service.
+Generated declarations preserve its type. Explicit defineSubApp maps are supported
 for programmatic composition; an empty map disables discovery. App.close()
 releases app-owned resources before shared services. See [Apps](../apps/README.md)
 for local folders, npm packaging, owned migrations and administrator controls.

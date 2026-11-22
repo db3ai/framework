@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AppService, AppRouteError, type AppNavigation, type AppNavigationContext } from '@db3.ai/app/apps';
+import { SubApp, AppRouteError, type AppNavigation, type AppNavigationContext } from '@db3.ai/app/apps';
 import { SocialOpportunity } from './server/models/SocialOpportunity.js';
 
 import { socialRoutes } from './server/routes.js';
@@ -19,7 +19,7 @@ const input = z.object({
 const transition = z.object({ status: z.enum(['saved', 'answered', 'dismissed']) }).strict();
 
 /** Public app service. It stores user-selected links and never calls social platforms or posts replies. */
-export default class App extends AppService {
+export default class App extends SubApp {
 	static override models = [SocialOpportunity];
 	static override routes = socialRoutes;
 	static override jobs = [ReviewSavedOpportunitiesJob];
@@ -36,7 +36,7 @@ export default class App extends AppService {
 			const entries = await query.all();
 			for (const entry of entries) {
 				if (!entry.owner || !entry.id || !entry.title) throw new Error('Stored social opportunity is missing its owner, identity or title.');
-				await this.host.notifications.send(entry.owner, new SavedOpportunityNotification(entry.id, entry.title));
+				await this.app.notifications.send(entry.owner, new SavedOpportunityNotification(entry.id, entry.title));
 			}
 			if (entries.length < 100) return;
 			after = entries[entries.length - 1].id!;

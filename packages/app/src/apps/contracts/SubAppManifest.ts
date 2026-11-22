@@ -1,7 +1,8 @@
 import type { AppNavigationBadge } from './AppNavigationBadge';
+import type { SubAppPlugin } from './SubAppPlugin';
 
 /** Browser-safe description of an app, shared by runtime, navigation and visual tools. */
-export interface AppManifest {
+export interface SubAppManifest {
 	/** Stable lowercase identifier; also owns the database and route namespaces. */
 	id: string;
 	name: string;
@@ -24,6 +25,8 @@ export interface AppManifest {
 	contract?: string;
 	/** Default destinations beneath /apps/{id}; a runtime navigation provider may replace these per viewer. */
 	navigation?: readonly AppMenuItem[];
+	/** Makes this app a plugin that each scope turns on and off; without it, an installed app is always on. */
+	plugin?: SubAppPlugin;
 }
 
 /** One app-owned navigation item; nesting is deliberately limited to one level. */

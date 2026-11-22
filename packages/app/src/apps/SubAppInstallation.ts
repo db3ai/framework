@@ -1,8 +1,8 @@
 import { ActiveRecord, type FieldBuilder } from '../db';
-import type { AppDescription, AppInstallationState } from './contracts';
+import type { SubAppDescription, SubAppInstallationState } from './contracts';
 
 /** Framework-owned record retained after code removal; business tables and migration ledgers stay separate. */
-export class AppInstallation extends ActiveRecord {
+export class SubAppInstallation extends ActiveRecord {
 	static override table = 'db3_apps';
 
 	/** Defines durable installation identity, desired state and retained ownership evidence. */
@@ -12,7 +12,7 @@ export class AppInstallation extends ActiveRecord {
 			appId: field.string({ column: 'app_id', required: true, length: 48, unique: true }),
 			version: field.string({ required: true, length: 64 }),
 			state: field.string({ required: true, length: 24 }),
-			description: field.json<AppDescription>({ required: true }),
+			description: field.json<SubAppDescription>({ required: true }),
 			migrationHashes: field.json<Record<string, string>>({ column: 'migration_hashes', required: true }),
 			compatibleFrom: field.string({ column: 'compatible_from', length: 64 }),
 		};
@@ -20,8 +20,8 @@ export class AppInstallation extends ActiveRecord {
 	declare id: string | null;
 	declare appId: string;
 	declare version: string;
-	declare state: AppInstallationState;
-	declare description: AppDescription;
+	declare state: SubAppInstallationState;
+	declare description: SubAppDescription;
 	declare migrationHashes: Record<string, string>;
 	/** Oldest app version that can run on the installed schema; null on records from before it was tracked. */
 	declare compatibleFrom: string | null;

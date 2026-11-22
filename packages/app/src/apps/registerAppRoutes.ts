@@ -23,6 +23,7 @@ export function registerAppRoutes(server: FastifyInstance, apps: Apps<any>, auth
 							if (route.secretInput) hideRequestBody(request);
 							const actor = await authorize(request, appId);
 							if (!actor?.id) throw new AppRouteError(401, 'Please sign in.');
+							if (!await apps.plugins.allows(appId, params)) return reply.code(404).send({ message: 'App is unavailable.' });
 							const result = await callAppRoute(route, { service, actor, body: request.body, params, query: request.query as Record<string, unknown> });
 							return reply.code(route.status ?? 200).send(result);
 						}

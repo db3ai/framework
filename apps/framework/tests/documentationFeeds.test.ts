@@ -77,11 +77,11 @@ test('service references are explicit public resources and never arbitrary repos
 	const guide = await server.inject('/framework/docs/apps.md');
 	const reference = await server.inject('/framework/docs/apps/reference.md');
 	assert.equal(guide.statusCode, 200);
-	assert.match(guide.body, /Create a feature app/);
+	assert.match(guide.body, /Create a sub app/);
 	assert.match(guide.body, /https:\/\/db3\.ai\/framework\/docs\/apps\/reference.md/);
-	assert.doesNotMatch(guide.body, /# Apps: add a folder, then install/);
+	assert.doesNotMatch(guide.body, /# Sub apps: add a folder, then install/);
 	assert.equal(reference.statusCode, 200);
 	assert.match(reference.headers['content-type'] ?? '', /^text\/markdown/);
-	assert.match(reference.body, /# Apps: add a folder, then install/);
+	assert.match(reference.body, /# Sub apps: add a folder, then install/);
 	assert.equal((await server.inject('/framework/docs/internal-plan/reference.md')).statusCode, 404);
 });

@@ -4,7 +4,7 @@ Start with this folder inside a DB3 host's `apps/` directory. The framework
 reads root `manifest.json` and discovers root `App.ts`; there is no host
 registration code. Install from the Starter Apps screen or `db3 apps:install social`.
 
-`App.ts` extends `AppService` and is the optional `app().social` public service.
+`App.ts` extends `SubApp` and is the optional `app().social` public service.
 It owns `server/models`, `server/routes.ts`, `database/` and `client/`. `shared/`
 contains browser-safe data contracts and is optional. The manifest owns the icon;
 `App.navigation(context)` provides links, status text and a saved-opportunity badge

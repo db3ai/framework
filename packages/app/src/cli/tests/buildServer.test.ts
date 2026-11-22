@@ -10,7 +10,7 @@ const packageRoot = fileURLToPath(new URL('../../../', import.meta.url));
 const made: string[] = [];
 afterEach(async () => { await Promise.all(made.splice(0).map(folder => rm(folder, { recursive: true, force: true }))); });
 
-/** Writes a small app with a server entry, a helper that reads its own location, and a local feature app. */
+/** Writes a small app with a server entry, a helper that reads its own location, and a local sub app. */
 async function fixture() {
 	const root = await mkdtemp(join(packageRoot, '.build-server-'));
 	made.push(root);

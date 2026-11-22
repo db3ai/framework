@@ -6,7 +6,7 @@ Shared backend framework package for DB3 applications.
 
 This package owns reusable runtime services and data-layer mechanics:
 
-- `apps`: local feature apps, optional public services, owned migrations, lifecycle and inspectable navigation metadata. See [Apps](src/apps/README.md) for local folders and npm extraction.
+- `apps`: local sub apps, optional public services, owned migrations, lifecycle and inspectable navigation metadata. See [Sub apps](src/apps/README.md) for local folders and npm extraction.
 
 - `config`: explicit config repositories and environment parsing helpers.
 - `cli`: shared `db3` commands, interactive app REPL, service registration, help and app lifecycle.

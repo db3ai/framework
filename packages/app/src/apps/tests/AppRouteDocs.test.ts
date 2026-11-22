@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { z } from 'zod';
 import { App } from '@db3.ai/app/server';
-import { defineApp, AppRouteError, appOpenApi, appReference, appTools, type AppDefinition } from '@db3.ai/app/apps';
+import { defineSubApp, AppRouteError, appOpenApi, appReference, appTools, type SubAppDefinition } from '@db3.ai/app/apps';
 import { registerAppMcp, registerAppRoutes } from '@db3.ai/app/apps/fastify';
 import { createGeneratedTestDatabase, type GeneratedTestDatabase } from '@db3.ai/app/db/test/db';
 
 /** A notes app with described routes: a read, a change and a delete, scoped to a team. */
-function notes(): AppDefinition<{ notes: Map<string, string> }> {
-	return defineApp({
+function notes(): SubAppDefinition<{ notes: Map<string, string> }> {
+	return defineSubApp({
 		manifest: { id: 'notes', name: 'Notes', version: '1.0.0', icon: '✎' },
 		create: () => ({ notes: new Map([['n1', 'Buy flour']]) }),
 		routes: [

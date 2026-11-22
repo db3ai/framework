@@ -5,7 +5,16 @@ Pure, App and Create use one lockstep version and one release entry.
 
 ## [Unreleased]
 
-- App: `db3 build:server` compiles server entries and local feature apps to plain
+- App: the two levels are named main app (`App`, `app()`) and sub app (`apps/<id>`):
+	`AppService` is now `SubApp` (reaching the main app as `this.app`, was `this.host`),
+	and `defineApp`, `AppManifest`, `AppDefinition(s)`, `AppServices`, `AppStartContext`,
+	`AppDescription`, `DiscoveredApp`, `AppInstallation` and `AppAction` take the `SubApp` name.
+- App: plugins. A manifest `plugin` block (`scope`, `default`) makes a sub app something
+	each organization or hosted app activates and deactivates. `app().apps.plugins`
+	(`isActive`, `list`, `activate`, `deactivate`, `allows`, `parent`, `check`) keeps the
+	state in `db3_plugin_activations`, runs `activating`/`activated`/`deactivated`, dispatches
+	`PluginChanged`, and route and MCP calls answer only where the plugin is active.
+- App: `db3 build:server` compiles server entries and local sub apps to plain
 	JavaScript in `dist-server/`, so production starts with `node` instead of `tsx`
 	(the Starter becomes healthy in about half the time). Create: the Starter's
 	`build` runs it and `start`, `queue` and `scheduler` run the output.

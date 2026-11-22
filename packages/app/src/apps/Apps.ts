@@ -11,9 +11,11 @@ import { DatabaseMigrationManager, readMigrationPhase, type RollbackResult } fro
 import type { App } from '../server/App';
 import { COMPILED_APPS } from './compiledApps';
 import { discoverApps } from './discoverApps';
-import { AppService } from './AppService';
+import { SubApp } from './SubApp';
 import { AppRouteError } from './AppRouteError';
-import { AppInstallation } from './AppInstallation';
+import { SubAppInstallation } from './SubAppInstallation';
+import { PluginActivation } from './PluginActivation';
+import { Plugins } from './Plugins';
 import { validateAppDefinitions } from './validateAppDefinitions';
 import { normalizeAppNavigation } from './normalizeAppNavigation';
 import type * as apps from './contracts';
@@ -22,10 +24,10 @@ import type * as apps from './contracts';
  * Owns discovered or explicit app composition, durable installation and process-local service lifecycle.
  * Installation operations run in a stopped maintenance process; boot never migrates a database.
  */
-export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
+export class Apps<TDefinitions extends apps.SubAppDefinitions = {}> {
 	readonly #host: App;
-	readonly #definitions: Record<string, apps.AppDefinition<any>>;
-	readonly #discovered = new Map<string, apps.DiscoveredApp>();
+	readonly #definitions: Record<string, apps.SubAppDefinition<any>>;
+	readonly #discovered = new Map<string, apps.DiscoveredSubApp>();
 	readonly #loaded = new Set<string>();
 	readonly #inFlight = new Set<Promise<unknown>>();
 	#changing = false;
@@ -35,10 +37,12 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	readonly #services = new Map<string, unknown>();
 	readonly #schedules = new Map<string, ScheduledTaskDefinition[]>();
 	readonly #cleanup: Array<() => void | Promise<void>> = [];
-	#records = new Map<string, AppInstallation>();
+	#records = new Map<string, SubAppInstallation>();
 	#booted = false;
 	#booting?: Promise<void>;
 	#starting = false;
+	/** Turns plugin apps on and off per scope, such as an organization; installed non-plugins are always on. */
+	readonly plugins: Plugins;
 
 	/** Discovers or validates app definitions and exposes their optional services without executing app code. */
 	constructor(host: App, definitions?: TDefinitions) {
@@ -51,7 +55,12 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 				this.#definitions[found.manifest.id] = { manifest: found.manifest, create: () => { throw new Error('Load the app before creating its service.'); } };
 			}
 		}
-		const reserved = [...Object.getOwnPropertyNames(Apps.prototype), 'then', 'toJSON'];
+		this.plugins = new Plugins(host, {
+			ids: () => this.#order,
+			definition: id => Object.hasOwn(this.#definitions, id) ? this.#definitions[id] : undefined,
+			service: id => this.get(id),
+		});
+		const reserved = [...Object.getOwnPropertyNames(Apps.prototype), 'plugins', 'then', 'toJSON'];
 		for (let prototype: object | null = host; prototype; prototype = Object.getPrototypeOf(prototype)) reserved.push(...Object.getOwnPropertyNames(prototype));
 		this.#reserved = reserved;
 		this.#order = validateAppDefinitions(this.#definitions, reserved);
@@ -95,20 +104,23 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 		const source = this.#discovered.get(id);
 		if (!source || this.#loaded.has(id)) return;
 		// A server built by `db3 build:server` carries its local apps already compiled.
-		const compiled = (globalThis as { [COMPILED_APPS]?: Record<string, () => Promise<{ default: typeof AppService }>> })[COMPILED_APPS]?.[source.entry];
+		const compiled = (globalThis as { [COMPILED_APPS]?: Record<string, () => Promise<{ default: typeof SubApp }>> })[COMPILED_APPS]?.[source.entry];
 		const unregister = !compiled && source.entry.endsWith('.ts') ? register() : undefined;
-		let Service: typeof AppService;
+		let Service: typeof SubApp;
 		try { ({ default: Service } = compiled ? await compiled() : await import(pathToFileURL(source.entry).href)); }
 		finally { await unregister?.(); }
-		if (typeof Service !== 'function' || !(Service.prototype instanceof AppService)) throw new Error(`App "${id}" must default-export a class extending AppService.`);
+		if (typeof Service !== 'function' || !(Service.prototype instanceof SubApp)) throw new Error(`App "${id}" must default-export a class extending SubApp.`);
 		this.#definitions[id] = {
 			manifest: source.manifest,
 			create: host => new Service(host),
 			...(Service.models.length ? { database: { models: Service.models, directory: pathToFileURL(join(dirname(source.entry), 'database') + '/') } } : {}),
 			routes: Service.routes,
 			jobs: Service.jobs,
-			...(Service.prototype.schedule !== AppService.prototype.schedule ? { schedule: (schedule, service) => service.schedule(schedule) } satisfies Pick<apps.AppDefinition<AppService>, 'schedule'> : {}),
+			...(Service.prototype.schedule !== SubApp.prototype.schedule ? { schedule: (schedule, service) => service.schedule(schedule) } satisfies Pick<apps.SubAppDefinition<SubApp>, 'schedule'> : {}),
 			navigation: (context, service) => service.navigation(context),
+			activating: (scope, service) => service.activating(scope),
+			activated: (scope, service) => service.activated(scope),
+			deactivated: (scope, service) => service.deactivated(scope),
 			start: context => context.service.start(context),
 			afterInstall: host => new Service(host).install(),
 			beforeUninstall: host => new Service(host).uninstall(),
@@ -129,7 +141,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	 * Applies an explicitly authorized action in a single-process host, draining app requests and restarting resources.
 	 * Multi-process hosts must quiesce every process and use the stopped-runtime CLI instead.
 	 */
-	async manage(action: apps.AppAction, id: string): Promise<apps.AppDescription[]> {
+	async manage(action: apps.SubAppAction, id: string): Promise<apps.SubAppDescription[]> {
 		if (!['install', 'enable', 'disable', 'uninstall'].includes(action)) throw new Error('Unknown app action.');
 		if (this.#changing) throw new AppRouteError(409, 'Another app operation is running.');
 		this.#changing = true;
@@ -144,14 +156,14 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Returns an available app service, or undefined when absent, disabled or not booted. */
-	get<K extends keyof TDefinitions & string>(id: K): apps.AppServices<TDefinitions>[K];
+	get<K extends keyof TDefinitions & string>(id: K): apps.SubAppServices<TDefinitions>[K];
 	get(id: string): unknown;
 	get(id: string): unknown {
 		return this.#booted || this.#starting ? this.#services.get(id) : undefined;
 	}
 
 	/** Returns a required ready service, rejecting use before boot or after disable/removal. */
-	require<K extends keyof TDefinitions & string>(id: K): NonNullable<apps.AppServices<TDefinitions>[K]>;
+	require<K extends keyof TDefinitions & string>(id: K): NonNullable<apps.SubAppServices<TDefinitions>[K]>;
 	require(id: string): unknown;
 	require(id: string): unknown {
 		const service = this.get(id);
@@ -160,7 +172,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Lists browser-safe definitions and retained installations for visual exploration or CLI use. */
-	async describe(): Promise<apps.AppDescription[]> {
+	async describe(): Promise<apps.SubAppDescription[]> {
 		this.#refresh();
 		await this.#readRecords();
 		const ids = new Set([...this.#order, ...this.#records.keys()]);
@@ -229,7 +241,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Creates or upgrades an installation using committed migrations; existing business data is preserved. */
-	async install(id: string): Promise<apps.AppDescription> {
+	async install(id: string): Promise<apps.SubAppDescription> {
 		return this.#maintain(async () => {
 			await this.load(id);
 			const definition = this.#definition(id);
@@ -248,7 +260,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			}
 			// Refuse an out-of-order drop before the installation is marked failed at the new version.
 			await this.migrations(id)?.preflight();
-			const record = existing ?? AppInstallation.create({ appId: id });
+			const record = existing ?? SubAppInstallation.create({ appId: id });
 			const floor = existing ? existing.compatibleFrom ?? existing.version : definition.manifest.version;
 			record.assign({ version: definition.manifest.version, state: 'failed', description: this.#description(id), migrationHashes: hashes, compatibleFrom: floor });
 			await record.save();
@@ -268,7 +280,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Re-enables a retained installation after validating its code, schema and required dependencies. */
-	async enable(id: string): Promise<apps.AppDescription> {
+	async enable(id: string): Promise<apps.SubAppDescription> {
 		return this.#maintain(async () => {
 			await this.load(id);
 			const record = this.#installed(id);
@@ -283,7 +295,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Disables an app for the next boot, retaining its schema, migration ledger and business data. */
-	async disable(id: string): Promise<apps.AppDescription> {
+	async disable(id: string): Promise<apps.SubAppDescription> {
 		return this.#maintain(async () => {
 			await this.load(id);
 			const record = this.#installed(id);
@@ -296,7 +308,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Deregisters a durable installation while retaining data and ownership history; never drops tables. */
-	async uninstall(id: string): Promise<apps.AppDescription> {
+	async uninstall(id: string): Promise<apps.SubAppDescription> {
 		return this.#maintain(async () => {
 			await this.load(id);
 			const record = this.#records.get(id);
@@ -363,7 +375,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 				if (service == null || typeof service?.then === 'function') throw new Error(`App "${id}" must synchronously create a service; use start() for async work.`);
 				this.#services.set(id, service);
 				this.#registerBackgroundWork(id, definition, service);
-				await definition.start?.({ host: this.#host, service, defer: cleanup => { this.#cleanup.push(cleanup); } });
+				await definition.start?.({ app: this.#host, service, defer: cleanup => { this.#cleanup.push(cleanup); } });
 			}
 			this.#booted = true;
 		} catch (error) {
@@ -373,7 +385,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Registers declared jobs and schedules together, with automatic reverse-order cleanup and lifecycle admission. */
-	#registerBackgroundWork(id: string, definition: apps.AppDefinition<any>, service: unknown): void {
+	#registerBackgroundWork(id: string, definition: apps.SubAppDefinition<any>, service: unknown): void {
 		const jobs = definition.jobs ?? [];
 		const names = new Set(jobs.map(queueableJobName));
 		if (jobs.length) this.#cleanup.push(this.#host.queue.registerJobs(id, jobs, operation => this.run(() => ActiveRecord.withDb(this.#host.db.knex, operation))));
@@ -426,7 +438,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 			const [acquired] = await db.raw('SELECT GET_LOCK(?, 10) AS acquired', [lock]).connection(connection);
 			if (Number(acquired[0].acquired) !== 1) throw new Error('Another app installation operation holds the maintenance lock.');
 			return await ActiveRecord.withDb(db, async () => {
-				await this.#host.db.install(AppInstallation);
+				await this.#host.db.install(SubAppInstallation, PluginActivation);
 				await this.#readRecords();
 				return operation();
 			});
@@ -438,22 +450,22 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 
 	/** Reads installation metadata without creating tables or changing the database. */
 	async #readRecords(): Promise<void> {
-		if (!(await this.#host.db.knex.schema.hasTable(AppInstallation.table))) { this.#records.clear(); return; }
+		if (!(await this.#host.db.knex.schema.hasTable(SubAppInstallation.table))) { this.#records.clear(); return; }
 		// Tables from before compatible_from was tracked lack the column until maintenance installs it; read them as null.
-		const tracked = await this.#host.db.knex.schema.hasColumn(AppInstallation.table, 'compatible_from');
-		const records = await ActiveRecord.withDb(this.#host.db.knex, () => tracked ? AppInstallation.query().all() : AppInstallation.query().select('id', 'appId', 'version', 'state', 'description', 'migrationHashes').all());
+		const tracked = await this.#host.db.knex.schema.hasColumn(SubAppInstallation.table, 'compatible_from');
+		const records = await ActiveRecord.withDb(this.#host.db.knex, () => tracked ? SubAppInstallation.query().all() : SubAppInstallation.query().select('id', 'appId', 'version', 'state', 'description', 'migrationHashes').all());
 		this.#records = new Map(records.map(record => [record.appId, record]));
 	}
 
 	/** Resolves a registered definition with an actionable error for removed enabled packages. */
-	#definition(id: string): apps.AppDefinition<any> {
+	#definition(id: string): apps.SubAppDefinition<any> {
 		const definition = Object.hasOwn(this.#definitions, id) ? this.#definitions[id] : undefined;
 		if (!definition) throw new Error(`App "${id}" is not registered. Restore its code or uninstall it before removing registration.`);
 		return definition;
 	}
 
 	/** Requires retained installed state before enable or disable operations. */
-	#installed(id: string): AppInstallation {
+	#installed(id: string): SubAppInstallation {
 		this.#definition(id);
 		const record = this.#records.get(id);
 		if (!record || record.state === 'uninstalled' || record.state === 'failed') throw new Error(`App "${id}" must be installed first.`);
@@ -461,7 +473,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Prevents unreviewed package updates from taking effect merely because node_modules changed. */
-	#assertVersion(id: string, record: AppInstallation): void {
+	#assertVersion(id: string, record: SubAppInstallation): void {
 		const version = this.#definition(id).manifest.version;
 		if (version === record.version) return;
 		// Rollback: an older version may run while every newer install since it applied only expand migrations.
@@ -519,7 +531,7 @@ export class Apps<TDefinitions extends apps.AppDefinitions = {}> {
 	}
 
 	/** Projects source or retained metadata to a serializable description with current installation state. */
-	#description(id: string): apps.AppDescription {
+	#description(id: string): apps.SubAppDescription {
 		const definition = this.#definitions[id];
 		const record = this.#records.get(id);
 		const source = definition ? {
