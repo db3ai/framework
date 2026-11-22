@@ -21,7 +21,7 @@ test('the production runtime serves health, canonical feature documentation and 
 	assert.deepEqual(health.json(), { status: 'ready', revision: 'verified-docs-revision' });
 	const guide = await server.inject('/framework/docs/apps');
 	assert.equal(guide.statusCode, 200);
-	assert.match(guide.body, /Create a feature app/);
+	assert.match(guide.body, /Create a sub app/);
 	assert.match(guide.body, /<link rel="canonical" href="https:\/\/db3\.ai\/framework\/docs\/apps">/);
 	const asset = guide.body.match(/src="(\/framework\/assets\/[^" ]+\.js)"/)?.[1];
 	assert.ok(asset, 'Built HTML references the framework browser bundle.');

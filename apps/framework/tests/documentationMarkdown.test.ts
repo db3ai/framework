@@ -209,7 +209,7 @@ test('complete AI context contains every registered article and verified source'
 	assert.equal(document.split(validationSource.trim()).length - 1, 1);
 	assert.match(document, /Exact shared source/);
 	// The all-service completion plan adds full field/migration/service references.
-	// Feature apps add their local/npm guide, installation contracts and lifecycle evidence.
+	// Sub apps add their local/npm guide, installation contracts and lifecycle evidence.
 	// The WebSocket guide adds seven executable shared-board sources and their integration test.
 	// Keep the expanded, deduplicated export bounded; normal readers use per-page feeds.
 	// Measure the production feed: repeating a longer preview host must not consume its budget.
