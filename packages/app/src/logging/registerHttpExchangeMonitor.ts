@@ -19,7 +19,7 @@ export function hideRequestBody(request: FastifyRequest): void {
  * Captures bounded, redacted payloads for grouped console logs and devtools.
  * Register before routes on a Fastify host using app.log.logger. Fastify's own
  * arrival/completion records provide lifecycle timing; streams are never consumed.
- * Outside development it logs only request bodies, and only with `requestBodies`.
+ * Outside development it logs only request bodies with their masked headers, and only with `requestBodies`.
  * @param server - Caller-owned HTTP server.
  * @param options - Capture and private-route exclusion policy.
  */
@@ -36,7 +36,7 @@ export function registerHttpExchangeMonitor(server: FastifyInstance, options: lo
 		if (!options.requestBodies) return;
 		server.addHook('onSend', (request, _reply, payload, done) => {
 			if (request.body !== undefined && request.body !== null && request.body !== '' && !options.exclude?.(request)) {
-				request.log.info({ requestBody: requestBody(request) }, 'request body');
+				request.log.info({ requestHeaders: redactHeaders(request.headers), requestBody: requestBody(request) }, 'request body');
 			}
 			done(null, payload);
 		});

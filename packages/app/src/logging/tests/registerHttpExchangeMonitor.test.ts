@@ -208,7 +208,7 @@ describe('registerHttpExchangeMonitor', () => {
 		server.post('/variables', async request => { hideRequestBody(request); return { saved: true }; });
 		server.get('/notes', async () => ({ listed: true }));
 		try {
-			await server.inject({ method: 'POST', url: '/notes', payload: { title: 'Hello', newPassword: 'private-password', client_secret: 'private-secret', code: 'private-code', maxTokens: 400 } });
+			await server.inject({ method: 'POST', url: '/notes', headers: { cookie: 'session=private-cookie', 'x-db3-token': 'private-header', 'x-agent-key': 'private-agent-key', 'x-hub-signature-256': 'private-signature', 'user-agent': 'notes-test' }, payload: { title: 'Hello', newPassword: 'private-password', client_secret: 'private-secret', code: 'private-code', maxTokens: 400 } });
 			await server.inject({ method: 'POST', url: '/variables', payload: { name: 'STRIPE_KEY', value: 'private-value' } });
 			await server.inject('/notes');
 		} finally { await server.close(); await driver.close(); }
@@ -218,6 +218,7 @@ describe('registerHttpExchangeMonitor', () => {
 			{ kind: 'hidden', note: 'This route marks its input secret.' },
 		]);
 		expect(bodies.every(record => record.reqId !== undefined)).toBe(true);
+		expect(bodies[0]?.requestHeaders).toMatchObject({ cookie: '[Redacted]', 'x-db3-token': '[Redacted]', 'x-agent-key': '[Redacted]', 'x-hub-signature-256': '[Redacted]', 'user-agent': 'notes-test', 'content-type': 'application/json' });
 		expect(records.some(record => record.msg === 'request exchange')).toBe(false);
 		expect(JSON.stringify(records)).not.toMatch(/private-|response-token/);
 	});

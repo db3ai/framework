@@ -236,7 +236,8 @@ function sanitizeBodyValue(
 }
 
 /**
- * Redacts credential-bearing headers before a record reaches Pino.
+ * Redacts credential-bearing headers before a record reaches Pino: any header whose name
+ * names a key, auth, signature or credential word (x-agent-key, x-hub-signature-256).
  *
  * @param headers - Fastify request or response header collection.
  * @returns Header object safe for local request inspection.
@@ -247,7 +248,7 @@ export function redactHeaders(
 	const captured: Record<string, unknown> = {};
 
 	for (const [name, value] of Object.entries(headers)) {
-		captured[name] = isSensitiveName(name)
+		captured[name] = isSensitiveName(name) || containsSensitiveWord(name) || /key|auth|signature/i.test(name)
 			? redactedValue
 			: boundedHeaderValue(value);
 	}

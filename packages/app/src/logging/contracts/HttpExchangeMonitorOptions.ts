@@ -5,9 +5,9 @@ export interface HttpExchangeMonitorOptions {
 	/** Defaults to NODE_ENV; development captures whole exchanges, test never captures. */
 	environment?: string;
 	/**
-	 * Outside development, logs each request's masked body as a `request body` record (method, URL
-	 * and body only; never headers or responses), so a host such as db3 Cloud can show it beside the
-	 * request. Off by default; an app turns it on in its own server setup.
+	 * Outside development, logs each request's masked body and headers as a `request body` record
+	 * (never responses), so a host such as db3 Cloud can show them beside the request. Off by
+	 * default; an app turns it on in its own server setup.
 	 */
 	requestBodies?: boolean;
 	/** Explicitly disables body capture independently of console presentation. */
