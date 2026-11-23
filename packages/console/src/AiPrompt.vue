@@ -1,4 +1,4 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="Speed extends string">
 import { computed } from 'vue';
 import { DomAiInput, type AiInputDraft, type AiInputModel } from '@getdom/studio/vue';
 import type { AiPromptModels } from './aiPrompt';
@@ -15,23 +15,23 @@ const props = withDefaults(defineProps<{
 	busy?: boolean;
 	disabled?: boolean;
 	canSend?: boolean;
-	models?: AiPromptModels;
+	models?: AiPromptModels<Speed>;
 }>(), { placeholder: 'Ask AI…', ariaLabel: 'AI prompt', rows: 2, canSend: true });
 const text = defineModel<string>({ default: '' });
 const model = defineModel<string>('model', { default: '' });
-const speed = defineModel<string>('speed', { default: '' });
+const speed = defineModel<Speed>('speed');
 const emit = defineEmits<{ submit: [] }>();
 defineSlots<{ tools?(): unknown; actions?(): unknown }>();
 
 const speedsOf = (id: string) => props.models?.speeds?.[id];
-const options = computed<AiInputModel[]>(() => (props.models?.options ?? []).filter(id => id !== props.models?.default).map(id => ({ id, label: id, provider: 'Models', features: { speeds: speedsOf(id) } })));
+const options = computed<AiInputModel[]>(() => (props.models?.options ?? []).filter(id => id !== props.models?.default).map(id => ({ id, label: id, provider: '', features: { speeds: speedsOf(id) } })));
 const draft = computed<AiInputDraft>({
 	get: () => ({ text: text.value, ...(props.models ? { model: model.value === props.models.default ? 'auto' : model.value, speed: speed.value } : {}) }),
 	set: next => {
 		text.value = next.text ?? '';
 		if (!props.models) return;
 		model.value = next.model && next.model !== 'auto' ? next.model : props.models.default;
-		speed.value = next.speed ?? '';
+		speed.value = next.speed as Speed;
 	},
 });
 </script>
