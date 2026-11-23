@@ -11,9 +11,10 @@ let application: App;
 let root: string;
 const fetch = vi.fn<typeof globalThis.fetch>();
 
+let responses = 0;
 /** Supplies deterministic Responses API SSE while exercising the real SDK and framework. */
 function streamResponse(output: unknown[], text = ''): Response {
-	const response = { id: `resp_${Math.random()}`, object: 'response', created_at: 1, model: 'test-model', status: 'completed', output, usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
+	const response = { id: `resp_${++responses}`, object: 'response', created_at: 1, model: 'test-model', status: 'completed', output, usage: { input_tokens: 10, output_tokens: 4, total_tokens: 14, input_tokens_details: { cached_tokens: 0 }, output_tokens_details: { reasoning_tokens: 0 } } };
 	const events: Record<string, unknown>[] = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }];
 	for (const [index, item] of output.entries()) {
 		events.push({ type: 'response.output_item.added', output_index: index, item });
