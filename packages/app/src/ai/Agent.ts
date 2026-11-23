@@ -424,12 +424,20 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			});
 			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) return await this.resumeFinalizedTrackedRun(prepared);
 			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
-			return await this.executePreparedRun(prepared, event => this.#recorder?.emit(event));
+			const result = await this.executePreparedRun(prepared, async event => { await this.#recorder?.emit(event); await this.onQueuedEvent(event); });
+			await this.onQueuedEvent({ type: 'run.completed', conversationId: result.conversationId, aiRequestId: result.aiRequestId, traceId: prepared.state.traceId, usage: result.usage, creditCost: result.creditCost, costUSD: result.costUSD, finalOutput: result.finalOutput });
+			return result;
 		} catch (error) {
 			const stopped = this.#recorder?.signal.reason;
+			/** Tells the application how the queued turn ended without replacing the original failure. */
+			const ended = async (code: string, message: string) => {
+				try { await this.onQueuedEvent({ type: 'run.error', conversationId: state ? String((state as agent.AgentPersistenceState).conversation.id) : null, aiRequestId: payload.aiRequestId ?? null, traceId: state ? (state as agent.AgentPersistenceState).traceId : '', error: { code, message } }); }
+				catch { /* the run's own failure is the one to report */ }
+			};
 			if (error instanceof JobRunStoppedError || stopped instanceof JobRunStoppedError) {
 				const stop = error instanceof JobRunStoppedError ? error : stopped as JobRunStoppedError;
 				if (payload.aiRequestId) await app().ai.conversations.settleQueuedStop(payload.aiRequestId, stop.message, stop.status);
+				await ended('agent_cancelled', stop.message);
 				throw stop;
 			}
 			if (isQueueRetryLaterError(error)) { if (this.#recorder?.claimed) await this.recordRunStatus('waiting'); throw error; }
@@ -439,7 +447,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				if (context && context.willRetry?.(error) !== false && this.#recorder) {
 					await context.assertOwnership?.();
 					await app().ai.conversations.settleQueuedRetry(payload.aiRequestId!, context.job.attempts);
-				} else await this.recordRunStatus('failed', () => this.failTrackedRun(state!, message, providerError.code), message);
+				} else {
+					await this.recordRunStatus('failed', () => this.failTrackedRun(state!, message, providerError.code), message);
+					await ended(providerError.code ?? 'agent_failed', message);
+				}
 			}
 			throw error;
 		} finally {
@@ -447,6 +458,17 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			this.#recorder = undefined;
 		}
 	}
+
+	/**
+	 * Receives each event of a queued turn after the worker records it, then
+	 * `run.completed` or, when the turn fails or is stopped without a retry, `run.error`.
+	 *
+	 * Applications mirror progress into their own records here. An error thrown
+	 * for an ordinary event fails the turn; one thrown for `run.error` is ignored.
+	 *
+	 * @param _event - Recorded stream event or the turn's outcome.
+	 */
+	protected async onQueuedEvent(_event: agent.AgentStreamEvent): Promise<void> {}
 
 	/**
 	 * Refreshes app context after FIFO ownership is acquired, before instructions,

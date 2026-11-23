@@ -528,6 +528,27 @@ describe('durable agent streaming', () => {
 		expect((await AiConversation.findOrFail(queued.conversationId)).streamState?.run.status).toBe('completed');
 	});
 
+	it('tells a queued agent about each recorded event and how its turn ended', async () => {
+		const seen: string[] = [];
+		/** Mirrors queued progress into an application list. */
+		class MirroringAgent extends StreamingAgent {
+			/** Records event types in order. */
+			protected override async onQueuedEvent(event: import('@db3.ai/app/ai').AgentStreamEvent): Promise<void> { seen.push(event.type === 'run.error' ? `run.error:${event.error.message}` : event.type); }
+		}
+		registerQueuedAgent('MirroringAgent', MirroringAgent);
+		const provider = controlledResponse(); provider.finish('Mirrored.'); fetch.mockResolvedValueOnce(provider.response);
+		await new MirroringAgent({ user: 'viewer', scope: 'team' }).queue('Mirror', { queue: 'mirror' });
+		expect((await application.queue.workNextJob('mirror'))?.status).toBe('succeeded');
+		expect(seen).toContain('message.completed');
+		expect(seen.at(-1)).toBe('run.completed');
+
+		seen.length = 0;
+		fetch.mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Invalid synthetic request', type: 'invalid_request_error', code: 'invalid_request' } }), { status: 400, headers: { 'content-type': 'application/json' } }));
+		await new MirroringAgent({ user: 'viewer', scope: 'team' }).queue('Fail', { queue: 'mirror-fail', maxTries: 1 });
+		await application.queue.workNextJob('mirror-fail');
+		expect(seen.at(-1)).toMatch(/^run\.error:/);
+	});
+
 	it('publishes independent tool outcomes before their parallel batch finishes', async () => {
 		const gates = Array.from({ length: 3 }, () => Promise.withResolvers<void>());
 		const names = ['lookup_record', 'check_permission', 'wait_for_report'];
