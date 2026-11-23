@@ -31,7 +31,7 @@
 	"devDependencies": {
 		"@db3.ai/app": "0.1.0",
 		"@fastify/middie": "^9.3.3",
-		"@getdom/studio": "0.2.1",
+		"@getdom/studio": "0.2.9",
 		"@tailwindcss/vite": "^4.3.1",
 		"@types/node": "^25.9.3",
 		"@vitejs/plugin-vue": "^6.0.6",
