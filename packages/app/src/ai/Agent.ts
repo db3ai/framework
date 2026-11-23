@@ -416,9 +416,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				if (context) await this.markQueued(restored, context.job.id);
 				await this.beforeQueuedRun(restored.rootAiRequest, restored.conversation);
 			});
-			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) return await this.resumeFinalizedTrackedRun(prepared);
-			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
-			const result = await this.executePreparedRun(prepared, async event => { await this.#recorder?.emit(event); await this.onQueuedEvent(event); });
+			const finalized = recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true;
+			if (!finalized) prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
+			const result = finalized ? await this.resumeFinalizedTrackedRun(prepared) : await this.executePreparedRun(prepared, async event => { await this.#recorder?.emit(event); await this.onQueuedEvent(event); });
 			await this.onQueuedEvent({ type: 'run.completed', conversationId: result.conversationId, aiRequestId: result.aiRequestId, traceId: prepared.state.traceId, usage: result.usage, creditCost: result.creditCost, costUSD: result.costUSD, finalOutput: result.finalOutput });
 			return result;
 		} catch (error) {
