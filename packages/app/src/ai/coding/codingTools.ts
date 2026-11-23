@@ -22,18 +22,8 @@ const planStep = z.object({
 });
 
 /**
- * Creates the tools a coding model is trained to use: `shell`, `apply_patch`
- * and `update_plan`.
- *
- * `shell` and `apply_patch` are the Responses API's native tool types, the same
- * ones the Codex harness gives OpenAI coding models. `update_plan` matches the
- * Codex plan tool. Every command and edit runs through the supplied workspace,
- * so the same agent can work in a remote container, a desktop folder or a test
- * directory.
- *
- * @param workspace - Where commands run and files change.
- * @param options - Time and output limits.
- * @returns Tools to return from an agent's `tools()`.
+ * The tools coding models are trained on: the Responses API's native `shell` and
+ * `apply_patch`, and Codex's `update_plan`, all working through `workspace`.
  */
 export function codingTools(workspace: CodingWorkspace, options: CodingToolOptions = {}): AgentTool[] {
 	return [

@@ -3,13 +3,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import type { CodingCommandResult, CodingWorkspace } from './CodingWorkspace';
 
-/**
- * Runs a coding agent directly in a folder on this machine.
- *
- * Commands run as the current user with no sandbox, so use it only for trusted
- * work such as tests, examples or a developer's own machine. Hosted products
- * give agents a workspace inside an isolated container instead.
- */
+/** A folder on this machine. Commands run unsandboxed, so use it only for trusted work. */
 export class LocalCodingWorkspace implements CodingWorkspace {
 	/**
 	 * @param root - Absolute folder the agent works in.

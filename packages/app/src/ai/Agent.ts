@@ -151,13 +151,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 */
 	constructor(protected readonly context: TContext) {}
 
-	/**
-	 * Aborts when the durable run is stopped or its queue delivery loses ownership.
-	 *
-	 * Tools that start long work outside the model request, such as shell
-	 * commands, pass this to that work so Stop and worker shutdown end it too.
-	 * It is undefined for runs without durable streaming.
-	 */
+	/** Aborts when the durable run stops or loses its worker; pass it to long tool work. */
 	protected get runSignal(): AbortSignal | undefined { return this.#recorder?.signal; }
 
 	/**
@@ -459,15 +453,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 	}
 
-	/**
-	 * Receives each event of a queued turn after the worker records it, then
-	 * `run.completed` or, when the turn fails or is stopped without a retry, `run.error`.
-	 *
-	 * Applications mirror progress into their own records here. An error thrown
-	 * for an ordinary event fails the turn; one thrown for `run.error` is ignored.
-	 *
-	 * @param _event - Recorded stream event or the turn's outcome.
-	 */
+	/** Sees each recorded event of a queued turn, then `run.completed` or a final `run.error`. */
 	protected async onQueuedEvent(_event: agent.AgentStreamEvent): Promise<void> {}
 
 	/**

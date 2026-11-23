@@ -13,44 +13,19 @@ export interface CodingCommandResult {
 }
 
 /**
- * The only operations a coding agent needs from the place its code lives.
- *
- * A workspace can be a container on a remote runner, a folder on a desktop or a
- * temporary test directory. Paths are always relative to the workspace root and
- * are validated by the framework before any method receives them. The
- * implementation owns isolation: the agent never chooses a host path, a user or
- * network access.
+ * Where a coding agent's code lives: a runner container, a desktop folder or a test
+ * directory. Paths arrive relative and validated; the implementation owns isolation.
  */
 export interface CodingWorkspace {
-	/**
-	 * Runs one shell command from the workspace root.
-	 *
-	 * @param command - Shell command text chosen by the model.
-	 * @param options - Time limit and cancellation for this command.
-	 * @returns Bounded output and exit status.
-	 */
+	/** Runs one shell command from the workspace root. */
 	run(command: string, options: { timeoutMs: number; signal?: AbortSignal }): Promise<CodingCommandResult>;
 
-	/**
-	 * Reads a UTF-8 text file.
-	 *
-	 * @param path - Validated relative path.
-	 * @returns File content, or null when the file does not exist.
-	 */
+	/** Reads a UTF-8 text file, or null when it does not exist. */
 	readFile(path: string): Promise<string | null>;
 
-	/**
-	 * Creates or replaces a UTF-8 text file, creating parent directories.
-	 *
-	 * @param path - Validated relative path.
-	 * @param content - Complete new file content.
-	 */
+	/** Creates or replaces a UTF-8 text file, with its parent folders. */
 	writeFile(path: string, content: string): Promise<void>;
 
-	/**
-	 * Removes a file.
-	 *
-	 * @param path - Validated relative path.
-	 */
+	/** Removes a file. */
 	deleteFile(path: string): Promise<void>;
 }

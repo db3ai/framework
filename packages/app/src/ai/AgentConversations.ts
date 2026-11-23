@@ -127,12 +127,9 @@ export class AgentConversations {
 	}
 
 	/**
-	 * Adds a message to the running turn, which reads it before its next model call.
-	 *
-	 * Call it only after the application has authorized the sender for this
-	 * conversation. It accepts only while a turn is running; otherwise the caller
-	 * sends the message as a normal queued followup. A message that arrives after
-	 * the turn's last model call is queued as a followup by the turn itself.
+	 * Adds a message the running turn reads before its next model call, or queues
+	 * as a followup if it arrives too late. Authorize the sender first; when no turn
+	 * is running it is refused and the caller queues a normal followup.
 	 */
 	async steer(input: stream.AgentSteerInput): Promise<stream.AgentSteerResult> {
 		const message = input.message.trim();
