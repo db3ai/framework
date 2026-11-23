@@ -7,3 +7,5 @@ export * from './databaseView';
 export * from './storageView';
 export { default as AgentsScreen } from './AgentsScreen.vue';
 export { agentName, applyEvent, canEdit, costText, definitionFrom, kindLabel, formFor as agentFormFor, type AgentForm, type PlaygroundItem } from './agentsView';
+export { default as AiPrompt } from './AiPrompt.vue';
+export type { AiPromptModels } from './aiPrompt';
