@@ -446,10 +446,13 @@ describe('durable agent streaming', () => {
 	});
 
 	it('delivers messages sent mid-turn before the next model call and queues late ones as followups', async () => {
+		const delivered: string[] = [];
 		/** Receives steering while its tool runs, as a browser message would arrive mid-turn. */
 		class SteeringAgent extends Agent {
 			/** Keeps the provider request deterministic. */
 			instructions(): string { return 'Answer briefly.'; }
+			/** Records which messages the running turn read. */
+			protected override async onSteered(messages: { idempotencyKey: string }[]): Promise<void> { delivered.push(...messages.map(message => message.idempotencyKey)); }
 			/** Sends the same message twice to prove idempotency. */
 			protected tools(): AgentTool[] {
 				return [Object.assign(tool({
@@ -485,6 +488,7 @@ describe('durable agent streaming', () => {
 		const steeringIndex = secondInput.findIndex(item => item.role === 'user' && JSON.stringify(item.content).includes('Use blue instead.'));
 		expect(steeringIndex).toBeGreaterThan(outputIndex);
 		expect(secondInput.filter(item => JSON.stringify(item).includes('Use blue instead.'))).toHaveLength(1);
+		expect(delivered).toEqual(['steer-blue']);
 		const steered = await AiMessage.where('conversation', conversationId).where('role', 'user').orderBy('sequence', 'asc').all();
 		expect(steered.map(message => [message.content, message.metadata?.eventType ?? null])).toEqual([['Paint it red', 'user_message'], ['Use blue instead.', 'steering'], ['Add a title too.', 'user_message']]);
 

@@ -456,6 +456,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	/** Sees each recorded event of a queued turn, then `run.completed` or a final `run.error`. */
 	protected async onQueuedEvent(_event: agent.AgentStreamEvent): Promise<void> {}
 
+	/** Sees steering messages once the running turn has read them, before its next model call. */
+	protected async onSteered(_messages: import('./contracts/AgentConversationStream').AgentSteeringMessage[]): Promise<void> {}
+
 	/**
 	 * Refreshes app context after FIFO ownership is acquired, before instructions,
 	 * history and credit allowance are evaluated. Apps can claim their domain work
@@ -2042,7 +2045,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @returns Input including every steering message.
 	 */
 	private async steeredModelInput(state: agent.AgentPersistenceState, modelData: { input: AgentInputItem[]; instructions?: string }, steered: SteeredInput[]): Promise<{ input: AgentInputItem[]; instructions?: string }> {
-		for (const steering of await this.#recorder!.takeSteering()) {
+		const taken = await this.#recorder!.takeSteering();
+		for (const steering of taken) {
 			await this.saveMessage(state, {
 				role: AI_MESSAGE_ROLE.user,
 				content: steering.message,
@@ -2051,6 +2055,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 			});
 			steered.push({ at: modelData.input.length, item: userInputMessage(steering.message) });
 		}
+		if (taken.length) await this.onSteered(taken);
 		if (!steered.length) return modelData;
 		const input = [...modelData.input];
 		for (const [offset, entry] of steered.entries()) input.splice(Math.min(entry.at + offset, input.length), 0, entry.item);
