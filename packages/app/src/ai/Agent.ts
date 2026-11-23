@@ -30,6 +30,7 @@ import { serializeQueuedAgent } from './registry.js';
 import { normalizeAgentToolResult } from './toolHelpers.js';
 import { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCallRecovery.js';
 import type * as agent from './contracts/Agent';
+import type { AgentSteeringMessage } from './contracts/AgentConversationStream';
 
 /**
  * Fully prepared run inputs and persistence state ready for SDK execution.
@@ -151,7 +152,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 */
 	constructor(protected readonly context: TContext) {}
 
-	/** Aborts when the durable run stops or loses its worker; pass it to long tool work. */
+	/** Aborts when the run stops or loses its worker; pass it to long tools. */
 	protected get runSignal(): AbortSignal | undefined { return this.#recorder?.signal; }
 
 	/**
@@ -453,18 +454,16 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 	}
 
-	/** Sees each recorded event of a queued turn, then `run.completed` or a final `run.error`. */
+	/** Sees a queued turn's events, then `run.completed` or `run.error`. */
 	protected async onQueuedEvent(_event: agent.AgentStreamEvent): Promise<void> {}
 
-	/** Sees steering messages once the running turn has read them, before its next model call. */
-	protected async onSteered(_messages: import('./contracts/AgentConversationStream').AgentSteeringMessage[]): Promise<void> {}
+	/** Sees steering the running turn has read. */
+	protected async onSteered(_messages: AgentSteeringMessage[]): Promise<void> {}
 
 	/**
-	 * Refreshes app context after FIFO ownership is acquired, before instructions,
-	 * history and credit allowance are evaluated. Apps can claim their domain work
-	 * here; retries must recognize the same root request without repeating effects.
-	 * Runs for settlement-only retries too: restore pinned product policy, but skip
-	 * domain activation when root.response.providerFinalized is already true.
+	 * Refreshes app context once the turn owns its conversation, before instructions
+	 * and credit allowance. Retries must recognize the same root request. Skip domain
+	 * work when root.response.providerFinalized is true (a settlement-only retry).
 	 */
 	protected async beforeQueuedRun(_root: AiRequest, _conversation: AiConversation): Promise<void> {}
 
