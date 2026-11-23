@@ -59,7 +59,9 @@ export class AgentStreamRecorder {
 			if (this.#job?.id) await root.assign({ metadata: { ...root.metadata, jobRunId: String(this.#job.id) } }).save();
 			this.#attempt = status === 'queued' ? 0 : this.context?.job.attempts ?? (prior?.run.aiRequestId === id ? prior.run.attempt : 0) + 1;
 			const run: stream.AgentRunState = { aiRequestId: id, status, attempt: this.#attempt, startedAt: status === 'running' ? (prior?.run.aiRequestId === id ? prior.run.startedAt : null) ?? new Date().toISOString() : null, completedAt: null, error: null };
-			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), attention: prior?.attention, context: prior?.context, contextCheckpoint: prior?.contextCheckpoint, activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
+			// A retry keeps its unread steering and receipts; another turn's leftovers were queued as followups.
+			const steering = prior?.run.aiRequestId === id ? { ...prior.steering?.length ? { steering: prior.steering } : {}, ...prior.steered?.length ? { steered: prior.steered } : {} } : {};
+			conversation.streamState = { owner: this.#owner, run, pending: pending.filter(requestId => requestId !== id), attention: prior?.attention, context: prior?.context, contextCheckpoint: prior?.contextCheckpoint, ...steering, activity: { code: status === 'running' ? 'thinking' : 'queued', label: status === 'running' ? 'Thinking…' : 'Queued' } };
 			this.#claimed = true;
 		}, false);
 		if (status === 'running') {
@@ -165,19 +167,32 @@ export class AgentStreamRecorder {
 				const id = `${previous.run.aiRequestId}:${status}`;
 				if (previous.attention?.id !== id) conversation.streamState.attention = { id, kind: status, createdAt: new Date().toISOString(), readBy: [] };
 			}
-			if (!terminal) return [];
-			// Messages that arrived after the last model call leave with the finished turn.
-			const leftover = previous.steering ?? [];
-			delete conversation.streamState.steering;
-			return leftover;
+			// Messages that arrived after the last model call stay durable until the
+			// agent has queued them as followups and calls clearSteering().
+			return terminal ? previous.steering ?? [] : [];
 		}));
+	}
+
+	/** Removes steering messages that have been queued as followups. */
+	async clearSteering(keys: string[]): Promise<void> {
+		if (!keys.length) return;
+		// Unfenced: the turn has already ended, and a newer turn may own the conversation.
+		await this.#serialize(() => this.#write(async conversation => {
+			if (conversation.streamState?.run.aiRequestId !== String(this.state.rootAiRequest.id)) return;
+			const remaining = (conversation.streamState!.steering ?? []).filter(item => !keys.includes(item.idempotencyKey));
+			if (remaining.length) conversation.streamState!.steering = remaining; else delete conversation.streamState!.steering;
+		}, false));
 	}
 
 	/** Takes messages sent to the running turn since its previous model call. */
 	async takeSteering(): Promise<stream.AgentSteeringMessage[]> {
 		return this.#serialize(() => this.#write(async conversation => {
 			const steering = conversation.streamState!.steering ?? [];
-			if (steering.length) delete conversation.streamState!.steering;
+			if (steering.length) {
+				delete conversation.streamState!.steering;
+				// Receipts keep a resent message from being delivered twice in this turn.
+				conversation.streamState!.steered = [...conversation.streamState!.steered ?? [], ...steering.map(item => item.idempotencyKey)].slice(-200);
+			}
 			return steering;
 		}));
 	}

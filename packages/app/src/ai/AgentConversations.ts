@@ -144,7 +144,7 @@ export class AgentConversations {
 			const state = conversation?.streamState;
 			if (!conversation || !state || state.run.status !== 'running' || !state.owner) return { accepted: false, aiRequestId: state?.run.aiRequestId ?? null };
 			state.steering = state.steering ?? [];
-			if (!state.steering.some(item => item.idempotencyKey === input.idempotencyKey)) state.steering.push({ message, idempotencyKey: input.idempotencyKey, createdAt: new Date().toISOString() });
+			if (!state.steered?.includes(input.idempotencyKey) && !state.steering.some(item => item.idempotencyKey === input.idempotencyKey)) state.steering.push({ message, idempotencyKey: input.idempotencyKey, createdAt: new Date().toISOString() });
 			await this.ai.models.conversation.where('id', conversation.id).patch({ streamState: state });
 			return { accepted: true, aiRequestId: state.run.aiRequestId };
 		});

@@ -88,6 +88,8 @@ export interface AgentStreamState {
 	pending?: string[];
 	/** Messages sent while the run works, delivered before its next model call. */
 	steering?: AgentSteeringMessage[];
+	/** Idempotency keys of steering messages the current turn has already read. */
+	steered?: string[];
 }
 
 /** One message waiting to join the active run. */

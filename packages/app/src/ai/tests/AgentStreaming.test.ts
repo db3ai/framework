@@ -470,6 +470,8 @@ describe('durable agent streaming', () => {
 		const final = controlledResponse(); final.finish('Painted blue.');
 		fetch.mockResolvedValueOnce(new Response(events.map((event, sequence_number) => `data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } }))
 			.mockImplementationOnce(async () => {
+				// A resend after the turn read the message is acknowledged without a second delivery.
+				expect(await application.ai.conversations.steer({ conversationId, message: 'Use blue instead.', idempotencyKey: 'steer-blue' })).toMatchObject({ accepted: true });
 				// Arrives after this, the run's last model call, has already read its input.
 				expect(await application.ai.conversations.steer({ conversationId, message: 'Add a title too.', idempotencyKey: 'steer-title' })).toMatchObject({ accepted: true });
 				return final.response;
@@ -491,6 +493,39 @@ describe('durable agent streaming', () => {
 		const conversation = await AiConversation.findOrFail(conversationId);
 		expect(conversation.streamState?.steering).toBeUndefined();
 		expect(await application.ai.conversations.steer({ conversationId, message: 'Anyone there?', idempotencyKey: 'steer-idle' })).toMatchObject({ accepted: false });
+	});
+
+	it('keeps steering the turn already read when the turn retries', async () => {
+		/** Steers once from its tool, then the provider fails and the queue retries the turn. */
+		class RetrySteeringAgent extends Agent {
+			/** Keeps the provider request deterministic. */
+			instructions(): string { return 'Answer briefly.'; }
+			/** Sends one correction while the tool runs. */
+			protected tools(): AgentTool[] {
+				return [Object.assign(tool({
+					name: 'paint', description: 'Paint.', parameters: z.object({}),
+					execute: async (_input, runContext?: RunContext<AgentRunContext>) => {
+						await application.ai.conversations.steer({ conversationId: runContext!.context.conversationId, message: 'Use blue instead.', idempotencyKey: 'retry-blue' });
+						return 'Painted red.';
+					},
+				}), { title: 'Paint' })];
+			}
+		}
+		registerQueuedAgent('RetrySteeringAgent', RetrySteeringAgent);
+		const call = { type: 'function_call', id: 'fc_retry_paint', call_id: 'call_retry_paint', name: 'paint', arguments: '{}' };
+		const response = { id: 'resp_retry_paint', object: 'response', model: 'test-model', created_at: 1, status: 'completed', output: [call], usage: { input_tokens: 5, output_tokens: 5, total_tokens: 10 } };
+		const events = [{ type: 'response.created', response: { ...response, status: 'in_progress', output: [] } }, { type: 'response.output_item.added', output_index: 0, item: call }, { type: 'response.output_item.done', output_index: 0, item: call }, { type: 'response.completed', response }];
+		fetch.mockResolvedValueOnce(new Response(events.map((event, sequence_number) => `data: ${JSON.stringify({ ...event, sequence_number })}\n\n`).join(''), { headers: { 'content-type': 'text/event-stream' } }))
+			.mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: 'Invalid synthetic request', type: 'invalid_request_error', code: 'invalid_request' } }), { status: 400, headers: { 'content-type': 'application/json' } }));
+		const queued = await new RetrySteeringAgent({ user: 'viewer', scope: 'team' }).queue('Paint it red', { queue: 'steer-retry', maxTries: 2, backoff: { initialSeconds: 0 } });
+		await application.queue.workNextJob('steer-retry');
+		const final = controlledResponse(); final.finish('Painted blue.'); fetch.mockResolvedValueOnce(final.response);
+		await QueuedJob.query().patch({ availableAt: 0 });
+		expect((await application.queue.workNextJob('steer-retry'))?.status).toBe('succeeded');
+
+		const resumed = JSON.parse(String(fetch.mock.calls.at(-1)?.[1]?.body)).input as Record<string, unknown>[];
+		expect(resumed.filter(item => item.role === 'user' && JSON.stringify(item.content).includes('Use blue instead.'))).toHaveLength(1);
+		expect((await AiConversation.findOrFail(queued.conversationId)).streamState?.run.status).toBe('completed');
 	});
 
 	it('publishes independent tool outcomes before their parallel batch finishes', async () => {

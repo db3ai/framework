@@ -1039,7 +1039,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 		const unresolvedIds = unresolvedToolCallIds(messages);
 		const seen = new Set<string>();
-		return messages.filter(message => message.role !== AI_MESSAGE_ROLE.system && message.role !== AI_MESSAGE_ROLE.user)
+		// Steering read before a retry stays in the resumed input; the turn's own prompt comes from the invocation.
+		return messages.filter(message => message.role !== AI_MESSAGE_ROLE.system && (message.role !== AI_MESSAGE_ROLE.user || recordValue(message.metadata)?.eventType === 'steering'))
 			.flatMap(message => agentInputItemsFromAiMessage(message, seen, unresolvedIds));
 	}
 
@@ -2061,6 +2062,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		for (const steering of messages) {
 			await new Followup({ ...this.context, conversationId }).queue(steering.message, { idempotencyKey: `steer:${steering.idempotencyKey}`, ...queue ? { queue } : {} });
 		}
+		await this.#recorder!.clearSteering(messages.map(steering => steering.idempotencyKey));
 	}
 
 	/** Controls whether streamed events expose provider costs to this viewer. */
