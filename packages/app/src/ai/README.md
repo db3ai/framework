@@ -275,6 +275,20 @@ AI conversation does not restore its browser session. See
 [OpenAI's computer-use guide](https://developers.openai.com/api/docs/guides/tools-computer-use)
 for the provider contract.
 
+## Coding agents
+
+`codingTools(workspace)` returns the native Responses `shell` and `apply_patch`
+tools plus a Codex-style `update_plan`. `CODING_AGENT_INSTRUCTIONS` holds coding
+instructions adapted from Codex (Apache-2.0); append your workspace facts. A
+`CodingWorkspace` runs a command and reads, writes or deletes files; paths are
+validated and patches applied by the framework. `LocalCodingWorkspace` is
+unsandboxed, for tests and trusted local work. Pass `signal: () => this.runSignal`
+so Stop ends running commands. Saved calls replay as native items.
+
+`app().ai.conversations.steer({ conversationId, message, idempotencyKey })` adds
+an authorized message to a running turn before its next model call. It returns
+`accepted: false` when idle; queue a followup then. Late messages become followups.
+
 ## Images, embeddings and structured output
 
 - `generateImage(input, { store })` returns image bytes and an optional app-owned

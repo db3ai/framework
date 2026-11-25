@@ -7,7 +7,7 @@ import { AgentToolEvents } from './AgentToolEvents';
 import { AIProviderRetryError } from './AIProviderRetryError';
 import { AIProviderStoppedError } from './AIProviderStoppedError';
 import { aiExecutionContext } from './AiExecutionContext';
-import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type FunctionCallItem, type FunctionCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
+import { Agent as SdkAgent, Runner, generateTraceId, type AgentInputItem, type AgentOutputType, type ApplyPatchCallItem, type FunctionCallItem, type FunctionCallResultItem, type ShellCallItem, type ShellCallResultItem, type ModelRequest, type ModelSettings, type RunStreamEvent, type Usage } from '@openai/agents';
 import { JobRunStoppedError, isQueueRetryLaterError } from '@db3.ai/app/queue';
 import type * as queue from '@db3.ai/app/queue';
 import type { Serializable, SerializedValueEnvelope } from '@db3.ai/app/serialization';
@@ -30,6 +30,7 @@ import { serializeQueuedAgent } from './registry.js';
 import { normalizeAgentToolResult } from './toolHelpers.js';
 import { INTERRUPTED_TOOL_CALL_MESSAGE, unresolvedToolCallIds } from './toolCallRecovery.js';
 import type * as agent from './contracts/Agent';
+import type { AgentSteeringMessage } from './contracts/AgentConversationStream';
 
 /**
  * Fully prepared run inputs and persistence state ready for SDK execution.
@@ -150,6 +151,9 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 * @param context - Trusted user, application scope, and optional conversation context.
 	 */
 	constructor(protected readonly context: TContext) {}
+
+	/** Aborts when the run stops or loses its worker; pass it to long tools. */
+	protected get runSignal(): AbortSignal | undefined { return this.#recorder?.signal; }
 
 	/**
 	 * Returns the complete constructor context for durable agent reconstruction.
@@ -413,14 +417,22 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				if (context) await this.markQueued(restored, context.job.id);
 				await this.beforeQueuedRun(restored.rootAiRequest, restored.conversation);
 			});
-			if (recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true) return await this.resumeFinalizedTrackedRun(prepared);
-			prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
-			return await this.executePreparedRun(prepared, event => this.#recorder?.emit(event));
+			const finalized = recordValue(prepared.state.rootAiRequest.response)?.providerFinalized === true;
+			if (!finalized) prepared.invocation.input.push(...await this.queuedRunContinuation(prepared.state));
+			const result = finalized ? await this.resumeFinalizedTrackedRun(prepared) : await this.executePreparedRun(prepared, async event => { await this.#recorder?.emit(event); await this.onQueuedEvent(event); });
+			await this.onQueuedEvent({ type: 'run.completed', conversationId: result.conversationId, aiRequestId: result.aiRequestId, traceId: prepared.state.traceId, usage: result.usage, creditCost: result.creditCost, costUSD: result.costUSD, finalOutput: result.finalOutput });
+			return result;
 		} catch (error) {
 			const stopped = this.#recorder?.signal.reason;
+			/** Tells the application how the queued turn ended without replacing the original failure. */
+			const ended = async (code: string, message: string) => {
+				try { await this.onQueuedEvent({ type: 'run.error', conversationId: state ? String((state as agent.AgentPersistenceState).conversation.id) : null, aiRequestId: payload.aiRequestId ?? null, traceId: state ? (state as agent.AgentPersistenceState).traceId : '', error: { code, message } }); }
+				catch { /* the run's own failure is the one to report */ }
+			};
 			if (error instanceof JobRunStoppedError || stopped instanceof JobRunStoppedError) {
 				const stop = error instanceof JobRunStoppedError ? error : stopped as JobRunStoppedError;
 				if (payload.aiRequestId) await app().ai.conversations.settleQueuedStop(payload.aiRequestId, stop.message, stop.status);
+				await ended('agent_cancelled', stop.message);
 				throw stop;
 			}
 			if (isQueueRetryLaterError(error)) { if (this.#recorder?.claimed) await this.recordRunStatus('waiting'); throw error; }
@@ -430,7 +442,10 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 				if (context && context.willRetry?.(error) !== false && this.#recorder) {
 					await context.assertOwnership?.();
 					await app().ai.conversations.settleQueuedRetry(payload.aiRequestId!, context.job.attempts);
-				} else await this.recordRunStatus('failed', () => this.failTrackedRun(state!, message, providerError.code), message);
+				} else {
+					await this.recordRunStatus('failed', () => this.failTrackedRun(state!, message, providerError.code), message);
+					await ended(providerError.code ?? 'agent_failed', message);
+				}
 			}
 			throw error;
 		} finally {
@@ -439,12 +454,16 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 	}
 
+	/** Sees a queued turn's events, then `run.completed` or `run.error`. */
+	protected async onQueuedEvent(_event: agent.AgentStreamEvent): Promise<void> {}
+
+	/** Sees steering the running turn has read. */
+	protected async onSteered(_messages: AgentSteeringMessage[]): Promise<void> {}
+
 	/**
-	 * Refreshes app context after FIFO ownership is acquired, before instructions,
-	 * history and credit allowance are evaluated. Apps can claim their domain work
-	 * here; retries must recognize the same root request without repeating effects.
-	 * Runs for settlement-only retries too: restore pinned product policy, but skip
-	 * domain activation when root.response.providerFinalized is already true.
+	 * Refreshes app context once the turn owns its conversation, before instructions
+	 * and credit allowance. Retries must recognize the same root request. Skip domain
+	 * work when root.response.providerFinalized is true (a settlement-only retry).
 	 */
 	protected async beforeQueuedRun(_root: AiRequest, _conversation: AiConversation): Promise<void> {}
 
@@ -1030,7 +1049,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		}
 		const unresolvedIds = unresolvedToolCallIds(messages);
 		const seen = new Set<string>();
-		return messages.filter(message => message.role !== AI_MESSAGE_ROLE.system && message.role !== AI_MESSAGE_ROLE.user)
+		// Steering read before a retry stays in the resumed input; the turn's own prompt comes from the invocation.
+		return messages.filter(message => message.role !== AI_MESSAGE_ROLE.system && (message.role !== AI_MESSAGE_ROLE.user || recordValue(message.metadata)?.eventType === 'steering'))
 			.flatMap(message => agentInputItemsFromAiMessage(message, seen, unresolvedIds));
 	}
 
@@ -1050,6 +1070,8 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const attempts = modelInput.some(item => item.type === 'compaction') ? resolvedAttempts.filter(attempt => attempt.provider === AI_PROVIDER.openai && attempt.model === prepared.model) : resolvedAttempts;
 		for (const attempt of attempts) assertAIServiceTier(attempt.provider, prepared.serviceTier);
 		const attemptFailures: AIProviderAttemptFailure[] = [];
+		/** Messages that joined this run mid-turn, re-inserted on every later model call. */
+		const steered: SteeredInput[] = [];
 
 		const savePrompt = () => this.attachPromptRequestPayload(state, {
 			instructions,
@@ -1136,6 +1158,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 						context: sdkContext,
 						maxTurns: this.maxTurns,
 						reasoningItemIdPolicy: 'preserve',
+						...this.#recorder ? { callModelInputFilter: ({ modelData }) => this.steeredModelInput(executionState, modelData, steered) } : {},
 					});
 
 					activeUsage = stream.runContext.usage;
@@ -1796,7 +1819,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	 */
 	private async toolCalledEvent(state: agent.AgentPersistenceState, item: unknown): Promise<agent.AgentStreamEvent | null> {
 		const rawItem = rawItemFromRunItem(item);
-		const toolName = hostedToolNameFromRawItem(rawItem) ?? stringValue(rawItem?.name) ?? 'unknown_tool';
+		const toolName = hostedToolNameFromRawItem(rawItem) ?? stringValue(rawItem?.name) ?? localToolNameFromRawItem(rawItem) ?? 'unknown_tool';
 		const callId = toolCallId(rawItem, toolName);
 		const argumentsValue = toolArguments(rawItem);
 		const toolDefinition = this.toolDefinition(state, toolName);
@@ -1843,7 +1866,7 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 		const rawItem = rawItemFromRunItem(item);
 		const output = outputFromRunItem(item, rawItem);
 		const hostedToolName = hostedToolNameFromRawItem(rawItem);
-		const toolName = hostedToolName ?? stringValue(rawItem?.name) ?? outputToolName(rawItem) ?? 'unknown_tool';
+		const toolName = hostedToolName ?? stringValue(rawItem?.name) ?? outputToolName(rawItem) ?? localToolNameFromRawItem(rawItem) ?? 'unknown_tool';
 		const callId = toolCallId(rawItem, toolName);
 		const argumentsValue = toolOutputArguments(state, callId, toolArguments(rawItem));
 		const parsedOutput = parseToolOutput(output);
@@ -1998,13 +2021,60 @@ export abstract class Agent<TContext extends agent.BaseAgentContext = agent.Base
 	/** Commits persisted run state and the reconnectable lifecycle event together. */
 	private async recordRunStatus(status: import('./contracts/AgentConversationStream').AgentRunState['status'], save?: () => Promise<unknown>, error?: string): Promise<void> {
 		if (this.#recorder) {
-			try { await this.#recorder.status(status, save, error); }
+			let leftover: import('./contracts/AgentConversationStream').AgentSteeringMessage[] = [];
+			try { leftover = await this.#recorder.status(status, save, error); }
 			catch (failure) {
 				if (status !== 'failed') throw failure;
 				await this.#recorder.fail(error ?? 'Agent run failed.');
 			}
+			if (status === 'completed' || status === 'failed') await this.queueSteeringFollowups(leftover);
 		}
 		else await save?.();
+	}
+
+	/**
+	 * Adds messages sent to the running turn before the model's next call.
+	 *
+	 * The SDK does not keep filter output, so every taken message is re-inserted
+	 * at the position where it first arrived on each later call of this run.
+	 *
+	 * @param state - Attempt persistence state used for the saved user messages.
+	 * @param modelData - Input the SDK is about to send.
+	 * @param steered - Messages already taken by this run.
+	 * @returns Input including every steering message.
+	 */
+	private async steeredModelInput(state: agent.AgentPersistenceState, modelData: { input: AgentInputItem[]; instructions?: string }, steered: SteeredInput[]): Promise<{ input: AgentInputItem[]; instructions?: string }> {
+		const taken = await this.#recorder!.takeSteering();
+		for (const steering of taken) {
+			await this.saveMessage(state, {
+				role: AI_MESSAGE_ROLE.user,
+				content: steering.message,
+				contentJson: null,
+				metadata: { eventType: 'steering', traceId: state.traceId },
+			});
+			steered.push({ at: modelData.input.length, item: userInputMessage(steering.message) });
+		}
+		if (taken.length) await this.onSteered(taken);
+		if (!steered.length) return modelData;
+		const input = [...modelData.input];
+		for (const [offset, entry] of steered.entries()) input.splice(Math.min(entry.at + offset, input.length), 0, entry.item);
+		return { ...modelData, input };
+	}
+
+	/**
+	 * Queues messages that arrived after the turn's last model call as normal followups.
+	 *
+	 * @param messages - Steering messages the finished turn did not read.
+	 */
+	private async queueSteeringFollowups(messages: import('./contracts/AgentConversationStream').AgentSteeringMessage[]): Promise<void> {
+		if (!messages.length) return;
+		const conversationId = String(this.#recorder!.state.conversation.id);
+		const queue = this.#recorder!.context?.job.queue;
+		const Followup = this.constructor as new (context: TContext) => Agent<TContext>;
+		for (const steering of messages) {
+			await new Followup({ ...this.context, conversationId }).queue(steering.message, { idempotencyKey: `steer:${steering.idempotencyKey}`, ...queue ? { queue } : {} });
+		}
+		await this.#recorder!.clearSteering(messages.map(steering => steering.idempotencyKey));
 	}
 
 	/** Controls whether streamed events expose provider costs to this viewer. */
@@ -2282,6 +2352,12 @@ function agentToolDefinitions(tools: agent.AgentTool[]): agent.AgentToolDefiniti
 		title: tool.title,
 		description: tool.description,
 	}));
+}
+
+/** A steering message and the input position where it first reached the model. */
+interface SteeredInput {
+	at: number;
+	item: AgentInputItem;
 }
 
 /**
@@ -2639,7 +2715,7 @@ function toolArguments(rawItem: Record<string, unknown> | null): unknown {
 	const providerData = recordValue(rawItem?.providerData);
 	const providerAction = providerData?.action ?? providerData?.query ?? providerData?.queries;
 
-	return parseToolArguments(rawItem?.arguments ?? providerAction ?? {});
+	return parseToolArguments(rawItem?.arguments ?? rawItem?.action ?? rawItem?.operation ?? providerAction ?? {});
 }
 
 /**
@@ -2735,7 +2811,7 @@ function hostedToolErrorMessage(rawItem: Record<string, unknown> | null): string
 
 	if (status !== 'failed' && status !== 'incomplete') return null;
 
-	return `${stringValue(rawItem?.name) ?? 'Hosted tool'} ${status}.`;
+	return `${stringValue(rawItem?.name) ?? localToolNameFromRawItem(rawItem) ?? 'Hosted tool'} ${status}.`;
 }
 
 /**
@@ -2777,6 +2853,21 @@ function hostedToolNameFromRawItem(item: Record<string, unknown> | null): string
 	if (type === 'web_search_call') return 'web_search_call';
 	if (type === 'image_generation_call') return 'image_generation_call';
 	if (type === 'hosted_tool_call') return stringValue(item?.name);
+
+	return null;
+}
+
+/**
+ * Maps the Responses API's locally executed shell and patch items to the tool names the SDK exposes.
+ *
+ * @param item - Raw call or output item.
+ * @returns Local tool name or null.
+ */
+function localToolNameFromRawItem(item: Record<string, unknown> | null): string | null {
+	const type = stringValue(item?.type);
+
+	if (type === 'shell_call' || type === 'shell_call_output') return 'shell';
+	if (type === 'apply_patch_call' || type === 'apply_patch_call_output') return 'apply_patch';
 
 	return null;
 }
@@ -3088,7 +3179,10 @@ function persistedToolState(message: AiMessage, content: Record<string, unknown>
  * @param argumentsValue - Tool arguments supplied by the model.
  * @returns Function-call input item accepted by the Agents SDK.
  */
-function toolCallInputItem(name: string, callId: string, argumentsValue: unknown): FunctionCallItem {
+function toolCallInputItem(name: string, callId: string, argumentsValue: unknown): AgentInputItem {
+	const local = localToolCallInputItem(name, callId, argumentsValue);
+	if (local) return local;
+
 	return {
 		type: 'function_call',
 		callId,
@@ -3114,7 +3208,14 @@ function toolResultInputItem(
 	state: AiMessageToolState,
 	content: Record<string, unknown> | null,
 	message: AiMessage,
-): FunctionCallResultItem {
+): AgentInputItem {
+	if (isLocalShellCall(name, content?.arguments)) {
+		return shellResultInputItem(callId, state === AI_MESSAGE_TOOL_STATE.error ? null : content?.result, message.content || 'shell failed.');
+	}
+	if (isLocalPatchCall(name, content?.arguments)) {
+		return patchResultInputItem(callId, state === AI_MESSAGE_TOOL_STATE.error ? 'failed' : 'completed', serializedToolValue(content && 'result' in content ? content.result : message.content ?? ''));
+	}
+
 	return {
 		type: 'function_call_result',
 		name,
@@ -3122,6 +3223,57 @@ function toolResultInputItem(
 		status: 'completed',
 		output: serializedToolOutput(name, state, content, message),
 	};
+}
+
+/**
+ * Restores a saved `shell` or `apply_patch` call as the native item the model produced.
+ *
+ * @param name - Saved tool name.
+ * @param callId - Provider call id.
+ * @param argumentsValue - Saved shell action or patch operation.
+ * @returns Native call item, or null for ordinary function tools.
+ */
+function localToolCallInputItem(name: string, callId: string, argumentsValue: unknown): AgentInputItem | null {
+	if (isLocalShellCall(name, argumentsValue)) return { type: 'shell_call', callId, status: 'completed', action: argumentsValue as ShellCallItem['action'] };
+	if (isLocalPatchCall(name, argumentsValue)) return { type: 'apply_patch_call', callId, status: 'completed', operation: argumentsValue as ApplyPatchCallItem['operation'] };
+
+	return null;
+}
+
+/** Recognizes a saved native shell call by its name and command list. */
+function isLocalShellCall(name: string, argumentsValue: unknown): boolean {
+	return name === 'shell' && Array.isArray(recordValue(argumentsValue)?.commands);
+}
+
+/** Recognizes a saved native patch call by its name and operation type. */
+function isLocalPatchCall(name: string, argumentsValue: unknown): boolean {
+	return name === 'apply_patch' && typeof recordValue(argumentsValue)?.type === 'string' && typeof recordValue(argumentsValue)?.path === 'string';
+}
+
+/**
+ * Builds a native shell result, or one failed command when no output was saved.
+ *
+ * @param callId - Provider call id.
+ * @param result - Saved command outputs.
+ * @param failure - Text used when the call failed or has no saved output.
+ * @returns Shell output item.
+ */
+function shellResultInputItem(callId: string, result: unknown, failure: string): AgentInputItem {
+	const output = Array.isArray(result) ? result as ShellCallResultItem['output'] : [{ stdout: '', stderr: failure, outcome: { type: 'exit' as const, exitCode: null } }];
+
+	return { type: 'shell_call_output', callId, output };
+}
+
+/**
+ * Builds a native patch result.
+ *
+ * @param callId - Provider call id.
+ * @param status - Whether the edit was applied.
+ * @param output - Editor message.
+ * @returns Patch output item.
+ */
+function patchResultInputItem(callId: string, status: 'completed' | 'failed', output: string): AgentInputItem {
+	return { type: 'apply_patch_call_output', callId, status, output };
 }
 
 /**
@@ -3134,7 +3286,10 @@ function toolResultInputItem(
  * @param callId - Provider call id that must receive a matching output.
  * @returns Provider-compatible error result for the interrupted call.
  */
-function interruptedToolResultInputItem(name: string, callId: string): FunctionCallResultItem {
+function interruptedToolResultInputItem(name: string, callId: string): AgentInputItem {
+	if (name === 'shell') return shellResultInputItem(callId, null, INTERRUPTED_TOOL_CALL_MESSAGE);
+	if (name === 'apply_patch') return patchResultInputItem(callId, 'failed', INTERRUPTED_TOOL_CALL_MESSAGE);
+
 	return {
 		type: 'function_call_result',
 		name,
