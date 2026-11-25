@@ -15,7 +15,7 @@
 	"dependencies": {
 		"@db3.ai/app": "0.1.0",
 		"@db3.ai/flow-designer": "0.1.0",
-		"@getdom/studio": "0.2.1",
+		"@getdom/studio": "0.2.9",
 		"pinia": "^3.0.4",
 		"vue-router": "^4.6.4"
 	},

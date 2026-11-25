@@ -3,6 +3,7 @@ import { computed, ref, watch } from 'vue';
 import type { AgentDescription, ConsoleAgentTool, ConsoleConversation, ConsoleLastRun, ConsoleMessage } from '@db3.ai/app/console';
 import { agentName, applyEvent, canEdit, costText, definitionFrom, formFor, kindLabel, type AgentForm, type PlaygroundItem } from './agentsView';
 import type { ConsoleSource } from './source';
+import AiPrompt from './AiPrompt.vue';
 
 /**
  * An app's agents: the ones made here (files in `db3/agents`) and the ones written in code.
@@ -280,14 +281,14 @@ watch(() => props.source, () => { agents.value = null; selected.value = ''; void
 							<p v-else class="max-w-[85%] whitespace-pre-wrap rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive" data-playground-error>{{ item.text }}</p>
 						</template>
 					</div>
-					<form class="flex gap-2 border-t border-border p-3" @submit.prevent="send">
-						<textarea v-model="draft" rows="2" class="min-w-0 flex-1 resize-none rounded-lg border border-border bg-canvas px-3 py-2 text-sm" placeholder="Message" data-playground-input @keydown.enter.exact.prevent="send" />
-						<div class="flex flex-col gap-1">
-							<button v-if="running" type="button" class="min-h-9 rounded-lg border border-border px-3 text-sm" @click="running?.abort()">Stop</button>
-							<button v-else type="submit" class="min-h-9 rounded-lg bg-primary px-4 text-sm font-medium text-primary-fg disabled:opacity-50" :disabled="!draft.trim()" data-playground-send>Send</button>
-							<button v-if="transcript.length && !running" type="button" class="text-xs text-muted-fg underline" @click="resetPlayground">New conversation</button>
-						</div>
-					</form>
+					<div class="border-t border-border p-3">
+						<AiPrompt v-model="draft" placeholder="Message" aria-label="Message" :can-send="!running && Boolean(draft.trim())" data-playground-input @submit="send">
+							<template #actions>
+								<button v-if="running" type="button" class="min-h-9 rounded-full px-3 text-sm hover:bg-secondary" @click="running?.abort()">Stop</button>
+								<button v-else-if="transcript.length" type="button" class="min-h-9 rounded-full px-3 text-sm text-muted-fg hover:bg-secondary" @click="resetPlayground">New conversation</button>
+							</template>
+						</AiPrompt>
+					</div>
 				</div>
 
 				<div v-else class="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]" data-agent-conversations>
